@@ -627,6 +627,7 @@ def interactive_menu():
             interactive_install()
         elif choice == "uninstall":
             interactive_uninstall()
+            break  # Exit after uninstall
         elif choice == "toggle":
             interactive_toggle()
         elif choice == "deps":
