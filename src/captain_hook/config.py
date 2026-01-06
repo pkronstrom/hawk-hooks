@@ -18,6 +18,7 @@ EVENTS = [
 DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": {event: [] for event in EVENTS},
     "projects": [],
+    "debug": False,
     "notify": {
         "desktop": True,
         "ntfy": {
@@ -58,6 +59,16 @@ def get_venv_dir() -> Path:
 def get_venv_python() -> Path:
     """Get the path to the venv Python executable."""
     return get_venv_dir() / "bin" / "python"
+
+
+def get_log_path() -> Path:
+    """Get the path to the debug log file."""
+    return get_config_dir() / "debug.log"
+
+
+def is_debug_enabled() -> bool:
+    """Check if debug mode is enabled."""
+    return load_config().get("debug", False)
 
 
 def get_project_config_path(project_dir: Path | None = None) -> Path:

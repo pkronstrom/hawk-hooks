@@ -17,16 +17,16 @@ set -euo pipefail
 INPUT=$(cat)
 HOOKS_DIR="{hooks_dir}"
 VENV_PYTHON="{venv_python}"
-
+{debug_setup}
 # Check for project override runner
 PROJECT_RUNNER=".claude/captain-hook/runners/{event}.sh"
 if [[ -f "$PROJECT_RUNNER" ]]; then
-    echo "$INPUT" | "$PROJECT_RUNNER"
+    {debug_project_runner}echo "$INPUT" | "$PROJECT_RUNNER"
     exit $?
 fi
 
 {hook_calls}
-exit 0
+{debug_complete}exit 0
 '''
 
 # Template for project-specific runners (no project override check)
@@ -41,10 +41,34 @@ set -euo pipefail
 INPUT=$(cat)
 HOOKS_DIR="{hooks_dir}"
 VENV_PYTHON="{venv_python}"
-
+{debug_setup}
 {hook_calls}
-exit 0
+{debug_complete}exit 0
 '''
+
+
+def _get_debug_snippets(event: str, is_project: bool = False) -> dict[str, str]:
+    """Get debug code snippets if debug is enabled."""
+    cfg = config.load_config()
+    if not cfg.get("debug", False):
+        return {
+            "debug_setup": "",
+            "debug_project_runner": "",
+            "debug_complete": "",
+        }
+
+    log_path = config.get_log_path()
+    event_label = f"{event} (project)" if is_project else event
+
+    return {
+        "debug_setup": f'''DEBUG_LOG="{log_path}"
+log_debug() {{ echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$DEBUG_LOG"; }}
+log_debug "EVENT: {event_label}"
+log_debug "INPUT: $INPUT"
+''',
+        "debug_project_runner": f'log_debug "Using project runner: $PROJECT_RUNNER"\n    ',
+        "debug_complete": f'log_debug "EVENT COMPLETE: {event}"\n',
+    }
 
 
 def get_interpreter_call(hook: scanner.HookInfo, venv_python: str) -> str:
@@ -130,6 +154,9 @@ exit 0
 
     hook_calls_str = "\n".join(hook_calls)
 
+    # Get debug snippets
+    debug = _get_debug_snippets(event, is_project=is_project)
+
     # Generate runner content
     if is_project:
         content = PROJECT_RUNNER_TEMPLATE.format(
@@ -138,6 +165,7 @@ exit 0
             hooks_dir=str(hooks_dir / event),
             venv_python=venv_python,
             hook_calls=hook_calls_str,
+            **debug,
         )
     else:
         content = RUNNER_TEMPLATE.format(
@@ -145,6 +173,7 @@ exit 0
             hooks_dir=str(hooks_dir / event),
             venv_python=venv_python,
             hook_calls=hook_calls_str,
+            **debug,
         )
 
     # Write runner

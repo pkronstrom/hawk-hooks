@@ -585,6 +585,87 @@ def install_deps():
     console.print()
 
 
+def interactive_config():
+    """Interactive config editor."""
+    cfg = config.load_config()
+
+    console.print()
+    console.print("[bold]Configuration[/bold]")
+    console.print("─" * 50)
+
+    # Build choices for settings
+    debug_status = "[green]on[/green]" if cfg.get("debug", False) else "[dim]off[/dim]"
+    desktop_status = "[green]on[/green]" if cfg.get("notify", {}).get("desktop", True) else "[dim]off[/dim]"
+    ntfy_enabled = cfg.get("notify", {}).get("ntfy", {}).get("enabled", False)
+    ntfy_status = "[green]on[/green]" if ntfy_enabled else "[dim]off[/dim]"
+
+    choices = [
+        questionary.Choice(f"debug          {debug_status}    Log hook calls to debug.log", value="debug"),
+        questionary.Choice(f"notify.desktop {desktop_status}    Desktop notifications on stop", value="notify.desktop"),
+        questionary.Choice(f"notify.ntfy    {ntfy_status}    Push notifications via ntfy.sh", value="notify.ntfy"),
+        questionary.Separator("─────────"),
+        questionary.Choice("Back", value="back"),
+    ]
+
+    console.print()
+    choice = questionary.select(
+        "Toggle setting:",
+        choices=choices,
+        style=custom_style,
+        instruction="(Esc cancel)",
+    ).ask()
+
+    if choice is None or choice == "back":
+        return
+
+    # Toggle the selected setting
+    changed = False
+    if choice == "debug":
+        cfg["debug"] = not cfg.get("debug", False)
+        changed = True
+        status = "enabled" if cfg["debug"] else "disabled"
+        console.print(f"\n  [green]✓[/green] Debug mode {status}")
+    elif choice == "notify.desktop":
+        if "notify" not in cfg:
+            cfg["notify"] = {}
+        cfg["notify"]["desktop"] = not cfg.get("notify", {}).get("desktop", True)
+        status = "enabled" if cfg["notify"]["desktop"] else "disabled"
+        console.print(f"\n  [green]✓[/green] Desktop notifications {status}")
+    elif choice == "notify.ntfy":
+        if "notify" not in cfg:
+            cfg["notify"] = {}
+        if "ntfy" not in cfg["notify"]:
+            cfg["notify"]["ntfy"] = {"enabled": False, "server": "https://ntfy.sh", "topic": ""}
+        cfg["notify"]["ntfy"]["enabled"] = not cfg["notify"]["ntfy"].get("enabled", False)
+        status = "enabled" if cfg["notify"]["ntfy"]["enabled"] else "disabled"
+        console.print(f"\n  [green]✓[/green] ntfy.sh notifications {status}")
+
+        # If enabling, prompt for topic
+        if cfg["notify"]["ntfy"]["enabled"]:
+            current_topic = cfg["notify"]["ntfy"].get("topic", "")
+            topic = questionary.text(
+                "ntfy topic:",
+                default=current_topic,
+                style=custom_style,
+            ).ask()
+            if topic:
+                cfg["notify"]["ntfy"]["topic"] = topic
+
+    # Save config
+    config.save_config(cfg)
+
+    # Regenerate runners if debug changed
+    if changed:
+        console.print("\n[bold]Regenerating runners...[/bold]")
+        runners = generator.generate_all_runners()
+        for runner in runners:
+            console.print(f"  [green]✓[/green] {runner.name}")
+        console.print()
+        console.print(f"[dim]Log file: {config.get_log_path()}[/dim]")
+
+    console.print()
+
+
 def interactive_menu():
     """Main interactive menu."""
     # Check for first run
@@ -607,9 +688,11 @@ def interactive_menu():
             "What would you like to do?",
             choices=[
                 questionary.Choice("Status       Show hooks + enabled state", value="status"),
+                questionary.Choice("Toggle       Enable/disable hooks + regenerate", value="toggle"),
+                questionary.Choice("Config       Debug mode, notifications", value="config"),
+                questionary.Separator("─────────"),
                 questionary.Choice("Install      Register hooks in Claude settings", value="install"),
                 questionary.Choice("Uninstall    Remove hooks from Claude settings", value="uninstall"),
-                questionary.Choice("Toggle       Enable/disable hooks + regenerate", value="toggle"),
                 questionary.Choice("Install-deps Install Python dependencies", value="deps"),
                 questionary.Separator("─────────"),
                 questionary.Choice("Exit", value="exit"),
@@ -623,13 +706,15 @@ def interactive_menu():
 
         if choice == "status":
             show_status()
+        elif choice == "toggle":
+            interactive_toggle()
+        elif choice == "config":
+            interactive_config()
         elif choice == "install":
             interactive_install()
         elif choice == "uninstall":
             interactive_uninstall()
             break  # Exit after uninstall
-        elif choice == "toggle":
-            interactive_toggle()
         elif choice == "deps":
             install_deps()
 
