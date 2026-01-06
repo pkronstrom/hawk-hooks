@@ -148,24 +148,30 @@ exit 0
     hook_calls = []
     for hook in hooks_to_run:
         call = get_interpreter_call(hook, venv_python)
+        hook_path = shlex.quote(str(hook.path))
+
         if hook.is_stdout:
-            # Stdout hooks just output their content (no stdin)
+            # Stdout hooks - skip if file was deleted
             if debug_enabled:
-                hook_calls.append(f'log_debug "HOOK: {hook.name} (stdout)"')
-                hook_calls.append(f'{call}')
-                hook_calls.append(f'log_debug "HOOK OK: {hook.name}"')
+                hook_calls.append(f'if [[ -f {hook_path} ]]; then')
+                hook_calls.append(f'  log_debug "HOOK: {hook.name} (stdout)"')
+                hook_calls.append(f'  {call}')
+                hook_calls.append(f'  log_debug "HOOK OK: {hook.name}"')
+                hook_calls.append(f'fi')
             else:
-                hook_calls.append(f'{call}')
+                hook_calls.append(f'[[ -f {hook_path} ]] && {call}')
         else:
-            # Command hooks receive JSON input via stdin
+            # Command hooks - skip if file was deleted
             if debug_enabled:
-                hook_calls.append(f'log_debug "HOOK: {hook.name}"')
-                hook_calls.append(f'echo "$INPUT" | {call}')
-                hook_calls.append(f'HOOK_EXIT=$?')
-                hook_calls.append(f'if [[ $HOOK_EXIT -ne 0 ]]; then log_debug "HOOK FAILED: {hook.name} (exit $HOOK_EXIT)"; exit $HOOK_EXIT; fi')
-                hook_calls.append(f'log_debug "HOOK OK: {hook.name}"')
+                hook_calls.append(f'if [[ -f {hook_path} ]]; then')
+                hook_calls.append(f'  log_debug "HOOK: {hook.name}"')
+                hook_calls.append(f'  echo "$INPUT" | {call}')
+                hook_calls.append(f'  HOOK_EXIT=$?')
+                hook_calls.append(f'  if [[ $HOOK_EXIT -ne 0 ]]; then log_debug "HOOK FAILED: {hook.name} (exit $HOOK_EXIT)"; exit $HOOK_EXIT; fi')
+                hook_calls.append(f'  log_debug "HOOK OK: {hook.name}"')
+                hook_calls.append(f'fi')
             else:
-                hook_calls.append(f'echo "$INPUT" | {call} || exit $?')
+                hook_calls.append(f'[[ -f {hook_path} ]] && {{ echo "$INPUT" | {call} || exit $?; }}')
 
     hook_calls_str = "\n".join(hook_calls)
 
