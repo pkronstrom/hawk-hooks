@@ -6,7 +6,91 @@ Missing hooks to implement, ranked by community adoption and value.
 
 ## High Priority (Popular + High Value)
 
-### 1. Auto-Run Tests (`post_tool_use/auto-test.py`)
+### 1. Git Commit Secret Scanner (`pre_tool_use/commit-guard.py`)
+
+**Problem:** Accidentally committing secrets (API keys, passwords, .env files) to git history is a common and dangerous mistake.
+
+**How it works:**
+- Triggers on `PreToolUse` for `Bash` with `git commit` or `git add`
+- On `git add`: Scans staged files for secret patterns before they're staged
+- On `git commit`: Double-checks all staged content for secrets
+- Blocks with exit 2 if secrets detected, shows which file/line
+- Configurable patterns and allowlist for false positives
+
+**Implementation notes:**
+```python
+#!/usr/bin/env python3
+import json
+import sys
+import subprocess
+import re
+
+SECRET_PATTERNS = [
+    (r'(?i)(api[_-]?key|apikey)\s*[=:]\s*["\']?[\w-]{20,}', "API key"),
+    (r'(?i)(secret|password|passwd|pwd)\s*[=:]\s*["\']?.{8,}', "Password/secret"),
+    (r'sk-[A-Za-z0-9]{32,}', "OpenAI API key"),
+    (r'AKIA[A-Z0-9]{16}', "AWS Access Key"),
+    (r'ghp_[A-Za-z0-9]{36}', "GitHub token"),
+    (r'xox[baprs]-[A-Za-z0-9-]{10,}', "Slack token"),
+    (r'-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----', "Private key"),
+    (r'(?i)(postgres|mysql|mongodb)://[^:]+:[^@]+@', "Database URL with password"),
+]
+
+IGNORED_FILES = ['.env.example', '.env.sample', 'test_', '_test.py', '.md']
+
+def get_staged_diff():
+    """Get diff of staged changes."""
+    result = subprocess.run(
+        ['git', 'diff', '--cached', '--unified=0'],
+        capture_output=True, text=True
+    )
+    return result.stdout
+
+def scan_for_secrets(diff_content):
+    """Scan diff for secret patterns."""
+    findings = []
+    current_file = None
+
+    for line in diff_content.split('\n'):
+        if line.startswith('+++ b/'):
+            current_file = line[6:]
+        elif line.startswith('+') and not line.startswith('+++'):
+            # Skip ignored files
+            if current_file and any(ig in current_file for ig in IGNORED_FILES):
+                continue
+
+            added_line = line[1:]
+            for pattern, name in SECRET_PATTERNS:
+                if re.search(pattern, added_line):
+                    findings.append((current_file, name, added_line[:60]))
+
+    return findings
+
+data = json.loads(sys.stdin.read())
+command = data.get('tool_input', {}).get('command', '')
+
+if 'git commit' in command or 'git add' in command:
+    diff = get_staged_diff()
+    findings = scan_for_secrets(diff)
+
+    if findings:
+        print("BLOCKED: Potential secrets detected in staged changes:", file=sys.stderr)
+        for file, secret_type, preview in findings[:5]:
+            print(f"  {file}: {secret_type}", file=sys.stderr)
+            print(f"    {preview}...", file=sys.stderr)
+        print("\nRemove secrets or add to allowlist before committing.", file=sys.stderr)
+        sys.exit(2)
+
+sys.exit(0)
+```
+
+**Could extend:** `dangerous-cmd.sh` - but separate file is cleaner for maintainability.
+
+**Dependencies:** None (uses git diff)
+
+---
+
+### 2. Auto-Run Tests (`post_tool_use/auto-test.py`)
 
 **Problem:** Claude edits code but doesn't always run tests, leading to regressions that aren't caught until later.
 
@@ -281,13 +365,14 @@ if age_days > MAX_AGE_DAYS:
 
 ## Implementation Order Suggestion
 
-1. **Branch Protection** - Simple, high value, prevents accidents
-2. **Auto-Run Tests** - High adoption, catches regressions
-3. **Code Complexity Guard** - Quality enforcement
-4. **TDD Guard** - For test-driven workflows
-5. **Breaking Change Detector** - Stability for larger projects
-6. **Doc Drift Checker** - Keep docs in sync
-7. Others as needed
+1. **Git Commit Secret Scanner** - Critical security, prevents leaked credentials
+2. **Branch Protection** - Simple, high value, prevents accidents
+3. **Auto-Run Tests** - High adoption, catches regressions
+4. **Code Complexity Guard** - Quality enforcement
+5. **TDD Guard** - For test-driven workflows
+6. **Breaking Change Detector** - Stability for larger projects
+7. **Doc Drift Checker** - Keep docs in sync
+8. Others as needed
 
 ---
 
