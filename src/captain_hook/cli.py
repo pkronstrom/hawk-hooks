@@ -304,8 +304,9 @@ def interactive_uninstall():
                 config.remove_tracked_project(project_path)
 
     console.print()
-    console.print("[dim]To fully remove captain-hook config, run:[/dim]")
-    console.print(f"  [cyan]rm -rf {config.get_config_dir()}[/cyan]")
+    console.print("[dim]To fully remove captain-hook:[/dim]")
+    console.print(f"  [cyan]rm -rf {config.get_config_dir()}[/cyan]  [dim](config + hooks)[/dim]")
+    console.print("  [cyan]pipx uninstall captain-hook[/cyan]  [dim](program)[/dim]")
     console.print()
 
 
@@ -437,6 +438,36 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
     console.print()
 
 
+def _detect_package_manager() -> str | None:
+    """Detect available package manager."""
+    managers = [
+        ("brew", "brew"),
+        ("apt", "apt-get"),
+        ("dnf", "dnf"),
+        ("yum", "yum"),
+        ("pacman", "pacman"),
+        ("apk", "apk"),
+    ]
+    for name, cmd in managers:
+        if shutil.which(cmd):
+            return name
+    return None
+
+
+def _get_install_command(pkg_manager: str, packages: set[str]) -> str:
+    """Get install command for package manager."""
+    pkg_list = " ".join(sorted(packages))
+    commands = {
+        "brew": f"brew install {pkg_list}",
+        "apt": f"sudo apt-get install -y {pkg_list}",
+        "dnf": f"sudo dnf install -y {pkg_list}",
+        "yum": f"sudo yum install -y {pkg_list}",
+        "pacman": f"sudo pacman -S --noconfirm {pkg_list}",
+        "apk": f"sudo apk add {pkg_list}",
+    }
+    return commands.get(pkg_manager, f"# Install: {pkg_list}")
+
+
 def install_deps():
     """Install Python dependencies for hooks."""
     venv_dir = config.get_venv_dir()
@@ -475,19 +506,76 @@ def install_deps():
     else:
         console.print("  [dim]No Python dependencies required[/dim]")
 
-    # Show non-Python deps
+    # Handle non-Python deps
     other_deps = scanner.get_non_python_deps()
     if other_deps:
         console.print()
-        console.print("[bold]Manual installation needed:[/bold]")
+
+        # Collect shell tools
+        shell_tools = set()
+        node_deps = set()
         for lang, hooks_deps in other_deps.items():
-            all_lang_deps = set()
             for deps in hooks_deps.values():
-                all_lang_deps.update(deps)
-            if lang == "node":
-                console.print(f"  Node: [cyan]npm install -g {' '.join(sorted(all_lang_deps))}[/cyan]")
-            elif lang == "bash":
-                console.print(f"  Shell tools: [cyan]{', '.join(sorted(all_lang_deps))}[/cyan]")
+                if lang == "bash":
+                    shell_tools.update(deps)
+                elif lang == "node":
+                    node_deps.update(deps)
+
+        # Install shell tools via package manager
+        if shell_tools:
+            pkg_manager = _detect_package_manager()
+            if pkg_manager:
+                install_cmd = _get_install_command(pkg_manager, shell_tools)
+                console.print(f"[bold]Shell tools needed:[/bold] {', '.join(sorted(shell_tools))}")
+                console.print(f"[dim]Command: {install_cmd}[/dim]")
+                console.print()
+
+                install_shell = questionary.confirm(
+                    f"Install via {pkg_manager}?",
+                    default=True,
+                    style=custom_style,
+                ).ask()
+                console.print()
+
+                if install_shell:
+                    try:
+                        subprocess.run(install_cmd, shell=True, check=True, timeout=300)
+                        console.print(f"  [green]✓[/green] Shell tools installed")
+                    except subprocess.CalledProcessError as e:
+                        console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
+                        console.print(f"  [dim]Run manually: {install_cmd}[/dim]")
+                    except subprocess.TimeoutExpired:
+                        console.print(f"  [red]✗[/red] Installation timed out")
+            else:
+                console.print("[bold]Shell tools needed (install manually):[/bold]")
+                console.print(f"  {', '.join(sorted(shell_tools))}")
+
+        # Node deps
+        if node_deps:
+            console.print()
+            npm_cmd = f"npm install -g {' '.join(sorted(node_deps))}"
+            console.print(f"[bold]Node packages needed:[/bold] {', '.join(sorted(node_deps))}")
+            console.print(f"[dim]Command: {npm_cmd}[/dim]")
+            console.print()
+
+            if shutil.which("npm"):
+                install_node = questionary.confirm(
+                    "Install via npm?",
+                    default=True,
+                    style=custom_style,
+                ).ask()
+                console.print()
+
+                if install_node:
+                    try:
+                        subprocess.run(npm_cmd, shell=True, check=True, timeout=300)
+                        console.print(f"  [green]✓[/green] Node packages installed")
+                    except subprocess.CalledProcessError as e:
+                        console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
+                    except subprocess.TimeoutExpired:
+                        console.print(f"  [red]✗[/red] Installation timed out")
+            else:
+                console.print("[dim]npm not found - install Node.js first[/dim]")
 
     console.print()
 
@@ -559,7 +647,9 @@ def cmd_uninstall(args):
     """CLI: Uninstall hooks."""
     installer.uninstall_hooks(level=args.level)
     print("Hooks uninstalled.")
-    print(f"\nTo fully remove config: rm -rf {config.get_config_dir()}")
+    print(f"\nTo fully remove captain-hook:")
+    print(f"  rm -rf {config.get_config_dir()}  # config + hooks")
+    print("  pipx uninstall captain-hook        # program")
 
 
 def cmd_toggle(args):
