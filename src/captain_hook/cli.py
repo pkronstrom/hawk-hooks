@@ -395,7 +395,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
         f"Toggle hooks ({scope}):",
         choices=choices,
         style=custom_style,
-        instruction="(Space toggle • A all • I invert • Enter save)",
+        instruction="(Space toggle • A all • I invert • Enter save • Esc cancel)",
     ).ask()
 
     if selected is None:
@@ -610,7 +610,7 @@ def interactive_menu():
                 questionary.Choice("Exit", value="exit"),
             ],
             style=custom_style,
-            instruction="(↑↓ navigate • Enter select • ESC back)",
+            instruction="(↑↓ navigate • Enter select • Esc exit)",
         ).ask()
 
         if choice is None or choice == "exit":
