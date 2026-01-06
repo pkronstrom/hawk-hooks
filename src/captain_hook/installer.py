@@ -6,7 +6,9 @@ from typing import Any
 
 from . import config, scanner
 
-# Claude event mapping
+# Claude event mapping - all 9 events registered upfront
+# This ensures toggling hooks works without restarting Claude Code
+# (runner script content is re-read each time, but settings.json is cached at session start)
 CLAUDE_EVENTS = {
     "pre_tool_use": {
         "claude_event": "PreToolUse",
@@ -20,12 +22,28 @@ CLAUDE_EVENTS = {
         "claude_event": "Stop",
         "matchers": [None],
     },
+    "subagent_stop": {
+        "claude_event": "SubagentStop",
+        "matchers": [None],
+    },
     "notification": {
         "claude_event": "Notification",
         "matchers": [None],
     },
     "user_prompt_submit": {
         "claude_event": "UserPromptSubmit",
+        "matchers": [None],
+    },
+    "session_start": {
+        "claude_event": "SessionStart",
+        "matchers": [None],
+    },
+    "session_end": {
+        "claude_event": "SessionEnd",
+        "matchers": [None],
+    },
+    "pre_compact": {
+        "claude_event": "PreCompact",
         "matchers": [None],
     },
 }
