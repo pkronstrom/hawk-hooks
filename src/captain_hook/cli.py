@@ -1,6 +1,7 @@
 """CLI interface for captain-hook."""
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from . import __version__, config, generator, installer, scanner
+from . import __version__, config, generator, installer, scanner, templates
 
 console = Console()
 
@@ -591,6 +592,13 @@ def interactive_config():
     """Interactive config editor with persistent menu."""
     cfg = config.load_config()
     debug_changed = False
+    env_changed = False
+
+    # Get all env vars from scripts (with defaults)
+    script_env_vars = scanner.get_all_env_vars()
+
+    # Merge script defaults with stored config values
+    env_config = cfg.get("env", {})
 
     console.print()
     console.print("[bold]Configuration[/bold]")
@@ -599,19 +607,35 @@ def interactive_config():
     while True:
         # Build choices with current values
         debug_status = "✓ on " if cfg.get("debug", False) else "  off"
-        desktop_status = "✓ on " if cfg.get("notify", {}).get("desktop", True) else "  off"
-        ntfy_enabled = cfg.get("notify", {}).get("ntfy", {}).get("enabled", False)
-        ntfy_status = "✓ on " if ntfy_enabled else "  off"
-        ntfy_topic = cfg.get("notify", {}).get("ntfy", {}).get("topic", "") or "(not set)"
 
         choices = [
             questionary.Choice(f"debug           {debug_status}   Log hook calls", value="debug"),
-            questionary.Choice(f"notify.desktop  {desktop_status}   Desktop notifications", value="notify.desktop"),
-            questionary.Choice(f"notify.ntfy     {ntfy_status}   Push notifications", value="notify.ntfy"),
-            questionary.Choice(f"ntfy.topic      {ntfy_topic[:20]:<20}", value="ntfy.topic"),
-            questionary.Separator("─────────"),
-            questionary.Choice("Back", value="back"),
         ]
+
+        # Add script-defined env vars (grouped by prefix = hook name)
+        if script_env_vars:
+            choices.append(questionary.Separator("── Hook Settings ──"))
+
+            # Group env vars by hook prefix
+            for var_name, default_value in sorted(script_env_vars.items()):
+                # Get current value (from config or default)
+                current_value = env_config.get(var_name, default_value)
+
+                # Detect boolean values
+                is_bool = current_value.lower() in ("true", "false", "1", "0", "yes", "no")
+
+                if is_bool:
+                    is_on = current_value.lower() in ("true", "1", "yes")
+                    status = "✓ on " if is_on else "  off"
+                    display = f"{var_name:<25} {status}"
+                else:
+                    display_val = current_value[:15] if current_value else "(not set)"
+                    display = f"{var_name:<25} {display_val}"
+
+                choices.append(questionary.Choice(display, value=("env", var_name, is_bool)))
+
+        choices.append(questionary.Separator("─────────"))
+        choices.append(questionary.Choice("Back", value="back"))
 
         console.print()
         choice = questionary.select(
@@ -628,42 +652,370 @@ def interactive_config():
         if choice == "debug":
             cfg["debug"] = not cfg.get("debug", False)
             debug_changed = True
-        elif choice == "notify.desktop":
-            if "notify" not in cfg:
-                cfg["notify"] = {}
-            cfg["notify"]["desktop"] = not cfg.get("notify", {}).get("desktop", True)
-        elif choice == "notify.ntfy":
-            if "notify" not in cfg:
-                cfg["notify"] = {}
-            if "ntfy" not in cfg["notify"]:
-                cfg["notify"]["ntfy"] = {"enabled": False, "server": "https://ntfy.sh", "topic": ""}
-            cfg["notify"]["ntfy"]["enabled"] = not cfg["notify"]["ntfy"].get("enabled", False)
-        elif choice == "ntfy.topic":
-            current = cfg.get("notify", {}).get("ntfy", {}).get("topic", "")
-            new_value = questionary.text(
-                "ntfy topic:",
-                default=current,
-                style=custom_style,
-            ).ask()
+            config.save_config(cfg)
+        elif isinstance(choice, tuple) and choice[0] == "env":
+            _, var_name, is_bool = choice
+            current_value = env_config.get(var_name, script_env_vars.get(var_name, ""))
+
+            if is_bool:
+                # Toggle boolean
+                is_on = current_value.lower() in ("true", "1", "yes")
+                new_value = "false" if is_on else "true"
+            else:
+                # Text input for string values
+                new_value = questionary.text(
+                    f"{var_name}:",
+                    default=current_value,
+                    style=custom_style,
+                ).ask()
+
             if new_value is not None:
-                if "notify" not in cfg:
-                    cfg["notify"] = {}
-                if "ntfy" not in cfg["notify"]:
-                    cfg["notify"]["ntfy"] = {"enabled": False, "server": "https://ntfy.sh", "topic": ""}
-                cfg["notify"]["ntfy"]["topic"] = new_value
+                env_config[var_name] = new_value
+                cfg["env"] = env_config
+                config.save_config(cfg)
+                env_changed = True
 
-        # Save after each change
-        config.save_config(cfg)
-
-    # Regenerate runners if debug changed
-    if debug_changed:
+    # Regenerate runners if debug or env changed
+    if debug_changed or env_changed:
         console.print()
         console.print("[bold]Regenerating runners...[/bold]")
         runners = generator.generate_all_runners()
         for runner in runners:
             console.print(f"  [green]✓[/green] {runner.name}")
-        console.print(f"[dim]Log file: {config.get_log_path()}[/dim]")
+        if debug_changed:
+            console.print(f"[dim]Log file: {config.get_log_path()}[/dim]")
 
+    console.print()
+
+
+def interactive_add_hook():
+    """Interactive hook creation wizard."""
+    console.print()
+    console.print("[bold]Add Hook[/bold]")
+    console.print("─" * 50)
+
+    # Step 1: Select event
+    event = questionary.select(
+        "Select event:",
+        choices=[questionary.Choice(e, value=e) for e in config.EVENTS],
+        style=custom_style,
+        instruction="(Esc cancel)",
+    ).ask()
+
+    if event is None:
+        return
+
+    # Step 2: Select hook type
+    hook_type = questionary.select(
+        "Hook type:",
+        choices=[
+            questionary.Choice("Link existing script (updates with original)", value="link"),
+            questionary.Choice("Copy existing script (independent snapshot)", value="copy"),
+            questionary.Choice("Create command script (.py/.sh/.js/.ts)", value="script"),
+            questionary.Choice("Create stdout hook (.stdout.md)", value="stdout"),
+            questionary.Choice("Create prompt hook (.prompt.json)", value="prompt"),
+        ],
+        style=custom_style,
+        instruction="(Esc cancel)",
+    ).ask()
+
+    if hook_type is None:
+        return
+
+    hooks_dir = config.get_hooks_dir() / event
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    if hook_type in ("link", "copy"):
+        _add_existing_hook(event, hooks_dir, copy=(hook_type == "copy"))
+    elif hook_type == "script":
+        _add_new_script(event, hooks_dir)
+    elif hook_type == "stdout":
+        _add_new_stdout(event, hooks_dir)
+    elif hook_type == "prompt":
+        _add_new_prompt(event, hooks_dir)
+
+
+def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False):
+    """Link or copy an existing script."""
+    # Get path from user
+    path_str = questionary.path(
+        "Script path:",
+        style=custom_style,
+    ).ask()
+
+    if path_str is None:
+        return
+
+    source_path = Path(path_str).expanduser().resolve()
+
+    # Validate file exists
+    if not source_path.exists():
+        console.print(f"[red]File not found:[/red] {source_path}")
+        return
+
+    # Validate extension
+    valid_exts = {".py", ".sh", ".js", ".ts"}
+    if source_path.suffix.lower() not in valid_exts:
+        console.print(f"[red]Unsupported extension.[/red] Use: {', '.join(valid_exts)}")
+        return
+
+    # Check if executable (for scripts)
+    if not os.access(source_path, os.X_OK):
+        make_exec = questionary.confirm(
+            "File is not executable. Make executable?",
+            default=True,
+            style=custom_style,
+        ).ask()
+        if make_exec:
+            import stat
+            current = source_path.stat().st_mode
+            source_path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            console.print(f"  [green]✓[/green] Made executable")
+
+    dest_path = hooks_dir / source_path.name
+
+    # Check if already exists
+    if dest_path.exists():
+        overwrite = questionary.confirm(
+            f"Hook already exists: {dest_path.name}. Overwrite?",
+            default=False,
+            style=custom_style,
+        ).ask()
+        if not overwrite:
+            return
+        dest_path.unlink()
+
+    if copy:
+        shutil.copy2(source_path, dest_path)
+        console.print(f"  [green]✓[/green] Copied to {dest_path}")
+    else:
+        dest_path.symlink_to(source_path)
+        console.print(f"  [green]✓[/green] Linked to {dest_path}")
+
+    # Show docs path
+    docs_path = templates.ensure_docs(config.get_docs_dir())
+    console.print(f"  [dim]Docs: {docs_path}[/dim]")
+
+    _prompt_enable_hook(event, source_path.stem)
+
+
+def _add_new_script(event: str, hooks_dir: Path):
+    """Create a new script from template."""
+    # Select script type
+    script_type = questionary.select(
+        "Script type:",
+        choices=[
+            questionary.Choice("Python (.py)", value=".py"),
+            questionary.Choice("Shell (.sh)", value=".sh"),
+            questionary.Choice("Node (.js)", value=".js"),
+            questionary.Choice("TypeScript (.ts)", value=".ts"),
+        ],
+        style=custom_style,
+        instruction="(Esc cancel)",
+    ).ask()
+
+    if script_type is None:
+        return
+
+    # Warn about TypeScript runtime if needed
+    if script_type == ".ts":
+        ts_runtime = templates.get_ts_runtime()
+        if ts_runtime is None:
+            console.print("[yellow]Warning:[/yellow] No TypeScript runtime found.")
+            console.print("[dim]Install bun or npm to run .ts hooks.[/dim]")
+            console.print()
+
+    # Get filename
+    filename = questionary.text(
+        f"Filename (must end with {script_type}):",
+        style=custom_style,
+    ).ask()
+
+    if filename is None:
+        return
+
+    # Validate suffix
+    if not filename.endswith(script_type):
+        console.print(f"[red]Filename must end with {script_type}[/red]")
+        return
+
+    dest_path = hooks_dir / filename
+
+    # Check if already exists
+    if dest_path.exists():
+        overwrite = questionary.confirm(
+            f"Hook already exists: {filename}. Overwrite?",
+            default=False,
+            style=custom_style,
+        ).ask()
+        if not overwrite:
+            return
+
+    # Write template
+    template_content = templates.get_template(script_type)
+    dest_path.write_text(template_content)
+
+    # Make executable
+    import stat
+    current = dest_path.stat().st_mode
+    dest_path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    console.print(f"  [green]✓[/green] Created {dest_path}")
+
+    # Show docs path
+    docs_path = templates.ensure_docs(config.get_docs_dir())
+    console.print(f"  [dim]Docs: {docs_path}[/dim]")
+
+    # Offer to open in editor
+    _open_in_editor(dest_path)
+
+    # Get hook name (stem without extension)
+    hook_name = dest_path.stem
+    _prompt_enable_hook(event, hook_name)
+
+
+def _add_new_stdout(event: str, hooks_dir: Path):
+    """Create a new stdout hook."""
+    # Get filename
+    filename = questionary.text(
+        "Filename (must end with .stdout.md or .stdout.txt):",
+        style=custom_style,
+    ).ask()
+
+    if filename is None:
+        return
+
+    # Validate suffix
+    if not (filename.endswith(".stdout.md") or filename.endswith(".stdout.txt")):
+        console.print("[red]Filename must end with .stdout.md or .stdout.txt[/red]")
+        return
+
+    dest_path = hooks_dir / filename
+
+    # Check if already exists
+    if dest_path.exists():
+        overwrite = questionary.confirm(
+            f"Hook already exists: {filename}. Overwrite?",
+            default=False,
+            style=custom_style,
+        ).ask()
+        if not overwrite:
+            return
+
+    # Write template
+    dest_path.write_text(templates.STDOUT_TEMPLATE)
+    console.print(f"  [green]✓[/green] Created {dest_path}")
+
+    # Offer to open in editor
+    _open_in_editor(dest_path)
+
+    # Get hook name (part before .stdout.)
+    hook_name = filename.split(".stdout.")[0]
+    _prompt_enable_hook(event, hook_name)
+
+
+def _add_new_prompt(event: str, hooks_dir: Path):
+    """Create a new prompt hook."""
+    # Get filename
+    filename = questionary.text(
+        "Filename (must end with .prompt.json):",
+        style=custom_style,
+    ).ask()
+
+    if filename is None:
+        return
+
+    # Validate suffix
+    if not filename.endswith(".prompt.json"):
+        console.print("[red]Filename must end with .prompt.json[/red]")
+        return
+
+    dest_path = hooks_dir / filename
+
+    # Check if already exists
+    if dest_path.exists():
+        overwrite = questionary.confirm(
+            f"Hook already exists: {filename}. Overwrite?",
+            default=False,
+            style=custom_style,
+        ).ask()
+        if not overwrite:
+            return
+
+    # Write template
+    dest_path.write_text(templates.PROMPT_TEMPLATE)
+    console.print(f"  [green]✓[/green] Created {dest_path}")
+
+    # Offer to open in editor
+    _open_in_editor(dest_path)
+
+    # Get hook name (part before .prompt.json)
+    hook_name = filename[:-len(".prompt.json")]
+    _prompt_enable_hook(event, hook_name)
+
+
+def _open_in_editor(path: Path):
+    """Offer to open file in editor."""
+    open_editor = questionary.confirm(
+        "Open in editor?",
+        default=True,
+        style=custom_style,
+    ).ask()
+
+    if not open_editor:
+        return
+
+    editor = os.environ.get("EDITOR")
+    if not editor:
+        if shutil.which("nano"):
+            editor = "nano"
+        elif shutil.which("vi"):
+            editor = "vi"
+        else:
+            console.print(f"[yellow]No editor found.[/yellow] Edit manually: {path}")
+            return
+
+    try:
+        subprocess.run([editor, str(path)], check=False)
+    except Exception as e:
+        console.print(f"[red]Failed to open editor:[/red] {e}")
+
+
+def _prompt_enable_hook(event: str, hook_name: str):
+    """Ask to enable the hook."""
+    console.print()
+    enable = questionary.confirm(
+        "Enable this hook now?",
+        default=True,
+        style=custom_style,
+    ).ask()
+
+    if not enable:
+        console.print("[dim]Hook created but not enabled. Use Toggle to enable later.[/dim]")
+        return
+
+    # Add to enabled hooks
+    cfg = config.load_config()
+    enabled = cfg.get("enabled", {}).get(event, [])
+    if hook_name not in enabled:
+        enabled.append(hook_name)
+        config.set_enabled_hooks(event, enabled)
+
+    # Regenerate runners
+    console.print()
+    console.print("[bold]Updating hooks...[/bold]")
+    runners = generator.generate_all_runners()
+    for runner in runners:
+        console.print(f"  [green]✓[/green] {runner.name}")
+
+    # Sync prompt hooks if needed
+    prompt_results = installer.sync_prompt_hooks(level="user")
+    for name, success in prompt_results.items():
+        if success:
+            console.print(f"  [green]✓[/green] {name} [dim](prompt)[/dim]")
+
+    console.print()
+    console.print(f"[green]Hook enabled![/green]")
     console.print()
 
 
