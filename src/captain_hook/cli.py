@@ -50,13 +50,11 @@ def run_wizard():
 
     # Brief explanation
     console.print("[bold]How it works:[/bold]")
-    console.print("  1. Add scripts to [cyan]~/.config/captain-hook/hooks/{event}/[/cyan]")
-    console.print("  2. Run [cyan]captain-hook toggle[/cyan] to enable them")
-    console.print("  3. Claude will run your hooks on matching events")
+    console.print("  1. Hooks are scripts in [cyan]~/.config/captain-hook/hooks/{event}/[/cyan]")
+    console.print("  2. Enable/disable hooks to control what runs")
+    console.print("  3. Claude runs enabled hooks on matching events")
     console.print()
-    console.print("[dim]Supported formats: .py, .sh, .js, .ts (scripts)[/dim]")
-    console.print("[dim]                   .stdout.md (context injection)[/dim]")
-    console.print("[dim]                   .prompt.json (LLM-evaluated)[/dim]")
+    console.print("[dim]Formats: .py .sh .js .ts (scripts) | .stdout.md (context) | .prompt.json (LLM)[/dim]")
     console.print()
 
     # Ensure directories exist
@@ -89,10 +87,34 @@ def run_wizard():
 
     if not has_hooks:
         console.print("[dim]No hooks found yet.[/dim]")
-        console.print(f"[dim]Add scripts to: {config.get_hooks_dir()}/{{event}}/[/dim]")
-        console.print("[dim]Or copy the examples from the captain-hook repo.[/dim]")
         console.print()
-    else:
+
+        # Check if examples directory exists (development install)
+        examples_dir = Path(__file__).parent.parent.parent / "examples" / "hooks"
+        if examples_dir.exists():
+            if questionary.confirm(
+                "Copy example hooks to config directory?",
+                default=True,
+                style=custom_style,
+            ).ask():
+                hooks_dir = config.get_hooks_dir()
+                for event in config.EVENTS:
+                    src = examples_dir / event
+                    dst = hooks_dir / event
+                    if src.exists():
+                        for hook_file in src.iterdir():
+                            if hook_file.is_file():
+                                shutil.copy(hook_file, dst / hook_file.name)
+                                console.print(f"  [green]✓[/green] Copied {event}/{hook_file.name}")
+                console.print()
+                # Rescan hooks after copying
+                hooks = scanner.scan_hooks()
+                has_hooks = any(hooks.values())
+        else:
+            console.print(f"[dim]Add scripts to: {config.get_hooks_dir()}/{{event}}/[/dim]")
+            console.print()
+
+    if has_hooks:
         console.print("[bold]Configure hooks:[/bold]")
         scope = "global" if level == "user" else "project"
         interactive_toggle(skip_scope=True, scope=scope)
