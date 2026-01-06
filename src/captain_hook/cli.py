@@ -438,11 +438,12 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
 
 def install_deps():
     """Install Python dependencies for hooks."""
-    console.print("[bold]Installing dependencies...[/bold]")
-    console.print()
-
     venv_dir = config.get_venv_dir()
     venv_python = config.get_venv_python()
+
+    console.print("[bold]Installing dependencies...[/bold]")
+    console.print(f"[dim]Venv location: {venv_dir}[/dim]")
+    console.print()
 
     # Create venv if needed
     if not venv_dir.exists():
