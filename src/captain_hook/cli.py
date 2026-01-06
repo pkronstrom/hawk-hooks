@@ -64,23 +64,37 @@ def run_wizard():
                 console.print(f"  [green]✓[/green] Registered {event}")
         console.print()
 
-    # Step 2: Configure hooks
-    if questionary.confirm(
-        "Configure which hooks to enable?",
-        default=True,
-        style=custom_style,
-    ).ask():
-        console.print()
-        interactive_toggle(skip_scope=True, scope="global")
+    # Step 2: Check for hooks and offer to copy examples
+    hooks = scanner.scan_hooks()
+    has_hooks = any(hooks.values())
 
-    # Step 3: Install deps
-    if questionary.confirm(
-        "Install Python dependencies?",
-        default=True,
-        style=custom_style,
-    ).ask():
+    if not has_hooks:
         console.print()
-        install_deps()
+        console.print("[dim]No hooks found yet.[/dim]")
+        console.print(f"[dim]Add scripts to: {config.get_hooks_dir()}/{{event}}/[/dim]")
+        console.print("[dim]Or copy the examples from the captain-hook repo.[/dim]")
+    else:
+        if questionary.confirm(
+            "Configure which hooks to enable?",
+            default=True,
+            style=custom_style,
+        ).ask():
+            console.print()
+            interactive_toggle(skip_scope=True, scope="global")
+
+    # Step 3: Install deps (only if hooks exist)
+    if has_hooks:
+        if questionary.confirm(
+            "Install Python dependencies?",
+            default=True,
+            style=custom_style,
+        ).ask():
+            console.print()
+            install_deps()
+
+    # Save config to mark setup as complete
+    cfg = config.load_config()
+    config.save_config(cfg)
 
     # Done
     console.print()
@@ -422,11 +436,14 @@ def interactive_menu():
     """Main interactive menu."""
     # Check for first run
     if not config.config_exists():
-        if questionary.confirm(
+        answer = questionary.confirm(
             "First time setup - run wizard?",
             default=True,
             style=custom_style,
-        ).ask():
+        ).ask()
+        if answer is None:
+            return  # User cancelled
+        if answer:
             run_wizard()
             return
 

@@ -51,7 +51,10 @@ def get_interpreter_call(hook: scanner.HookInfo, venv_python: str) -> str:
     """Get the command to run a hook."""
     # Use shlex.quote to prevent command injection via malicious filenames
     safe_path = shlex.quote(str(hook.path))
-    if hook.extension == ".py":
+    if hook.is_prompt:
+        # Prompt hooks just output their content (no stdin processing)
+        return f'cat {safe_path}'
+    elif hook.extension == ".py":
         return f'"$VENV_PYTHON" {safe_path}'
     elif hook.extension == ".js":
         return f'node {safe_path}'
@@ -93,10 +96,10 @@ def generate_runner(
     all_hooks = scanner.scan_hooks(hooks_dir)
     event_hooks = all_hooks.get(event, [])
 
-    # Filter to enabled hooks (command hooks only, not prompts)
+    # Filter to enabled hooks
     hooks_to_run = [
         h for h in event_hooks
-        if h.name in enabled_hooks and not h.is_prompt
+        if h.name in enabled_hooks
     ]
 
     if not hooks_to_run:
@@ -118,7 +121,12 @@ exit 0
     hook_calls = []
     for hook in hooks_to_run:
         call = get_interpreter_call(hook, venv_python)
-        hook_calls.append(f'echo "$INPUT" | {call} || exit $?')
+        if hook.is_prompt:
+            # Prompt hooks just output their content (no stdin)
+            hook_calls.append(f'{call}')
+        else:
+            # Command hooks receive JSON input via stdin
+            hook_calls.append(f'echo "$INPUT" | {call} || exit $?')
 
     hook_calls_str = "\n".join(hook_calls)
 
