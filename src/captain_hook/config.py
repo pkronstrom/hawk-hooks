@@ -23,14 +23,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "enabled": {event: [] for event in EVENTS},
     "projects": [],
     "debug": False,
-    "notify": {
-        "desktop": True,
-        "ntfy": {
-            "enabled": False,
-            "server": "https://ntfy.sh",
-            "topic": "",
-        },
-    },
+    "env": {},  # Env vars from scripts: {VAR_NAME: value}
 }
 
 
@@ -70,6 +63,11 @@ def get_log_path() -> Path:
     return get_config_dir() / "debug.log"
 
 
+def get_docs_dir() -> Path:
+    """Get the path to the docs directory."""
+    return get_config_dir() / "docs"
+
+
 def is_debug_enabled() -> bool:
     """Check if debug mode is enabled."""
     return load_config().get("debug", False)
@@ -94,6 +92,7 @@ def ensure_dirs() -> None:
     get_config_dir().mkdir(parents=True, exist_ok=True)
     get_hooks_dir().mkdir(parents=True, exist_ok=True)
     get_runners_dir().mkdir(parents=True, exist_ok=True)
+    get_docs_dir().mkdir(parents=True, exist_ok=True)
 
     # Create event subdirectories
     for event in EVENTS:
@@ -258,3 +257,24 @@ def remove_tracked_project(project_path: str) -> None:
     if project_path in config["projects"]:
         config["projects"].remove(project_path)
         save_config(config)
+
+
+def get_env_var(var_name: str, default: str = "") -> str:
+    """Get an env var value from config, falling back to default."""
+    cfg = load_config()
+    return cfg.get("env", {}).get(var_name, default)
+
+
+def set_env_var(var_name: str, value: str) -> None:
+    """Set an env var value in config."""
+    cfg = load_config()
+    if "env" not in cfg:
+        cfg["env"] = {}
+    cfg["env"][var_name] = value
+    save_config(cfg)
+
+
+def get_all_env_config() -> dict[str, str]:
+    """Get all env vars from config."""
+    cfg = load_config()
+    return cfg.get("env", {})
