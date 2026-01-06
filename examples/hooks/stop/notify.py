@@ -64,17 +64,22 @@ def get_bool_env(name: str, default: bool = False) -> bool:
 def main():
     data = json.load(sys.stdin)
 
-    # Get stop reason
-    stop_reason = data.get("stop_reason", "unknown")
+    # Get stop reason and cwd
+    stop_reason = data.get("stop_reason", "")
+    cwd = data.get("cwd", "")
 
     # Build notification
-    title = "Claude Code"
-    if stop_reason == "end_turn":
-        message = "Task completed"
-    elif stop_reason == "user_interrupt":
-        message = "Interrupted by user"
-    else:
-        message = f"Stopped: {stop_reason}"
+    project = os.path.basename(cwd) if cwd else "unknown"
+    title = f"Claude Code [{project}]"
+    messages = {
+        "end_turn": "Task completed",
+        "user_interrupt": "Interrupted by user",
+        "max_tokens": "Reached token limit",
+        "max_turns": "Reached turn limit",
+        "stop_sequence": "Stopped at sequence",
+        "tool_use": "Waiting for tool",
+    }
+    message = messages.get(stop_reason) or (f"Done ({stop_reason})" if stop_reason else "Done")
 
     # Desktop notification (env var set by captain-hook runner)
     if get_bool_env("NOTIFY_DESKTOP", True):

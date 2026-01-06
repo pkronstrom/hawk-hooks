@@ -69,7 +69,7 @@ def run_wizard():
             questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
         ],
         style=custom_style,
-        instruction="(Esc cancel)",
+        instruction="(Ctrl+C cancel)",
     ).ask()
 
     if level is None:
@@ -219,8 +219,8 @@ def show_status():
     console.print()
 
 
-def interactive_install():
-    """Interactive installation wizard."""
+def interactive_install() -> bool:
+    """Interactive installation wizard. Returns True on success, False on cancel."""
     level = questionary.select(
         "Install captain-hook to:",
         choices=[
@@ -228,11 +228,11 @@ def interactive_install():
             questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
         ],
         style=custom_style,
-        instruction="(Esc cancel)",
+        instruction="(Ctrl+C cancel)",
     ).ask()
 
     if level is None:
-        return
+        return False
 
     console.print()
     console.print("[bold]Installing captain-hook...[/bold]")
@@ -249,6 +249,7 @@ def interactive_install():
     console.print()
     console.print("[green]Done![/green] Use [cyan]Toggle[/cyan] to enable/disable hooks.")
     console.print()
+    return True
 
 
 def interactive_uninstall():
@@ -261,7 +262,7 @@ def interactive_uninstall():
             questionary.Choice("Both", value="both"),
         ],
         style=custom_style,
-        instruction="(Esc cancel)",
+        instruction="(Ctrl+C cancel)",
     ).ask()
 
     if level is None:
@@ -314,8 +315,8 @@ def interactive_uninstall():
     console.print()
 
 
-def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
-    """Interactive handler toggle with checkbox multi-select."""
+def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bool:
+    """Interactive handler toggle with checkbox multi-select. Returns True on success, False on cancel."""
     # First, ask for scope (unless skipped for wizard)
     if not skip_scope:
         scope = questionary.select(
@@ -325,11 +326,11 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
                 questionary.Choice(f"This project  .claude/captain-hook/", value="project"),
             ],
             style=custom_style,
-            instruction="(Esc cancel)",
+            instruction="(Ctrl+C cancel)",
         ).ask()
 
         if scope is None:
-            return
+            return False
 
     # For project scope, ask about git exclude
     add_to_git_exclude = True
@@ -341,11 +342,11 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
                 questionary.Choice("Shared     (committable, team can use)", value="shared"),
             ],
             style=custom_style,
-            instruction="(Esc cancel)",
+            instruction="(Ctrl+C cancel)",
         ).ask()
 
         if visibility is None:
-            return
+            return False
 
         add_to_git_exclude = (visibility == "personal")
 
@@ -394,18 +395,18 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
     if not choices:
         console.print("[yellow]No hooks found. Add scripts to:[/yellow]")
         console.print(f"  {config.get_hooks_dir()}/{{event}}/")
-        return
+        return False
 
     console.print()
     selected = questionary.checkbox(
         f"Toggle hooks ({scope}):",
         choices=choices,
         style=custom_style,
-        instruction="(Space toggle • A all • I invert • Enter save • Esc cancel)",
+        instruction="(Space toggle • A all • I invert • Enter save • Ctrl+C cancel)",
     ).ask()
 
     if selected is None:
-        return
+        return False
 
     console.print()
 
@@ -444,6 +445,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
     console.print(f"[green]Hooks updated ({scope}).[/green]")
     console.print("[dim]Changes take effect immediately.[/dim]")
     console.print()
+    return True
 
 
 def _detect_package_manager() -> str | None:
@@ -642,7 +644,7 @@ def interactive_config():
             "Select to toggle/edit:",
             choices=choices,
             style=custom_style,
-            instruction="(Enter select • Esc back)",
+            instruction="(Enter select • Ctrl+C back)",
         ).ask()
 
         if choice is None or choice == "back":
@@ -688,8 +690,8 @@ def interactive_config():
     console.print()
 
 
-def interactive_add_hook():
-    """Interactive hook creation wizard."""
+def interactive_add_hook() -> bool:
+    """Interactive hook creation wizard. Returns True on success, False on cancel."""
     console.print()
     console.print("[bold]Add Hook[/bold]")
     console.print("─" * 50)
@@ -699,11 +701,11 @@ def interactive_add_hook():
         "Select event:",
         choices=[questionary.Choice(e, value=e) for e in config.EVENTS],
         style=custom_style,
-        instruction="(Esc cancel)",
+        instruction="(Ctrl+C cancel)",
     ).ask()
 
     if event is None:
-        return
+        return False
 
     # Step 2: Select hook type
     hook_type = questionary.select(
@@ -716,27 +718,28 @@ def interactive_add_hook():
             questionary.Choice("Create prompt hook (.prompt.json)", value="prompt"),
         ],
         style=custom_style,
-        instruction="(Esc cancel)",
+        instruction="(Ctrl+C cancel)",
     ).ask()
 
     if hook_type is None:
-        return
+        return False
 
     hooks_dir = config.get_hooks_dir() / event
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
     if hook_type in ("link", "copy"):
-        _add_existing_hook(event, hooks_dir, copy=(hook_type == "copy"))
+        return _add_existing_hook(event, hooks_dir, copy=(hook_type == "copy"))
     elif hook_type == "script":
-        _add_new_script(event, hooks_dir)
+        return _add_new_script(event, hooks_dir)
     elif hook_type == "stdout":
-        _add_new_stdout(event, hooks_dir)
+        return _add_new_stdout(event, hooks_dir)
     elif hook_type == "prompt":
-        _add_new_prompt(event, hooks_dir)
+        return _add_new_prompt(event, hooks_dir)
+    return False
 
 
-def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False):
-    """Link or copy an existing script."""
+def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
+    """Link or copy an existing script. Returns True on success, False on cancel."""
     # Get path from user
     path_str = questionary.path(
         "Script path:",
@@ -744,20 +747,20 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False):
     ).ask()
 
     if path_str is None:
-        return
+        return False
 
     source_path = Path(path_str).expanduser().resolve()
 
     # Validate file exists
     if not source_path.exists():
         console.print(f"[red]File not found:[/red] {source_path}")
-        return
+        return False
 
     # Validate extension
     valid_exts = {".py", ".sh", ".js", ".ts"}
     if source_path.suffix.lower() not in valid_exts:
         console.print(f"[red]Unsupported extension.[/red] Use: {', '.join(valid_exts)}")
-        return
+        return False
 
     # Check if executable (for scripts)
     if not os.access(source_path, os.X_OK):
@@ -782,7 +785,7 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False):
             style=custom_style,
         ).ask()
         if not overwrite:
-            return
+            return False
         dest_path.unlink()
 
     if copy:
@@ -797,10 +800,11 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False):
     console.print(f"  [dim]Docs: {docs_path}[/dim]")
 
     _prompt_enable_hook(event, source_path.stem)
+    return True
 
 
-def _add_new_script(event: str, hooks_dir: Path):
-    """Create a new script from template."""
+def _add_new_script(event: str, hooks_dir: Path) -> bool:
+    """Create a new script from template. Returns True on success, False on cancel."""
     # Select script type
     script_type = questionary.select(
         "Script type:",
@@ -811,11 +815,11 @@ def _add_new_script(event: str, hooks_dir: Path):
             questionary.Choice("TypeScript (.ts)", value=".ts"),
         ],
         style=custom_style,
-        instruction="(Esc cancel)",
+        instruction="(Ctrl+C cancel)",
     ).ask()
 
     if script_type is None:
-        return
+        return False
 
     # Warn about TypeScript runtime if needed
     if script_type == ".ts":
@@ -832,12 +836,12 @@ def _add_new_script(event: str, hooks_dir: Path):
     ).ask()
 
     if filename is None:
-        return
+        return False
 
     # Validate suffix
     if not filename.endswith(script_type):
         console.print(f"[red]Filename must end with {script_type}[/red]")
-        return
+        return False
 
     dest_path = hooks_dir / filename
 
@@ -849,7 +853,7 @@ def _add_new_script(event: str, hooks_dir: Path):
             style=custom_style,
         ).ask()
         if not overwrite:
-            return
+            return False
 
     # Write template
     template_content = templates.get_template(script_type)
@@ -872,10 +876,11 @@ def _add_new_script(event: str, hooks_dir: Path):
     # Get hook name (stem without extension)
     hook_name = dest_path.stem
     _prompt_enable_hook(event, hook_name)
+    return True
 
 
-def _add_new_stdout(event: str, hooks_dir: Path):
-    """Create a new stdout hook."""
+def _add_new_stdout(event: str, hooks_dir: Path) -> bool:
+    """Create a new stdout hook. Returns True on success, False on cancel."""
     # Get filename
     filename = questionary.text(
         "Filename (must end with .stdout.md or .stdout.txt):",
@@ -883,12 +888,12 @@ def _add_new_stdout(event: str, hooks_dir: Path):
     ).ask()
 
     if filename is None:
-        return
+        return False
 
     # Validate suffix
     if not (filename.endswith(".stdout.md") or filename.endswith(".stdout.txt")):
         console.print("[red]Filename must end with .stdout.md or .stdout.txt[/red]")
-        return
+        return False
 
     dest_path = hooks_dir / filename
 
@@ -900,7 +905,7 @@ def _add_new_stdout(event: str, hooks_dir: Path):
             style=custom_style,
         ).ask()
         if not overwrite:
-            return
+            return False
 
     # Write template
     dest_path.write_text(templates.STDOUT_TEMPLATE)
@@ -912,10 +917,11 @@ def _add_new_stdout(event: str, hooks_dir: Path):
     # Get hook name (part before .stdout.)
     hook_name = filename.split(".stdout.")[0]
     _prompt_enable_hook(event, hook_name)
+    return True
 
 
-def _add_new_prompt(event: str, hooks_dir: Path):
-    """Create a new prompt hook."""
+def _add_new_prompt(event: str, hooks_dir: Path) -> bool:
+    """Create a new prompt hook. Returns True on success, False on cancel."""
     # Get filename
     filename = questionary.text(
         "Filename (must end with .prompt.json):",
@@ -923,12 +929,12 @@ def _add_new_prompt(event: str, hooks_dir: Path):
     ).ask()
 
     if filename is None:
-        return
+        return False
 
     # Validate suffix
     if not filename.endswith(".prompt.json"):
         console.print("[red]Filename must end with .prompt.json[/red]")
-        return
+        return False
 
     dest_path = hooks_dir / filename
 
@@ -940,7 +946,7 @@ def _add_new_prompt(event: str, hooks_dir: Path):
             style=custom_style,
         ).ask()
         if not overwrite:
-            return
+            return False
 
     # Write template
     dest_path.write_text(templates.PROMPT_TEMPLATE)
@@ -952,6 +958,7 @@ def _add_new_prompt(event: str, hooks_dir: Path):
     # Get hook name (part before .prompt.json)
     hook_name = filename[:-len(".prompt.json")]
     _prompt_enable_hook(event, hook_name)
+    return True
 
 
 def _open_in_editor(path: Path):
@@ -1061,13 +1068,16 @@ def interactive_menu():
         if choice == "status":
             show_status()
         elif choice == "toggle":
-            interactive_toggle()
+            if interactive_toggle():
+                break  # Exit on successful completion
         elif choice == "add":
-            interactive_add_hook()
+            if interactive_add_hook():
+                break  # Exit on successful completion
         elif choice == "config":
             interactive_config()
         elif choice == "install":
-            interactive_install()
+            if interactive_install():
+                break  # Exit on successful completion
         elif choice == "uninstall":
             interactive_uninstall()
             break  # Exit after uninstall

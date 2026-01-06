@@ -88,8 +88,15 @@ def _get_debug_snippets(event: str, is_project: bool = False) -> dict[str, str]:
     return {
         "debug_setup": f'''DEBUG_LOG="{log_path}"
 log_debug() {{ echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$DEBUG_LOG"; }}
-log_debug "EVENT: {event_label}"
-log_debug "INPUT: $INPUT"
+# Extract cwd and session from input for readable logging
+if command -v jq &>/dev/null; then
+  _CWD=$(echo "$INPUT" | jq -r '.cwd // "unknown"' 2>/dev/null)
+  _SESSION=$(echo "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null | cut -c1-8)
+else
+  _CWD="(jq not installed)"
+  _SESSION="?"
+fi
+log_debug "EVENT: {event_label} | cwd=$_CWD | session=$_SESSION"
 ''',
         "debug_project_runner": f'log_debug "Using project runner: $PROJECT_RUNNER"\n    ',
         "debug_complete": f'log_debug "EVENT COMPLETE: {event}"\n',
