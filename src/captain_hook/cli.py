@@ -124,8 +124,9 @@ def run_wizard():
 
     # Step 4: Install deps (only if hooks exist)
     if has_hooks:
+        venv_dir = config.get_venv_dir()
         install_py_deps = questionary.confirm(
-            "Install Python dependencies?",
+            f"Install Python dependencies? ({venv_dir})",
             default=True,
             style=custom_style,
         ).ask()
