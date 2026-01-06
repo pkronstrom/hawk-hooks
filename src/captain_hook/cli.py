@@ -406,6 +406,8 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
     if selected is None:
         return
 
+    console.print()
+
     # Group selected by event
     enabled_by_event: dict[str, list[str]] = {event: [] for event in config.EVENTS}
     for event, hook_name in selected:
