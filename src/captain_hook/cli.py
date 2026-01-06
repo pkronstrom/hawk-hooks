@@ -1042,6 +1042,7 @@ def interactive_menu():
             choices=[
                 questionary.Choice("Status       Show hooks + enabled state", value="status"),
                 questionary.Choice("Toggle       Enable/disable hooks + regenerate", value="toggle"),
+                questionary.Choice("Add hook    Create or link a new hook", value="add"),
                 questionary.Choice("Config       Debug mode, notifications", value="config"),
                 questionary.Separator("─────────"),
                 questionary.Choice("Install      Register hooks in Claude settings", value="install"),
@@ -1061,6 +1062,8 @@ def interactive_menu():
             show_status()
         elif choice == "toggle":
             interactive_toggle()
+        elif choice == "add":
+            interactive_add_hook()
         elif choice == "config":
             interactive_config()
         elif choice == "install":
