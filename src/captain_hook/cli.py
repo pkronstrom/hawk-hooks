@@ -72,9 +72,9 @@ def run_wizard():
 
     if level is None:
         return
+    console.print()
 
     # Step 2: Install to Claude
-    console.print()
     results = installer.install_hooks(level=level)
     for event, success in results.items():
         if success:
@@ -92,11 +92,14 @@ def run_wizard():
         # Check if examples directory exists (development install)
         examples_dir = Path(__file__).parent.parent.parent / "examples" / "hooks"
         if examples_dir.exists():
-            if questionary.confirm(
+            copy_examples = questionary.confirm(
                 "Copy example hooks to config directory?",
                 default=True,
                 style=custom_style,
-            ).ask():
+            ).ask()
+            console.print()
+
+            if copy_examples:
                 hooks_dir = config.get_hooks_dir()
                 for event in config.EVENTS:
                     src = examples_dir / event
@@ -121,12 +124,14 @@ def run_wizard():
 
     # Step 4: Install deps (only if hooks exist)
     if has_hooks:
-        if questionary.confirm(
+        install_py_deps = questionary.confirm(
             "Install Python dependencies?",
             default=True,
             style=custom_style,
-        ).ask():
-            console.print()
+        ).ask()
+        console.print()
+
+        if install_py_deps:
             install_deps()
 
     # Save config to mark setup as complete
