@@ -595,16 +595,16 @@ def interactive_config():
     console.print("[bold]Configuration[/bold]")
     console.print("─" * 50)
 
-    # Build choices for settings
-    debug_status = "[green]on[/green]" if cfg.get("debug", False) else "[dim]off[/dim]"
-    desktop_status = "[green]on[/green]" if cfg.get("notify", {}).get("desktop", True) else "[dim]off[/dim]"
+    # Build choices for settings (plain text - questionary doesn't support rich markup)
+    debug_status = "✓ on " if cfg.get("debug", False) else "  off"
+    desktop_status = "✓ on " if cfg.get("notify", {}).get("desktop", True) else "  off"
     ntfy_enabled = cfg.get("notify", {}).get("ntfy", {}).get("enabled", False)
-    ntfy_status = "[green]on[/green]" if ntfy_enabled else "[dim]off[/dim]"
+    ntfy_status = "✓ on " if ntfy_enabled else "  off"
 
     choices = [
-        questionary.Choice(f"debug          {debug_status}    Log hook calls to debug.log", value="debug"),
-        questionary.Choice(f"notify.desktop {desktop_status}    Desktop notifications on stop", value="notify.desktop"),
-        questionary.Choice(f"notify.ntfy    {ntfy_status}    Push notifications via ntfy.sh", value="notify.ntfy"),
+        questionary.Choice(f"debug           {debug_status}   Log hook calls to debug.log", value="debug"),
+        questionary.Choice(f"notify.desktop  {desktop_status}   Desktop notifications on stop", value="notify.desktop"),
+        questionary.Choice(f"notify.ntfy     {ntfy_status}   Push notifications via ntfy.sh", value="notify.ntfy"),
         questionary.Separator("─────────"),
         questionary.Choice("Back", value="back"),
     ]
@@ -700,7 +700,7 @@ def interactive_menu():
                 questionary.Choice("Exit", value="exit"),
             ],
             style=custom_style,
-            instruction="(↑↓ navigate • Enter select • Esc exit)",
+            instruction="(↑↓ navigate • Enter select • Ctrl+C exit)",
         ).ask()
 
         if choice is None or choice == "exit":

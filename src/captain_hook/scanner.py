@@ -106,10 +106,10 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
             if path.is_symlink():
                 try:
                     real_path = path.resolve()
-                    if not str(real_path).startswith(str(resolved_event_dir)):
-                        continue  # Skip symlinks pointing outside
+                    # Use relative_to for proper path containment check
+                    real_path.relative_to(resolved_event_dir)
                 except (OSError, ValueError):
-                    continue  # Skip broken symlinks
+                    continue  # Skip symlinks pointing outside or broken
 
             if not path.is_file():
                 continue

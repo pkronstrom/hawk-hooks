@@ -294,8 +294,12 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
             try:
                 with open(hook.path) as f:
                     prompt_config = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                # Log error but continue with other hooks
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                results[hook.name] = False
+                continue
+
+            # Validate JSON structure
+            if not isinstance(prompt_config, dict):
                 results[hook.name] = False
                 continue
 
