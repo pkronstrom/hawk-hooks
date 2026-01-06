@@ -17,7 +17,7 @@ set -euo pipefail
 INPUT=$(cat)
 HOOKS_DIR="{hooks_dir}"
 VENV_PYTHON="{venv_python}"
-{debug_setup}
+{env_exports}{debug_setup}
 # Check for project override runner
 PROJECT_RUNNER=".claude/captain-hook/runners/{event}.sh"
 if [[ -f "$PROJECT_RUNNER" ]]; then
@@ -41,10 +41,35 @@ set -euo pipefail
 INPUT=$(cat)
 HOOKS_DIR="{hooks_dir}"
 VENV_PYTHON="{venv_python}"
-{debug_setup}
+{env_exports}{debug_setup}
 {hook_calls}
 {debug_complete}exit 0
 '''
+
+
+def _get_env_exports() -> str:
+    """Generate export statements for env vars."""
+    # Get all env vars from scripts (with defaults)
+    script_env_vars = scanner.get_all_env_vars()
+    if not script_env_vars:
+        return ""
+
+    # Get configured values
+    cfg = config.load_config()
+    env_config = cfg.get("env", {})
+
+    # Build export statements
+    exports = []
+    for var_name, default_value in sorted(script_env_vars.items()):
+        # Use configured value or default
+        value = env_config.get(var_name, default_value)
+        # Escape for bash
+        safe_value = shlex.quote(value)
+        exports.append(f"export {var_name}={safe_value}")
+
+    if exports:
+        return "\n".join(exports) + "\n"
+    return ""
 
 
 def _get_debug_snippets(event: str, is_project: bool = False) -> dict[str, str]:
@@ -175,8 +200,9 @@ exit 0
 
     hook_calls_str = "\n".join(hook_calls)
 
-    # Get debug snippets
+    # Get debug snippets and env exports
     debug = _get_debug_snippets(event, is_project=is_project)
+    env_exports = _get_env_exports()
 
     # Generate runner content
     if is_project:
@@ -186,6 +212,7 @@ exit 0
             hooks_dir=str(hooks_dir / event),
             venv_python=venv_python,
             hook_calls=hook_calls_str,
+            env_exports=env_exports,
             **debug,
         )
     else:
@@ -194,6 +221,7 @@ exit 0
             hooks_dir=str(hooks_dir / event),
             venv_python=venv_python,
             hook_calls=hook_calls_str,
+            env_exports=env_exports,
             **debug,
         )
 

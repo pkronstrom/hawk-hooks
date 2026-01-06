@@ -30,6 +30,7 @@ class HookInfo:
     event: str
     description: str
     deps: list[str]
+    env_vars: dict[str, str]  # VAR_NAME -> default_value
     hook_type: str  # "command", "stdout", or "prompt"
     extension: str
 
@@ -51,21 +52,29 @@ class HookInfo:
         return INTERPRETERS.get(self.extension)
 
 
-def parse_hook_metadata(path: Path) -> tuple[str, list[str]]:
-    """Parse description and deps from a hook file.
+def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dict[str, str]]:
+    """Parse description, deps, and env vars from a hook file.
 
     Looks for:
-    - # Description: ... (second line for scripts, first line for prompts)
+    - # Description: ...
     - # Deps: dep1, dep2, ...
+    - # Env: VAR_NAME=default_value
+
+    Env vars are namespaced by hook name:
+    - Hook: notify.py, Env: DESKTOP=true -> NOTIFY_DESKTOP=true
     """
     description = ""
     deps: list[str] = []
+    env_vars: dict[str, str] = {}
+
+    # Convert hook name to env var prefix: my-cool-hook -> MY_COOL_HOOK_
+    prefix = hook_name.upper().replace("-", "_").replace(".", "_") + "_"
 
     try:
         content = path.read_text()
         lines = content.split("\n")
 
-        for i, line in enumerate(lines[:10]):  # Only check first 10 lines
+        for line in lines[:20]:  # Check first 20 lines for metadata
             # Description pattern
             desc_match = re.match(r"^[#/\-*\s]*Description:\s*(.+)$", line, re.IGNORECASE)
             if desc_match:
@@ -77,10 +86,19 @@ def parse_hook_metadata(path: Path) -> tuple[str, list[str]]:
                 deps_str = deps_match.group(1).strip()
                 deps = [d.strip() for d in deps_str.split(",") if d.strip()]
 
+            # Env pattern: # Env: VAR_NAME=default_value
+            env_match = re.match(r"^[#/\-*\s]*Env:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line, re.IGNORECASE)
+            if env_match:
+                var_name = env_match.group(1).upper()
+                default_value = env_match.group(2).strip()
+                # Namespace by hook name
+                full_var_name = prefix + var_name
+                env_vars[full_var_name] = default_value
+
     except Exception:
         pass
 
-    return description, deps
+    return description, deps, env_vars
 
 
 def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
@@ -135,7 +153,7 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
                 continue  # Unsupported file type
 
             # Parse metadata
-            description, deps = parse_hook_metadata(path)
+            description, deps, env_vars = parse_hook_metadata(path, name)
 
             # Create hook info
             hook = HookInfo(
@@ -144,6 +162,7 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
                 event=event,
                 description=description or f"{name} hook",
                 deps=deps,
+                env_vars=env_vars,
                 hook_type=hook_type,
                 extension=ext,
             )
@@ -202,5 +221,20 @@ def get_non_python_deps() -> dict[str, dict[str, list[str]]]:
             if lang not in result:
                 result[lang] = {}
             result[lang][hook.name] = hook.deps
+
+    return result
+
+
+def get_all_env_vars() -> dict[str, str]:
+    """Get all env vars from all hooks with their default values.
+
+    Returns:
+        Dict mapping env var names to default values.
+    """
+    result: dict[str, str] = {}
+    hooks = scan_all_hooks()
+
+    for hook in hooks:
+        result.update(hook.env_vars)
 
     return result

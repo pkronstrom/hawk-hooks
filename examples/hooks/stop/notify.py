@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 # Description: Send desktop and ntfy.sh notifications on stop
 # Deps: requests
+# Env: DESKTOP=true
+# Env: NTFY_ENABLED=false
+# Env: NTFY_SERVER=https://ntfy.sh
+# Env: NTFY_TOPIC=
 
 import json
 import os
 import subprocess
 import sys
-from pathlib import Path
-
-
-def load_config():
-    """Load captain-hook config for notification settings."""
-    config_path = Path.home() / ".config" / "captain-hook" / "config.json"
-    if config_path.exists():
-        with open(config_path) as f:
-            return json.load(f)
-    return {}
 
 
 def send_desktop_notification(title: str, message: str):
@@ -57,10 +51,18 @@ def send_ntfy_notification(server: str, topic: str, title: str, message: str):
         pass  # Silent fail for ntfy
 
 
+def get_bool_env(name: str, default: bool = False) -> bool:
+    """Get a boolean from env var."""
+    val = os.environ.get(name, "").lower()
+    if val in ("true", "1", "yes"):
+        return True
+    if val in ("false", "0", "no"):
+        return False
+    return default
+
+
 def main():
     data = json.load(sys.stdin)
-    config = load_config()
-    notify_config = config.get("notify", {})
 
     # Get stop reason
     stop_reason = data.get("stop_reason", "unknown")
@@ -74,19 +76,16 @@ def main():
     else:
         message = f"Stopped: {stop_reason}"
 
-    # Desktop notification
-    if notify_config.get("desktop", True):
+    # Desktop notification (env var set by captain-hook runner)
+    if get_bool_env("NOTIFY_DESKTOP", True):
         send_desktop_notification(title, message)
 
     # ntfy.sh notification
-    ntfy = notify_config.get("ntfy", {})
-    if ntfy.get("enabled") and ntfy.get("topic"):
-        send_ntfy_notification(
-            ntfy.get("server", "https://ntfy.sh"),
-            ntfy["topic"],
-            title,
-            message,
-        )
+    ntfy_enabled = get_bool_env("NOTIFY_NTFY_ENABLED", False)
+    ntfy_topic = os.environ.get("NOTIFY_NTFY_TOPIC", "")
+    if ntfy_enabled and ntfy_topic:
+        ntfy_server = os.environ.get("NOTIFY_NTFY_SERVER", "https://ntfy.sh")
+        send_ntfy_notification(ntfy_server, ntfy_topic, title, message)
 
 
 if __name__ == "__main__":
