@@ -142,15 +142,30 @@ exit 0
 
     # Generate hook calls
     venv_python = str(config.get_venv_python())
+    cfg = config.load_config()
+    debug_enabled = cfg.get("debug", False)
+
     hook_calls = []
     for hook in hooks_to_run:
         call = get_interpreter_call(hook, venv_python)
         if hook.is_stdout:
             # Stdout hooks just output their content (no stdin)
-            hook_calls.append(f'{call}')
+            if debug_enabled:
+                hook_calls.append(f'log_debug "HOOK: {hook.name} (stdout)"')
+                hook_calls.append(f'{call}')
+                hook_calls.append(f'log_debug "HOOK OK: {hook.name}"')
+            else:
+                hook_calls.append(f'{call}')
         else:
             # Command hooks receive JSON input via stdin
-            hook_calls.append(f'echo "$INPUT" | {call} || exit $?')
+            if debug_enabled:
+                hook_calls.append(f'log_debug "HOOK: {hook.name}"')
+                hook_calls.append(f'echo "$INPUT" | {call}')
+                hook_calls.append(f'HOOK_EXIT=$?')
+                hook_calls.append(f'if [[ $HOOK_EXIT -ne 0 ]]; then log_debug "HOOK FAILED: {hook.name} (exit $HOOK_EXIT)"; exit $HOOK_EXIT; fi')
+                hook_calls.append(f'log_debug "HOOK OK: {hook.name}"')
+            else:
+                hook_calls.append(f'echo "$INPUT" | {call} || exit $?')
 
     hook_calls_str = "\n".join(hook_calls)
 
