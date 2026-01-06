@@ -68,6 +68,7 @@ def run_wizard():
             questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
         ],
         style=custom_style,
+        instruction="(Esc cancel)",
     ).ask()
 
     if level is None:
@@ -226,6 +227,7 @@ def interactive_install():
             questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
         ],
         style=custom_style,
+        instruction="(Esc cancel)",
     ).ask()
 
     if level is None:
@@ -258,6 +260,7 @@ def interactive_uninstall():
             questionary.Choice("Both", value="both"),
         ],
         style=custom_style,
+        instruction="(Esc cancel)",
     ).ask()
 
     if level is None:
@@ -321,6 +324,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
                 questionary.Choice(f"This project  .claude/captain-hook/", value="project"),
             ],
             style=custom_style,
+            instruction="(Esc cancel)",
         ).ask()
 
         if scope is None:
@@ -336,6 +340,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
                 questionary.Choice("Shared     (committable, team can use)", value="shared"),
             ],
             style=custom_style,
+            instruction="(Esc cancel)",
         ).ask()
 
         if visibility is None:
