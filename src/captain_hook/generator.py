@@ -17,6 +17,8 @@ set -euo pipefail
 INPUT=$(cat)
 HOOKS_DIR="{hooks_dir}"
 VENV_PYTHON="{venv_python}"
+VENV_BIN="$(dirname "$VENV_PYTHON")"
+export PATH="$VENV_BIN:$PATH"
 {env_exports}{debug_setup}
 # Check for project override runner
 PROJECT_RUNNER=".claude/captain-hook/runners/{event}.sh"
@@ -41,6 +43,8 @@ set -euo pipefail
 INPUT=$(cat)
 HOOKS_DIR="{hooks_dir}"
 VENV_PYTHON="{venv_python}"
+VENV_BIN="$(dirname "$VENV_PYTHON")"
+export PATH="$VENV_BIN:$PATH"
 {env_exports}{debug_setup}
 {hook_calls}
 {debug_complete}exit 0

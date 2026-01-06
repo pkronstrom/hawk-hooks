@@ -11,42 +11,47 @@ import questionary
 from questionary import Style
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from . import __version__, config, generator, installer, scanner, templates
 
 console = Console()
 
 # Custom style for questionary
-custom_style = Style([
-    ("qmark", "fg:cyan bold"),
-    ("question", "fg:white bold"),
-    ("answer", "fg:cyan"),
-    ("pointer", "fg:cyan bold"),
-    ("highlighted", "fg:cyan bold"),
-    ("selected", "fg:green"),
-    ("separator", "fg:gray"),
-    ("instruction", "fg:gray"),
-])
+custom_style = Style(
+    [
+        ("qmark", "fg:cyan bold"),
+        ("question", "fg:white bold"),
+        ("answer", "fg:cyan"),
+        ("pointer", "fg:cyan bold"),
+        ("highlighted", "fg:cyan bold"),
+        ("selected", "fg:green"),
+        ("separator", "fg:gray"),
+        ("instruction", "fg:gray"),
+    ]
+)
 
 
 def print_header():
     """Print the application header."""
-    console.print(Panel(
-        f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
-        "[dim]A modular Claude Code hooks manager[/dim]",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel(
+            f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
+            "[dim]A modular Claude Code hooks manager[/dim]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
 
 def run_wizard():
     """Run the first-time setup wizard."""
-    console.print(Panel(
-        "[bold cyan]Welcome to captain-hook![/bold cyan]\n"
-        "[dim]A modular Claude Code hooks manager[/dim]",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel(
+            "[bold cyan]Welcome to captain-hook![/bold cyan]\n"
+            "[dim]A modular Claude Code hooks manager[/dim]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     # Brief explanation
@@ -55,7 +60,9 @@ def run_wizard():
     console.print("  2. Enable/disable hooks to control what runs")
     console.print("  3. Claude runs enabled hooks on matching events")
     console.print()
-    console.print("[dim]Formats: .py .sh .js .ts (scripts) | .stdout.md (context) | .prompt.json (LLM)[/dim]")
+    console.print(
+        "[dim]Formats: .py .sh .js .ts (scripts) | .stdout.md (context) | .prompt.json (LLM)[/dim]"
+    )
     console.print()
 
     # Ensure directories exist
@@ -65,8 +72,12 @@ def run_wizard():
     level = questionary.select(
         "Install hooks to:",
         choices=[
-            questionary.Choice("User settings   ~/.claude/settings.json (all projects)", value="user"),
-            questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
+            questionary.Choice(
+                "User settings   ~/.claude/settings.json (all projects)", value="user"
+            ),
+            questionary.Choice(
+                "Project settings  .claude/settings.json (this project)", value="project"
+            ),
         ],
         style=custom_style,
         instruction="(Ctrl+C cancel)",
@@ -143,14 +154,16 @@ def run_wizard():
 
     # Done
     console.print()
-    console.print(Panel(
-        "[bold green]You're all set![/bold green]\n\n"
-        f"[dim]Config:[/dim] {config.get_config_path()}\n"
-        f"[dim]Hooks:[/dim]  {config.get_hooks_dir()}\n\n"
-        "[dim]Run[/dim] [cyan]captain-hook[/cyan] [dim]to manage hooks[/dim]\n"
-        "[dim]Run[/dim] [cyan]captain-hook status[/cyan] [dim]to verify[/dim]",
-        border_style="green",
-    ))
+    console.print(
+        Panel(
+            "[bold green]You're all set![/bold green]\n\n"
+            f"[dim]Config:[/dim] {config.get_config_path()}\n"
+            f"[dim]Hooks:[/dim]  {config.get_hooks_dir()}\n\n"
+            "[dim]Run[/dim] [cyan]captain-hook[/cyan] [dim]to manage hooks[/dim]\n"
+            "[dim]Run[/dim] [cyan]captain-hook status[/cyan] [dim]to verify[/dim]",
+            border_style="green",
+        )
+    )
 
 
 def show_status():
@@ -165,24 +178,26 @@ def show_status():
 
     # User level
     if status["user"]["installed"]:
-        console.print(f"  User:    [green]✓ Installed[/green]")
+        console.print("  User:    [green]✓ Installed[/green]")
         console.print(f"           [dim]{status['user']['path']}[/dim]")
     else:
-        console.print(f"  User:    [dim]✗ Not installed[/dim]")
+        console.print("  User:    [dim]✗ Not installed[/dim]")
         console.print(f"           [dim]{status['user']['path']}[/dim]")
 
     # Project level
     if status["project"]["installed"]:
-        console.print(f"  Project: [green]✓ Installed[/green]")
+        console.print("  Project: [green]✓ Installed[/green]")
         console.print(f"           [dim]{status['project']['path']}[/dim]")
     else:
-        console.print(f"  Project: [dim]✗ Not installed[/dim]")
+        console.print("  Project: [dim]✗ Not installed[/dim]")
         console.print(f"           [dim]{status['project']['path']}[/dim]")
 
     console.print()
 
     # Discovered hooks
-    console.print("[bold]Discovered Hooks[/bold]  [dim]([green]✓[/green] enabled  [dim]✗[/dim] disabled)[/dim]")
+    console.print(
+        "[bold]Discovered Hooks[/bold]  [dim]([green]✓[/green] enabled  [dim]✗[/dim] disabled)[/dim]"
+    )
     console.print("─" * 50)
 
     hooks = scanner.scan_hooks()
@@ -224,8 +239,12 @@ def interactive_install() -> bool:
     level = questionary.select(
         "Install captain-hook to:",
         choices=[
-            questionary.Choice("User settings   ~/.claude/settings.json (all projects)", value="user"),
-            questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
+            questionary.Choice(
+                "User settings   ~/.claude/settings.json (all projects)", value="user"
+            ),
+            questionary.Choice(
+                "Project settings  .claude/settings.json (this project)", value="project"
+            ),
         ],
         style=custom_style,
         instruction="(Ctrl+C cancel)",
@@ -323,7 +342,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
             "Toggle scope:",
             choices=[
                 questionary.Choice(f"Global        {config.get_config_path()}", value="global"),
-                questionary.Choice(f"This project  .claude/captain-hook/", value="project"),
+                questionary.Choice("This project  .claude/captain-hook/", value="project"),
             ],
             style=custom_style,
             instruction="(Ctrl+C cancel)",
@@ -348,7 +367,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         if visibility is None:
             return False
 
-        add_to_git_exclude = (visibility == "personal")
+        add_to_git_exclude = visibility == "personal"
 
     # Scan for hooks
     hooks = scanner.scan_hooks()
@@ -386,11 +405,13 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
                 hook_type = f"[{hook.extension}]"
             label = f"{hook.name:20} {hook_type:10} {hook.description}"
 
-            choices.append(questionary.Choice(
-                label,
-                value=(event, hook.name),
-                checked=is_enabled,
-            ))
+            choices.append(
+                questionary.Choice(
+                    label,
+                    value=(event, hook.name),
+                    checked=is_enabled,
+                )
+            )
 
     if not choices:
         console.print("[yellow]No hooks found. Add scripts to:[/yellow]")
@@ -418,7 +439,8 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     # Save config
     for event, enabled_hooks in enabled_by_event.items():
         config.set_enabled_hooks(
-            event, enabled_hooks,
+            event,
+            enabled_hooks,
             scope=scope,
             add_to_git_exclude=add_to_git_exclude,
         )
@@ -495,7 +517,7 @@ def install_deps():
             check=True,
             timeout=120,  # 2 minutes for venv creation
         )
-        console.print(f"  [green]✓[/green] Venv created")
+        console.print("  [green]✓[/green] Venv created")
 
     # Get Python deps
     python_deps = scanner.get_python_deps()
@@ -512,7 +534,7 @@ def install_deps():
                 check=True,
                 timeout=300,  # 5 minutes for pip install
             )
-            console.print(f"  [green]✓[/green] Python deps installed")
+            console.print("  [green]✓[/green] Python deps installed")
     else:
         console.print("  [dim]No Python dependencies required[/dim]")
 
@@ -550,12 +572,12 @@ def install_deps():
                 if install_shell:
                     try:
                         subprocess.run(install_cmd, shell=True, check=True, timeout=300)
-                        console.print(f"  [green]✓[/green] Shell tools installed")
+                        console.print("  [green]✓[/green] Shell tools installed")
                     except subprocess.CalledProcessError as e:
                         console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
                         console.print(f"  [dim]Run manually: {install_cmd}[/dim]")
                     except subprocess.TimeoutExpired:
-                        console.print(f"  [red]✗[/red] Installation timed out")
+                        console.print("  [red]✗[/red] Installation timed out")
             else:
                 console.print("[bold]Shell tools needed (install manually):[/bold]")
                 console.print(f"  {', '.join(sorted(shell_tools))}")
@@ -579,11 +601,11 @@ def install_deps():
                 if install_node:
                     try:
                         subprocess.run(npm_cmd, shell=True, check=True, timeout=300)
-                        console.print(f"  [green]✓[/green] Node packages installed")
+                        console.print("  [green]✓[/green] Node packages installed")
                     except subprocess.CalledProcessError as e:
                         console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
                     except subprocess.TimeoutExpired:
-                        console.print(f"  [red]✗[/red] Installation timed out")
+                        console.print("  [red]✗[/red] Installation timed out")
             else:
                 console.print("[dim]npm not found - install Node.js first[/dim]")
 
@@ -771,9 +793,10 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
         ).ask()
         if make_exec:
             import stat
+
             current = source_path.stat().st_mode
             source_path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-            console.print(f"  [green]✓[/green] Made executable")
+            console.print("  [green]✓[/green] Made executable")
 
     dest_path = hooks_dir / source_path.name
 
@@ -861,6 +884,7 @@ def _add_new_script(event: str, hooks_dir: Path) -> bool:
 
     # Make executable
     import stat
+
     current = dest_path.stat().st_mode
     dest_path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
@@ -956,7 +980,7 @@ def _add_new_prompt(event: str, hooks_dir: Path) -> bool:
     _open_in_editor(dest_path)
 
     # Get hook name (part before .prompt.json)
-    hook_name = filename[:-len(".prompt.json")]
+    hook_name = filename[: -len(".prompt.json")]
     _prompt_enable_hook(event, hook_name)
     return True
 
@@ -1022,7 +1046,7 @@ def _prompt_enable_hook(event: str, hook_name: str):
             console.print(f"  [green]✓[/green] {name} [dim](prompt)[/dim]")
 
     console.print()
-    console.print(f"[green]Hook enabled![/green]")
+    console.print("[green]Hook enabled![/green]")
     console.print()
 
 
@@ -1048,12 +1072,18 @@ def interactive_menu():
             "What would you like to do?",
             choices=[
                 questionary.Choice("Status       Show hooks + enabled state", value="status"),
-                questionary.Choice("Toggle       Enable/disable hooks + regenerate", value="toggle"),
+                questionary.Choice(
+                    "Toggle       Enable/disable hooks + regenerate", value="toggle"
+                ),
                 questionary.Choice("Add hook    Create or link a new hook", value="add"),
                 questionary.Choice("Config       Debug mode, notifications", value="config"),
                 questionary.Separator("─────────"),
-                questionary.Choice("Install      Register hooks in Claude settings", value="install"),
-                questionary.Choice("Uninstall    Remove hooks from Claude settings", value="uninstall"),
+                questionary.Choice(
+                    "Install      Register hooks in Claude settings", value="install"
+                ),
+                questionary.Choice(
+                    "Uninstall    Remove hooks from Claude settings", value="uninstall"
+                ),
                 questionary.Choice("Install-deps Install Python dependencies", value="deps"),
                 questionary.Separator("─────────"),
                 questionary.Choice("Exit", value="exit"),
@@ -1087,6 +1117,103 @@ def interactive_menu():
 
 # CLI commands for non-interactive use
 
+
+def find_hook(name: str) -> tuple[str, str] | None:
+    """Find hook by name, return (event, hook_name) or None.
+
+    Supports formats:
+      - "file-guard" - auto-detect event by scanning all events
+      - "pre_tool_use/file-guard" - explicit event/hook
+    """
+    hooks = scanner.scan_hooks()
+
+    # Check for explicit event/hook format
+    if "/" in name:
+        event, hook_name = name.split("/", 1)
+        if event in hooks and any(h.name == hook_name for h in hooks[event]):
+            return (event, hook_name)
+        return None
+
+    # Auto-detect: search all events
+    for event, event_hooks in hooks.items():
+        if any(h.name == name for h in event_hooks):
+            return (event, name)
+    return None
+
+
+def cmd_enable(args):
+    """CLI: Enable hooks by name."""
+    changed = False
+    for name in args.hooks:
+        result = find_hook(name)
+        if not result:
+            print(f"  ✗ Hook not found: {name}")
+            continue
+        event, hook_name = result
+        enabled = config.get_enabled_hooks(event)
+        if hook_name not in enabled:
+            enabled.append(hook_name)
+            config.set_enabled_hooks(event, enabled)
+            print(f"  ✓ Enabled {event}/{hook_name}")
+            changed = True
+        else:
+            print(f"  - Already enabled: {event}/{hook_name}")
+
+    if changed:
+        generator.generate_all_runners()
+        installer.sync_prompt_hooks(level="user")
+        print("Runners regenerated.")
+
+
+def cmd_disable(args):
+    """CLI: Disable hooks by name."""
+    changed = False
+    for name in args.hooks:
+        result = find_hook(name)
+        if not result:
+            print(f"  ✗ Hook not found: {name}")
+            continue
+        event, hook_name = result
+        enabled = config.get_enabled_hooks(event)
+        if hook_name in enabled:
+            enabled.remove(hook_name)
+            config.set_enabled_hooks(event, enabled)
+            print(f"  ✓ Disabled {event}/{hook_name}")
+            changed = True
+        else:
+            print(f"  - Already disabled: {event}/{hook_name}")
+
+    if changed:
+        generator.generate_all_runners()
+        installer.sync_prompt_hooks(level="user")
+        print("Runners regenerated.")
+
+
+def cmd_list(args):
+    """CLI: List hooks (scriptable output)."""
+    hooks = scanner.scan_hooks()
+    cfg = config.load_config()
+
+    for event in config.EVENTS:
+        event_hooks = hooks.get(event, [])
+        if not event_hooks:
+            continue
+
+        enabled_list = cfg.get("enabled", {}).get(event, [])
+
+        for hook in event_hooks:
+            is_enabled = hook.name in enabled_list
+
+            # Filter by --enabled or --disabled
+            if args.enabled and not is_enabled:
+                continue
+            if args.disabled and is_enabled:
+                continue
+
+            status = "enabled" if is_enabled else "disabled"
+            print(f"{event}/{hook.name}\t{status}\t{hook.description}")
+
+
 def cmd_status(args):
     """CLI: Show status."""
     show_status()
@@ -1104,7 +1231,7 @@ def cmd_uninstall(args):
     """CLI: Uninstall hooks."""
     installer.uninstall_hooks(level=args.level)
     print("Hooks uninstalled.")
-    print(f"\nTo fully remove captain-hook:")
+    print("\nTo fully remove captain-hook:")
     print(f"  rm -rf {config.get_config_dir()}  # config + hooks")
     print("  pipx uninstall captain-hook        # program")
 
@@ -1137,16 +1264,22 @@ def main():
     # Install command
     install_parser = subparsers.add_parser("install", help="Install hooks to Claude settings")
     install_parser.add_argument(
-        "--level", choices=["user", "project"], default="user",
-        help="Installation level (default: user)"
+        "--level",
+        choices=["user", "project"],
+        default="user",
+        help="Installation level (default: user)",
     )
     install_parser.set_defaults(func=cmd_install)
 
     # Uninstall command
-    uninstall_parser = subparsers.add_parser("uninstall", help="Uninstall hooks from Claude settings")
+    uninstall_parser = subparsers.add_parser(
+        "uninstall", help="Uninstall hooks from Claude settings"
+    )
     uninstall_parser.add_argument(
-        "--level", choices=["user", "project"], default="user",
-        help="Uninstallation level (default: user)"
+        "--level",
+        choices=["user", "project"],
+        default="user",
+        help="Uninstallation level (default: user)",
     )
     uninstall_parser.set_defaults(func=cmd_uninstall)
 
@@ -1157,6 +1290,38 @@ def main():
     # Install-deps command
     deps_parser = subparsers.add_parser("install-deps", help="Install Python dependencies")
     deps_parser.set_defaults(func=cmd_deps)
+
+    # Enable command
+    enable_parser = subparsers.add_parser("enable", help="Enable hooks by name")
+    enable_parser.add_argument(
+        "hooks",
+        nargs="+",
+        help="Hook names (e.g., file-guard or pre_tool_use/file-guard)",
+    )
+    enable_parser.set_defaults(func=cmd_enable)
+
+    # Disable command
+    disable_parser = subparsers.add_parser("disable", help="Disable hooks by name")
+    disable_parser.add_argument(
+        "hooks",
+        nargs="+",
+        help="Hook names (e.g., file-guard or pre_tool_use/file-guard)",
+    )
+    disable_parser.set_defaults(func=cmd_disable)
+
+    # List command
+    list_parser = subparsers.add_parser("list", help="List hooks (scriptable output)")
+    list_parser.add_argument(
+        "--enabled",
+        action="store_true",
+        help="Show only enabled hooks",
+    )
+    list_parser.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Show only disabled hooks",
+    )
+    list_parser.set_defaults(func=cmd_list)
 
     args = parser.parse_args()
 

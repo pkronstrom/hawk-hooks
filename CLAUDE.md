@@ -27,7 +27,7 @@ src/captain_hook/
 - **Stdout hooks**: Files that inject text into Claude's context
 - **Native prompt hooks**: LLM-evaluated hooks (Haiku decides approve/block)
 - **Runners**: Generated bash scripts that chain enabled command/stdout hooks
-- **Events**: pre_tool_use, post_tool_use, stop, notification, user_prompt_submit
+- **Events**: pre_tool_use, post_tool_use, stop, subagent_stop, notification, user_prompt_submit, session_start, session_end, pre_compact
 
 ## File Locations
 

@@ -147,11 +147,16 @@ Available examples:
 ```bash
 captain-hook              # Interactive menu (wizard on first run)
 captain-hook status       # Show installation status
+captain-hook toggle       # Enable/disable hooks (interactive)
+captain-hook enable <hook> [<hook>...]   # Enable hooks by name
+captain-hook disable <hook> [<hook>...]  # Disable hooks by name
+captain-hook list [--enabled|--disabled] # List hooks (scriptable)
 captain-hook install      # Install to Claude settings
 captain-hook uninstall    # Remove from Claude settings
-captain-hook toggle       # Enable/disable hooks
 captain-hook install-deps # Install Python dependencies
 ```
+
+Hook names can be short (`file-guard`) or explicit (`pre_tool_use/file-guard`).
 
 ## Events
 
@@ -159,9 +164,13 @@ captain-hook install-deps # Install Python dependencies
 |-------|------|-----------|
 | `pre_tool_use` | Before tool runs | Yes |
 | `post_tool_use` | After tool completes | No |
-| `stop` | Claude stops | No |
+| `stop` | Claude stops responding | Yes |
+| `subagent_stop` | Subagent finishes | Yes |
 | `notification` | On notification | No |
-| `user_prompt_submit` | Before prompt sent | No |
+| `user_prompt_submit` | Before prompt sent | Yes |
+| `session_start` | Session starts/resumes | No |
+| `session_end` | Session ends | No |
+| `pre_compact` | Before context compaction | No |
 
 ### Blocking Hooks
 
