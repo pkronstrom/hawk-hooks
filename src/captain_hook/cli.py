@@ -181,7 +181,7 @@ def show_status():
     console.print()
 
     # Discovered hooks
-    console.print("[bold]Discovered Hooks[/bold]")
+    console.print("[bold]Discovered Hooks[/bold]  [dim]([green]✓[/green] enabled  [dim]✗[/dim] disabled)[/dim]")
     console.print("─" * 50)
 
     hooks = scanner.scan_hooks()
