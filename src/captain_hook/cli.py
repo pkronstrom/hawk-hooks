@@ -62,38 +62,42 @@ def run_wizard():
     # Ensure directories exist
     config.ensure_dirs()
 
-    # Step 1: Install to Claude
-    if questionary.confirm(
-        "Install hooks to Claude settings?",
-        default=True,
+    # Step 1: Choose installation level
+    level = questionary.select(
+        "Install hooks to:",
+        choices=[
+            questionary.Choice("User settings   ~/.claude/settings.json (all projects)", value="user"),
+            questionary.Choice("Project settings  .claude/settings.json (this project)", value="project"),
+        ],
         style=custom_style,
-    ).ask():
-        console.print()
-        results = installer.install_hooks(level="user")
-        for event, success in results.items():
-            if success:
-                console.print(f"  [green]✓[/green] Registered {event}")
-        console.print()
+    ).ask()
 
-    # Step 2: Check for hooks and offer to copy examples
+    if level is None:
+        return
+
+    # Step 2: Install to Claude
+    console.print()
+    results = installer.install_hooks(level=level)
+    for event, success in results.items():
+        if success:
+            console.print(f"  [green]✓[/green] Registered {event}")
+    console.print()
+
+    # Step 3: Go to toggle view (automatic)
     hooks = scanner.scan_hooks()
     has_hooks = any(hooks.values())
 
     if not has_hooks:
-        console.print()
         console.print("[dim]No hooks found yet.[/dim]")
         console.print(f"[dim]Add scripts to: {config.get_hooks_dir()}/{{event}}/[/dim]")
         console.print("[dim]Or copy the examples from the captain-hook repo.[/dim]")
+        console.print()
     else:
-        if questionary.confirm(
-            "Configure which hooks to enable?",
-            default=True,
-            style=custom_style,
-        ).ask():
-            console.print()
-            interactive_toggle(skip_scope=True, scope="global")
+        console.print("[bold]Configure hooks:[/bold]")
+        scope = "global" if level == "user" else "project"
+        interactive_toggle(skip_scope=True, scope=scope)
 
-    # Step 3: Install deps (only if hooks exist)
+    # Step 4: Install deps (only if hooks exist)
     if has_hooks:
         if questionary.confirm(
             "Install Python dependencies?",
