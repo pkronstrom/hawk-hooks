@@ -7,9 +7,9 @@ A modular Claude Code hooks manager with auto-discovery, multi-language support,
 - **Auto-discovery**: Drop scripts in `~/.config/captain-hook/hooks/{event}/` and they appear automatically
 - **Multi-language**: Python, JavaScript, Shell, TypeScript (via bun)
 - **Fast execution**: Generated bash runners (~5ms overhead vs ~50ms for Python dispatcher)
-- **Prompt hooks**: Markdown files that inject context into Claude's prompts
+- **Context injection**: `.stdout.md` files output content directly to Claude's context
+- **Native prompt hooks**: `.prompt.json` files for LLM-evaluated decisions (Haiku)
 - **Project overrides**: Per-project hook configurations that override global settings
-- **Interactive CLI**: First-run wizard, checkbox toggles, rich formatting
 
 ## Installation
 
@@ -27,19 +27,19 @@ pip install -e .
 ## Quick Start
 
 ```bash
-# Run the first-time wizard
-captain-hook
-
-# Or manually:
-captain-hook install        # Register hooks in Claude settings
-captain-hook toggle         # Enable/disable hooks interactively
-captain-hook install-deps   # Install Python dependencies for hooks
-captain-hook status         # Show what's installed and enabled
+captain-hook  # First-time wizard
 ```
+
+The wizard will:
+1. Register captain-hook runners in Claude's settings
+2. Let you enable/disable hooks
+3. Install Python dependencies for enabled hooks
+
+After setup, add hooks to `~/.config/captain-hook/hooks/{event}/` and run `captain-hook toggle` to enable them.
 
 ## Creating Hooks
 
-Hooks are scripts that run on Claude Code events. Place them in:
+Place hooks in event directories:
 ```
 ~/.config/captain-hook/hooks/
 ├── pre_tool_use/      # Before tool execution (can block)
@@ -49,9 +49,21 @@ Hooks are scripts that run on Claude Code events. Place them in:
 └── user_prompt_submit/ # Before user prompt is sent
 ```
 
-### Script Hooks
+### Hook Types
 
-Scripts receive JSON on stdin and can output JSON responses. Add metadata comments:
+| Pattern | Type | Description |
+|---------|------|-------------|
+| `name.py` | Command | Python script, receives JSON stdin |
+| `name.sh` | Command | Shell script, receives JSON stdin |
+| `name.js` | Command | Node.js script, receives JSON stdin |
+| `name.ts` | Command | TypeScript (bun), receives JSON stdin |
+| `name.stdout.md` | Stdout | Content output directly to Claude's context |
+| `name.stdout.txt` | Stdout | Content output directly to Claude's context |
+| `name.prompt.json` | Native Prompt | LLM-evaluated hook (Haiku decides) |
+
+### Command Hooks
+
+Scripts receive JSON on stdin and can output JSON responses:
 
 ```python
 #!/usr/bin/env python3
@@ -65,25 +77,29 @@ data = json.load(sys.stdin)
 # Process and optionally output response
 ```
 
-### Prompt Hooks
+### Stdout Hooks (Context Injection)
 
-Markdown files (`.md`) that inject content into Claude's context:
+Files named `*.stdout.md` or `*.stdout.txt` have their content output directly to Claude:
 
 ```markdown
-# Description: Add project guidelines
+<!-- reminder.stdout.md -->
+# Description: Remind about documentation
 
-Always follow the project's coding style...
+Remember to update README.md if you change CLI commands.
 ```
 
-### Supported Languages
+### Native Prompt Hooks (LLM-Evaluated)
 
-| Extension | Interpreter |
-|-----------|-------------|
-| `.py`     | Python (via venv) |
-| `.js`     | Node.js |
-| `.sh`     | Bash |
-| `.ts`     | Bun |
-| `.md`     | Prompt hook |
+Files named `*.prompt.json` are registered as Claude's native `type: "prompt"` hooks. Haiku evaluates them and decides whether to approve/block:
+
+```json
+{
+  "prompt": "Evaluate if Claude should stop: $ARGUMENTS. Check if all tasks are complete and tests pass.",
+  "timeout": 30
+}
+```
+
+Supported events for prompt hooks: Stop, SubagentStop, UserPromptSubmit, PreToolUse.
 
 ## Configuration
 
@@ -95,27 +111,17 @@ Global config: `~/.config/captain-hook/config.json`
     "pre_tool_use": ["file-guard", "dangerous-cmd"],
     "post_tool_use": ["python-lint"],
     "stop": ["notify"]
-  },
-  "notify": {
-    "desktop": true,
-    "ntfy": {
-      "enabled": false,
-      "server": "https://ntfy.sh",
-      "topic": "my-claude"
-    }
   }
 }
 ```
 
 ### Project Overrides
 
-Create `.claude/captain-hook/config.json` in a project to override global settings:
-
 ```bash
 captain-hook toggle  # Choose "This project" scope
 ```
 
-Choose "Personal" to add to `.git/info/exclude` (not committed), or "Shared" to commit with the project.
+Choose "Personal" (added to `.git/info/exclude`) or "Shared" (committable).
 
 ## Example Hooks
 
@@ -127,31 +133,23 @@ captain-hook toggle  # Enable the ones you want
 ```
 
 Available examples:
-- `python-lint.py` - Ruff linting for Python files
+- `python-lint.py` - Ruff linting
 - `python-format.py` - Ruff auto-formatting
-- `file-guard.py` - Block modifications to sensitive files (.env, credentials)
-- `dangerous-cmd.sh` - Block dangerous shell commands (rm -rf /, etc.)
-- `shell-lint.sh` - Shellcheck for shell scripts
-- `notify.py` - Desktop + ntfy.sh notifications on stop
-- `completion-check.md` - Prompt hook for task verification
-- `context-primer.md` - Prompt hook for project context
-
-## How It Works
-
-1. **Install**: Registers bash runners in Claude's `~/.claude/settings.json`
-2. **Toggle**: Enables/disables hooks and regenerates runners
-3. **Execution**: Claude calls the bash runner, which chains enabled hooks
-
-The bash runners are generated for performance - no Python startup overhead for each hook invocation.
+- `file-guard.py` - Block sensitive file modifications
+- `dangerous-cmd.sh` - Block dangerous commands
+- `shell-lint.sh` - Shellcheck linting
+- `git-commit-guide.sh` - Git commit best practices
+- `notify.py` - Desktop + ntfy.sh notifications
+- `docs-update.sh` - Remind to update documentation
 
 ## CLI Reference
 
 ```bash
-captain-hook              # Interactive menu (or wizard on first run)
+captain-hook              # Interactive menu (wizard on first run)
 captain-hook status       # Show installation status
-captain-hook install      # Install to Claude settings (--level user|project)
+captain-hook install      # Install to Claude settings
 captain-hook uninstall    # Remove from Claude settings
-captain-hook toggle       # Enable/disable hooks (regenerates runners)
+captain-hook toggle       # Enable/disable hooks
 captain-hook install-deps # Install Python dependencies
 ```
 
@@ -159,7 +157,7 @@ captain-hook install-deps # Install Python dependencies
 
 | Event | When | Can Block |
 |-------|------|-----------|
-| `pre_tool_use` | Before tool runs | Yes (exit 2) |
+| `pre_tool_use` | Before tool runs | Yes |
 | `post_tool_use` | After tool completes | No |
 | `stop` | Claude stops | No |
 | `notification` | On notification | No |
@@ -167,16 +165,12 @@ captain-hook install-deps # Install Python dependencies
 
 ### Blocking Hooks
 
-Pre-tool-use hooks can block execution by outputting:
+Command hooks can block by outputting:
 ```json
 {"decision": "block", "reason": "Why it was blocked"}
 ```
 
-## Requirements
-
-- Python 3.10+
-- For Python hooks: dependencies installed via `captain-hook install-deps`
-- For other hooks: Node.js, Bash, Bun (as needed by your hooks)
+Or exit with code 2.
 
 ## License
 

@@ -14,8 +14,11 @@ INTERPRETERS: dict[str, str] = {
     ".ts": "bun run",
 }
 
-# Prompt hook extension
-PROMPT_EXTENSION = ".md"
+# Hook types based on filename patterns
+# filename.stdout.md / filename.stdout.txt → output content to stdout
+# filename.prompt.json → native Claude prompt hook (Haiku evaluates)
+STDOUT_PATTERN = ".stdout."  # e.g., reminder.stdout.md
+PROMPT_SUFFIX = ".prompt.json"  # e.g., completion-check.prompt.json
 
 
 @dataclass
@@ -27,13 +30,23 @@ class HookInfo:
     event: str
     description: str
     deps: list[str]
-    is_prompt: bool
+    hook_type: str  # "command", "stdout", or "prompt"
     extension: str
+
+    @property
+    def is_stdout(self) -> bool:
+        """Check if this is a stdout hook (content output)."""
+        return self.hook_type == "stdout"
+
+    @property
+    def is_native_prompt(self) -> bool:
+        """Check if this is a native Claude prompt hook."""
+        return self.hook_type == "prompt"
 
     @property
     def interpreter(self) -> str | None:
         """Get the interpreter for this hook."""
-        if self.is_prompt:
+        if self.hook_type != "command":
             return None
         return INTERPRETERS.get(self.extension)
 
@@ -101,26 +114,37 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
             if not path.is_file():
                 continue
 
+            filename = path.name.lower()
             ext = path.suffix.lower()
 
-            # Check if it's a supported type
-            is_prompt = ext == PROMPT_EXTENSION
-            is_script = ext in INTERPRETERS
-
-            if not is_prompt and not is_script:
-                continue
+            # Determine hook type based on filename pattern
+            if STDOUT_PATTERN in filename:
+                # e.g., reminder.stdout.md → stdout hook (cat content)
+                hook_type = "stdout"
+                # Get the base name without .stdout.ext
+                name = filename.split(STDOUT_PATTERN)[0]
+            elif filename.endswith(PROMPT_SUFFIX):
+                # e.g., completion-check.prompt.json → native Claude prompt hook
+                hook_type = "prompt"
+                name = filename[:-len(PROMPT_SUFFIX)]
+            elif ext in INTERPRETERS:
+                # Regular command hook
+                hook_type = "command"
+                name = path.stem
+            else:
+                continue  # Unsupported file type
 
             # Parse metadata
             description, deps = parse_hook_metadata(path)
 
             # Create hook info
             hook = HookInfo(
-                name=path.stem,
+                name=name,
                 path=path,
                 event=event,
-                description=description or f"{path.stem} hook",
+                description=description or f"{name} hook",
                 deps=deps,
-                is_prompt=is_prompt,
+                hook_type=hook_type,
                 extension=ext,
             )
 

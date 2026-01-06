@@ -8,29 +8,40 @@ A modular Claude Code hooks manager.
 src/captain_hook/
 ├── config.py      # Configuration loading/saving (JSON)
 ├── scanner.py     # Auto-discovery of hook scripts
-├── generator.py   # Generates bash runners for performance
-├── installer.py   # Registers hooks in Claude settings
+├── generator.py   # Generates bash runners for command/stdout hooks
+├── installer.py   # Registers hooks in Claude settings + syncs prompt hooks
 └── cli.py         # Interactive CLI with questionary + rich
 ```
 
+## Hook Types
+
+| Pattern | Type | How it works |
+|---------|------|--------------|
+| `*.py`, `*.sh`, `*.js`, `*.ts` | Command | Executed, receives JSON stdin |
+| `*.stdout.md`, `*.stdout.txt` | Stdout | Content cat'd to stdout (context injection) |
+| `*.prompt.json` | Native Prompt | Registered as `type: "prompt"` in Claude settings |
+
 ## Key Concepts
 
-- **Hooks**: Scripts in `~/.config/captain-hook/hooks/{event}/` that run on Claude events
-- **Runners**: Generated bash scripts that chain enabled hooks (for fast execution)
+- **Command hooks**: Scripts that process JSON input and can block/modify
+- **Stdout hooks**: Files that inject text into Claude's context
+- **Native prompt hooks**: LLM-evaluated hooks (Haiku decides approve/block)
+- **Runners**: Generated bash scripts that chain enabled command/stdout hooks
 - **Events**: pre_tool_use, post_tool_use, stop, notification, user_prompt_submit
-
-## How It Works
-
-1. User runs `captain-hook install` → registers bash runners in `~/.claude/settings.json`
-2. User runs `captain-hook toggle` → enables/disables hooks, regenerates runners
-3. Claude triggers event → bash runner executes → chains enabled hooks
 
 ## File Locations
 
 - Global config: `~/.config/captain-hook/config.json`
-- Hooks: `~/.config/captain-hook/hooks/{event}/*.{py,js,sh,ts,md}`
+- Hooks: `~/.config/captain-hook/hooks/{event}/`
 - Runners: `~/.config/captain-hook/runners/{event}.sh`
 - Venv: `~/.config/captain-hook/.venv/`
+
+## How It Works
+
+1. `captain-hook install` → registers bash runners in `~/.claude/settings.json`
+2. `captain-hook toggle` → enables/disables hooks, regenerates runners, syncs prompt hooks
+3. Claude triggers event → bash runner executes → chains enabled hooks
+4. Native prompt hooks are registered directly as `type: "prompt"` in Claude settings
 
 ## Development
 
@@ -39,14 +50,12 @@ pip install -e .
 captain-hook  # Run the CLI
 ```
 
-## Testing Changes
-
 After modifying hook-related code:
 1. Run `captain-hook toggle` to regenerate runners
 2. Test with a Claude Code session
 
-## Adding New Events
+## Adding New Hook Types
 
-1. Add to `EVENTS` list in `config.py`
-2. Add to `CLAUDE_EVENTS` mapping in `installer.py`
-3. Create directory in `hooks/`
+1. Update `scanner.py` to detect the pattern
+2. Update `generator.py` if it needs runner handling
+3. Update `installer.py` if it needs direct Claude registration

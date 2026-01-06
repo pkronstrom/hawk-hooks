@@ -43,9 +43,20 @@ def run_wizard():
     """Run the first-time setup wizard."""
     console.print(Panel(
         "[bold cyan]Welcome to captain-hook![/bold cyan]\n"
-        "[dim]Let's get you set up.[/dim]",
+        "[dim]A modular Claude Code hooks manager[/dim]",
         border_style="cyan",
     ))
+    console.print()
+
+    # Brief explanation
+    console.print("[bold]How it works:[/bold]")
+    console.print("  1. Add scripts to [cyan]~/.config/captain-hook/hooks/{event}/[/cyan]")
+    console.print("  2. Run [cyan]captain-hook toggle[/cyan] to enable them")
+    console.print("  3. Claude will run your hooks on matching events")
+    console.print()
+    console.print("[dim]Supported formats: .py, .sh, .js, .ts (scripts)[/dim]")
+    console.print("[dim]                   .stdout.md (context injection)[/dim]")
+    console.print("[dim]                   .prompt.json (LLM-evaluated)[/dim]")
     console.print()
 
     # Ensure directories exist
@@ -154,7 +165,12 @@ def show_status():
         for hook in event_hooks:
             is_enabled = hook.name in enabled
             icon = "[green]✓[/green]" if is_enabled else "[dim]✗[/dim]"
-            hook_type = "[magenta]prompt[/magenta]" if hook.is_prompt else f"[dim]{hook.extension}[/dim]"
+            if hook.is_native_prompt:
+                hook_type = "[magenta]prompt[/magenta]"
+            elif hook.is_stdout:
+                hook_type = "[cyan]stdout[/cyan]"
+            else:
+                hook_type = f"[dim]{hook.extension}[/dim]"
             console.print(f"    {icon} {hook.name:20} {hook_type:15} {hook.description}")
 
     console.print()
@@ -322,7 +338,12 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
 
         for hook in event_hooks:
             is_enabled = hook.name in enabled_list
-            hook_type = "[prompt]" if hook.is_prompt else f"[{hook.extension}]"
+            if hook.is_native_prompt:
+                hook_type = "[prompt]"
+            elif hook.is_stdout:
+                hook_type = "[stdout]"
+            else:
+                hook_type = f"[{hook.extension}]"
             label = f"{hook.name:20} {hook_type:10} {hook.description}"
 
             choices.append(questionary.Choice(
@@ -360,17 +381,23 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
             add_to_git_exclude=add_to_git_exclude,
         )
 
-    # Regenerate runners
+    # Regenerate runners and sync prompt hooks
     console.print()
-    console.print("[bold]Regenerating runners...[/bold]")
+    console.print("[bold]Updating hooks...[/bold]")
 
     if scope == "project":
         runners = generator.generate_all_runners(scope="project", project_dir=Path.cwd())
+        prompt_results = installer.sync_prompt_hooks(level="project", project_dir=Path.cwd())
     else:
         runners = generator.generate_all_runners(scope="global")
+        prompt_results = installer.sync_prompt_hooks(level="user")
 
     for runner in runners:
         console.print(f"  [green]✓[/green] {runner.name}")
+
+    for hook_name, success in prompt_results.items():
+        if success:
+            console.print(f"  [green]✓[/green] {hook_name} [dim](prompt)[/dim]")
 
     console.print()
     console.print(f"[green]Hooks updated ({scope}).[/green]")
