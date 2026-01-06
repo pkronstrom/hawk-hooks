@@ -393,7 +393,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None):
         f"Toggle hooks ({scope}):",
         choices=choices,
         style=custom_style,
-        instruction="(Space toggle • Enter save • ESC cancel)",
+        instruction="(Space toggle • A all • I invert • Enter save)",
     ).ask()
 
     if selected is None:
