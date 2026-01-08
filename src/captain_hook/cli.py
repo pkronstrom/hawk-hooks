@@ -502,6 +502,11 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         )
     )
     console.print()
+
+    # Wait for user to acknowledge before returning
+    console.print("[dim]Press Enter to continue...[/dim]")
+    input()
+
     return True
 
 
