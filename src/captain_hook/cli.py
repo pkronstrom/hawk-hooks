@@ -176,7 +176,9 @@ def show_status():
     from rich.console import Console as RichConsole
 
     buffer = StringIO()
-    temp_console = RichConsole(file=buffer, width=console.width, legacy_windows=False)
+    temp_console = RichConsole(
+        file=buffer, width=console.width, legacy_windows=False, force_terminal=True
+    )
 
     temp_console.print()
 
@@ -330,27 +332,25 @@ def show_status():
             if key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
                 break
     else:
-        # Need pagination with navigation
+        # Need smooth scrolling with navigation
         import readchar
 
-        page_start = 0
-        total_pages = (len(lines) + max_lines_per_page - 1) // max_lines_per_page
+        window_offset = 0
 
         while True:
             console.clear()
             print()  # Blank line at top
 
-            page_end = min(page_start + max_lines_per_page, len(lines))
-            page_lines = lines[page_start:page_end]
+            window_end = min(window_offset + max_lines_per_page, len(lines))
+            visible_lines = lines[window_offset:window_end]
 
             # Print lines with ANSI codes preserved
-            for line in page_lines:
+            for line in visible_lines:
                 print(line)
 
             # Build navigation hint
-            current_page = (page_start // max_lines_per_page) + 1
-            lines_above = page_start
-            lines_below = len(lines) - page_end
+            lines_above = window_offset
+            lines_below = len(lines) - window_end
 
             hint_parts = []
             if lines_above > 0:
@@ -358,8 +358,8 @@ def show_status():
             if lines_below > 0:
                 hint_parts.append(f"[dim]↓ {lines_below} more below[/dim]")
 
-            hint_parts.append(f"[dim]Page {current_page}/{total_pages}[/dim]")
-            hint_parts.append("[dim]↑/↓ navigate  Enter/q exit[/dim]")
+            hint_parts.append(f"[dim]Line {window_offset + 1}-{window_end}/{len(lines)}[/dim]")
+            hint_parts.append("[dim]↑/↓ scroll  Enter/q exit[/dim]")
 
             console.print("\n" + "  ".join(hint_parts))
 
@@ -367,13 +367,13 @@ def show_status():
             key = readchar.readkey()
 
             if key == readchar.key.DOWN:
-                # Go to next page
-                if page_end < len(lines):
-                    page_start = page_end
+                # Scroll down one line
+                if window_end < len(lines):
+                    window_offset += 1
             elif key == readchar.key.UP:
-                # Go to previous page
-                if page_start > 0:
-                    page_start = max(0, page_start - max_lines_per_page)
+                # Scroll up one line
+                if window_offset > 0:
+                    window_offset -= 1
             elif key == readchar.key.ENTER or key == "\r" or key == "\n":
                 # Exit on Enter
                 break
