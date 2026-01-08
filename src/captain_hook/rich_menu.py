@@ -80,14 +80,18 @@ class CheckboxItem(MenuItem):
         label: Display text for the item.
         checked: Whether the checkbox is checked.
         value: Optional value to return (defaults to key).
+        original_checked: Original state for tracking changes.
     """
 
     checked: bool = False
     value: Any = None
+    original_checked: bool = None  # Track original state
 
     def __post_init__(self):
         if self.value is None:
             self.value = self.key
+        if self.original_checked is None:
+            self.original_checked = self.checked
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
         # Split label into name and description (if present)
@@ -107,6 +111,10 @@ class CheckboxItem(MenuItem):
             else:
                 checkbox = "[red]✗[/red]"
                 label = f"[strike red dim]{self.label}[/]"
+
+        # Add change indicator if state differs from original
+        if self.checked != self.original_checked:
+            label += " [yellow]●[/yellow]"
 
         return f"{checkbox} {label}"
 
@@ -475,7 +483,7 @@ class InteractiveList:
         # Check if menu has checkboxes
         has_checkboxes = any(isinstance(item, CheckboxItem) for item in self.items)
         if has_checkboxes:
-            footer = "[dim]↑↓/jk navigate • Space toggle • Enter confirm • Esc/q cancel[/dim]"
+            footer = "[dim]↑↓/jk navigate • Space toggle • [yellow]●[/yellow] unsaved • Enter save • Esc/q cancel[/dim]"
         else:
             footer = "[dim]↑↓/jk navigate • Enter/Space select • Esc/q exit[/dim]"
 
