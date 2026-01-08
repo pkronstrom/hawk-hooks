@@ -297,6 +297,8 @@ class InteractiveList:
     Provides a flicker-free menu system using Rich.Live. Changes are tracked
     and returned as a dictionary when the user exits or triggers an action.
 
+    Automatically remembers cursor position across menu instances with the same title.
+
     Keyboard controls:
         - Up/Down or j/k: Navigate
         - Enter/Space: Activate item (toggle, edit, or action)
@@ -324,6 +326,8 @@ class InteractiveList:
         result = menu.show()  # {"debug": True, "name": "Bob", "action": "save"}
     """
 
+    _cursor_memory: dict[str, int] = {}  # Class variable to remember positions by title
+
     def __init__(self, title: str, items: list[MenuItem], console: Console | None = None):
         if not items:
             raise ValueError("Menu must have at least one item")
@@ -342,11 +346,27 @@ class InteractiveList:
         self._live: Live | None = None
         self.window_offset = 0  # For scrolling
 
-        # Find first non-separator item
-        for i, item in enumerate(self.items):
-            if not isinstance(item, SeparatorItem):
-                self.cursor_pos = i
-                break
+        # Try to restore cursor position for this menu title
+        if title in InteractiveList._cursor_memory:
+            saved_pos = InteractiveList._cursor_memory[title]
+            # Validate position is still valid
+            if 0 <= saved_pos < len(self.items):
+                self.cursor_pos = saved_pos
+                # If it landed on a separator, move to next valid item
+                if isinstance(self.items[self.cursor_pos], SeparatorItem):
+                    self._move_cursor(+1)
+            else:
+                # Position no longer valid, find first non-separator
+                for i, item in enumerate(self.items):
+                    if not isinstance(item, SeparatorItem):
+                        self.cursor_pos = i
+                        break
+        else:
+            # First time seeing this menu, find first non-separator
+            for i, item in enumerate(self.items):
+                if not isinstance(item, SeparatorItem):
+                    self.cursor_pos = i
+                    break
 
     def _move_cursor(self, delta: int):
         """Move cursor up/down, skipping separators."""
@@ -614,5 +634,8 @@ class InteractiveList:
                     live.update(self.render())
                 except KeyboardInterrupt:
                     self.should_exit = True
+
+        # Save cursor position before returning
+        InteractiveList._cursor_memory[self.title] = self.cursor_pos
 
         return self.changes
