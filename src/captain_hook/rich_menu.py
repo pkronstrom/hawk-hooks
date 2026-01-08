@@ -226,6 +226,10 @@ class InteractiveList:
         if not items:
             raise ValueError("Menu must have at least one item")
 
+        # Validate at least one non-separator item exists
+        if all(isinstance(item, SeparatorItem) for item in items):
+            raise ValueError("Menu must have at least one interactive item")
+
         self.title = title
         self.items = items
         self.console = console or Console()
@@ -235,9 +239,11 @@ class InteractiveList:
         self.should_exit = False
         self._live: Live | None = None
 
-        # Move to first non-separator item
-        if isinstance(self.items[0], SeparatorItem):
-            self._move_cursor(1)
+        # Find first non-separator item
+        for i, item in enumerate(self.items):
+            if not isinstance(item, SeparatorItem):
+                self.cursor_pos = i
+                break
 
     def _move_cursor(self, delta: int):
         """Move cursor up/down, skipping separators."""
@@ -255,12 +261,9 @@ class InteractiveList:
             new_pos = 0
 
         # Skip separators with infinite loop protection
+        # Scan circularly forward to find next interactive item
         while isinstance(self.items[new_pos], SeparatorItem):
-            new_pos += delta
-            if new_pos < 0:
-                new_pos = len(self.items) - 1
-            elif new_pos >= len(self.items):
-                new_pos = 0
+            new_pos = (new_pos + 1) % len(self.items)
 
             attempts += 1
             if attempts >= max_attempts:
@@ -283,42 +286,43 @@ class InteractiveList:
         edit_buffer = item.value
         original_value = item.value  # Store for cancel restoration
 
-        while True:
-            # Update display with cursor
-            live.update(self.render())
+        try:
+            while True:
+                # Update display with cursor
+                live.update(self.render())
 
-            try:
-                key = readchar.readkey()
-            except KeyboardInterrupt:
-                item.value = original_value  # Restore on interrupt
-                break
+                try:
+                    key = readchar.readkey()
+                except KeyboardInterrupt:
+                    item.value = original_value  # Restore on interrupt
+                    break
 
-            # Commit changes
-            if key == readchar.key.ENTER:
+                # Cancel editing
+                if key == readchar.key.ESC:
+                    item.value = original_value  # Restore original value
+                    break
+
+                # Commit changes
+                elif key == readchar.key.ENTER:
+                    # Save to changes dict if item has a key
+                    if item.key is not None:
+                        self.changes[item.key] = edit_buffer
+                    break
+
+                # Backspace
+                elif key == readchar.key.BACKSPACE:
+                    if edit_buffer:
+                        edit_buffer = edit_buffer[:-1]
+
+                # Regular character input
+                elif len(key) == 1 and key.isprintable():
+                    if len(edit_buffer) < item.max_length:
+                        edit_buffer += key
+
+                # Update item value for live preview
                 item.value = edit_buffer
-                if item.key is not None:  # Guard against None key
-                    self.changes[item.key] = edit_buffer
-                break
-
-            # Cancel editing
-            elif key == readchar.key.ESC:
-                item.value = original_value  # Restore original value
-                break
-
-            # Delete character
-            elif key == readchar.key.BACKSPACE:
-                if edit_buffer:
-                    edit_buffer = edit_buffer[:-1]
-
-            # Add printable characters
-            elif len(key) == 1 and key.isprintable():
-                if len(edit_buffer) < item.max_length:
-                    edit_buffer += key
-
-            # Update item value for live preview
-            item.value = edit_buffer
-
-        self.editing_index = None
+        finally:
+            self.editing_index = None
 
     def _activate_current_item(self, live: Live | None = None):
         """Handle Enter/Space activation on the current menu item.
