@@ -95,7 +95,7 @@ class CheckboxItem(MenuItem):
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
         # Check if state has changed
-        change_indicator = " [yellow]●[/yellow]" if self.checked != self.original_checked else ""
+        change_indicator = " [yellow]✱[/yellow]" if self.checked != self.original_checked else ""
 
         # Split label into name and description (if present)
         if " - " in self.label:
@@ -482,7 +482,7 @@ class InteractiveList:
         # Check if menu has checkboxes
         has_checkboxes = any(isinstance(item, CheckboxItem) for item in self.items)
         if has_checkboxes:
-            footer = "[dim]↑↓/jk navigate • Space toggle • [yellow]●[/yellow] unsaved • Enter save • Esc/q cancel[/dim]"
+            footer = "[dim]↑↓/jk navigate • Space toggle • [yellow]✱[/yellow] unsaved • Enter save • Esc/q cancel[/dim]"
         else:
             footer = "[dim]↑↓/jk navigate • Enter/Space select • Esc/q exit[/dim]"
 
