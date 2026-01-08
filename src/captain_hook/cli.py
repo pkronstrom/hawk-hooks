@@ -169,31 +169,40 @@ def run_wizard():
 def show_status():
     """Show status of all installed hooks and enabled handlers."""
     console.clear()
-    console.print()
+
+    # Build all content first to check if we need pagination
+    from io import StringIO
+
+    from rich.console import Console as RichConsole
+
+    buffer = StringIO()
+    temp_console = RichConsole(file=buffer, width=console.width, legacy_windows=False)
+
+    temp_console.print()
 
     # Claude settings status
     status = installer.get_status()
 
-    console.print("[bold]Claude Settings[/bold]")
-    console.print("─" * 50)
+    temp_console.print("[bold]Claude Settings[/bold]")
+    temp_console.print("─" * 50)
 
     # User level
     if status["user"]["installed"]:
-        console.print("  User:    [green]✓ Installed[/green]")
-        console.print(f"           [dim]{status['user']['path']}[/dim]")
+        temp_console.print("  User:    [green]✓ Installed[/green]")
+        temp_console.print(f"           [dim]{status['user']['path']}[/dim]")
     else:
-        console.print("  User:    [dim]✗ Not installed[/dim]")
-        console.print(f"           [dim]{status['user']['path']}[/dim]")
+        temp_console.print("  User:    [dim]✗ Not installed[/dim]")
+        temp_console.print(f"           [dim]{status['user']['path']}[/dim]")
 
     # Project level
     if status["project"]["installed"]:
-        console.print("  Project: [green]✓ Installed[/green]")
-        console.print(f"           [dim]{status['project']['path']}[/dim]")
+        temp_console.print("  Project: [green]✓ Installed[/green]")
+        temp_console.print(f"           [dim]{status['project']['path']}[/dim]")
     else:
-        console.print("  Project: [dim]✗ Not installed[/dim]")
-        console.print(f"           [dim]{status['project']['path']}[/dim]")
+        temp_console.print("  Project: [dim]✗ Not installed[/dim]")
+        temp_console.print(f"           [dim]{status['project']['path']}[/dim]")
 
-    console.print()
+    temp_console.print()
 
     # Event name mapping
     EVENT_INFO = {
@@ -216,12 +225,12 @@ def show_status():
 
     # Header
     if has_project:
-        console.print(
+        temp_console.print(
             "[bold]Enabled Hooks[/bold]  [dim]([yellow](P)[/yellow] project  [dim](G)[/dim] global)[/dim]"
         )
     else:
-        console.print("[bold]Enabled Hooks[/bold]")
-    console.print("─" * 50)
+        temp_console.print("[bold]Enabled Hooks[/bold]")
+    temp_console.print("─" * 50)
 
     any_enabled = False
     for event in config.EVENTS:
@@ -256,10 +265,10 @@ def show_status():
         # Print event header
         if event in EVENT_INFO:
             event_display, event_desc = EVENT_INFO[event]
-            console.print(f"\n  [cyan]{event_display}[/cyan] [dim]- {event_desc}[/dim]")
+            temp_console.print(f"\n  [cyan]{event_display}[/cyan] [dim]- {event_desc}[/dim]")
         else:
             event_display = event.replace("_", " ").title()
-            console.print(f"\n  [cyan]{event_display}[/cyan]")
+            temp_console.print(f"\n  [cyan]{event_display}[/cyan]")
 
         any_enabled = True
 
@@ -282,26 +291,59 @@ def show_status():
                     scope_badge = " [dim](G)[/dim]"
 
             # Print hook (name + type + scope on one line, description on next)
-            console.print(f"    [green]✓[/green] {hook.name} {hook_type}{scope_badge}")
+            temp_console.print(f"    [green]✓[/green] {hook.name} {hook_type}{scope_badge}")
             if hook.description:
-                console.print(f"       [dim]{hook.description}[/dim]")
+                temp_console.print(f"       [dim]{hook.description}[/dim]")
 
     if not any_enabled:
-        console.print("\n  [dim]No hooks enabled[/dim]")
+        temp_console.print("\n  [dim]No hooks enabled[/dim]")
 
-    console.print()
+    temp_console.print()
 
     # Project config indicator
     if has_project:
-        console.print("[dim]Project overrides active: .claude/captain-hook/config.json[/dim]")
+        temp_console.print("[dim]Project overrides active: .claude/captain-hook/config.json[/dim]")
     else:
-        console.print("[dim]Using global config[/dim]")
+        temp_console.print("[dim]Using global config[/dim]")
 
-    console.print()
+    temp_console.print()
 
-    # Wait for user to acknowledge before returning
-    console.print("[dim]Press Enter to continue...[/dim]")
-    input()
+    # Get the rendered content and count lines
+    content = buffer.getvalue()
+    lines = content.split("\n")
+    terminal_height = console.height
+
+    # Display with pagination if needed
+    max_lines_per_page = terminal_height - 3  # Leave room for prompt
+
+    if len(lines) <= max_lines_per_page:
+        # Fits on one screen - display all at once
+        console.print(content, end="")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
+    else:
+        # Need pagination
+        page_start = 0
+        while page_start < len(lines):
+            console.clear()
+            console.print()
+
+            page_end = min(page_start + max_lines_per_page, len(lines))
+            page_lines = lines[page_start:page_end]
+
+            for line in page_lines:
+                console.print(line)
+
+            # Show pagination indicator
+            if page_end < len(lines):
+                remaining = len(lines) - page_end
+                console.print(f"\n[dim]↓ {remaining} more lines - Press Enter to continue...[/dim]")
+                input()
+                page_start = page_end
+            else:
+                console.print("\n[dim]Press Enter to continue...[/dim]")
+                input()
+                break
 
 
 def interactive_install() -> bool:
