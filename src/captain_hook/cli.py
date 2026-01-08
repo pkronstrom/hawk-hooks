@@ -398,8 +398,8 @@ def interactive_install() -> bool:
     return True
 
 
-def interactive_uninstall():
-    """Interactive uninstallation wizard."""
+def interactive_uninstall() -> bool:
+    """Interactive uninstallation wizard. Returns True on success, False on cancel."""
     console.clear()
     menu = InteractiveList(
         title="Uninstall captain-hook from:",
@@ -414,7 +414,7 @@ def interactive_uninstall():
     level = result.get("action")
 
     if level is None:
-        return
+        return False
 
     confirm = questionary.confirm(
         f"Remove captain-hook from {level} settings?",
@@ -423,7 +423,7 @@ def interactive_uninstall():
     ).ask()
 
     if not confirm:
-        return
+        return False
 
     # Uninstall from Claude
     if level == "both":
@@ -461,6 +461,7 @@ def interactive_uninstall():
     console.print(f"  [cyan]rm -rf {config.get_config_dir()}[/cyan]  [dim](config + hooks)[/dim]")
     console.print("  [cyan]pipx uninstall captain-hook[/cyan]  [dim](program)[/dim]")
     console.print()
+    return True
 
 
 def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bool:
@@ -1279,8 +1280,8 @@ def interactive_menu():
             if interactive_install():
                 break  # Exit on successful completion
         elif choice == "uninstall":
-            interactive_uninstall()
-            break  # Exit after uninstall
+            if interactive_uninstall():
+                break  # Exit on successful completion
         elif choice == "deps":
             install_deps()
 
