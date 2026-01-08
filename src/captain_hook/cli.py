@@ -945,6 +945,7 @@ def interactive_config():
 
         # Wait for user to acknowledge
         import readchar
+
         while True:
             key = readchar.readkey()
             if key == readchar.key.ENTER or key == "\r" or key == "\n":
@@ -957,6 +958,7 @@ def interactive_config():
         console.print()
         console.print("[dim]Press Enter to continue...[/dim]")
         import readchar
+
         while True:
             key = readchar.readkey()
             if key == readchar.key.ENTER or key == "\r" or key == "\n":
@@ -1353,6 +1355,7 @@ def interactive_menu():
         choice = result.get("action")
 
         if choice is None or choice == "exit":
+            console.clear()
             break
 
         if choice == "status":
