@@ -499,14 +499,18 @@ class InteractiveList:
         Args:
             key: Key string from readchar.readkey().
         """
-        # Debug: uncomment to see key codes
-        print(f"\nDEBUG: key={repr(key)}, ESC={repr(readchar.key.ESC)}")
+        # Debug: uncomment to see key codes (writes to file to avoid breaking display)
+        # with open("/tmp/captain-hook-keys.log", "a") as f:
+        #     f.write(f"key={repr(key)}, ESC={repr(readchar.key.ESC)}\n")
 
-        # Exit keys - handle multiple escape sequences for different terminals
-        # \x1b - standard escape
-        # readchar.key.ESC - readchar's escape constant
-        # Also check first byte for ESC character (0x1b / 27)
-        is_escape = key == readchar.key.ESC or key == "\x1b" or (key and ord(key[0]) == 27)
+        # Exit keys - handle escape but not arrow keys
+        # Arrow keys are escape sequences: \x1b[A, \x1b[B, etc.
+        # Only treat as exit if it's JUST escape character(s), not an arrow sequence
+        is_escape = (
+            key == readchar.key.ESC  # readchar constant
+            or key == "\x1b"  # single escape
+            or key == "\x1b\x1b"  # double escape (tmux sometimes sends this)
+        )
 
         if key.lower() == "q" or is_escape:
             self.should_exit = True
