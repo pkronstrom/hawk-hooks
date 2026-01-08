@@ -3,7 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
+import readchar
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
 
 
@@ -92,12 +94,13 @@ class Item:
         return SeparatorItem(label=label)
 
 
-
-
 class InteractiveList:
     """Interactive menu with keyboard navigation."""
 
     def __init__(self, title: str, items: list[MenuItem], console: Console | None = None):
+        if not items:
+            raise ValueError("Menu must have at least one item")
+
         self.title = title
         self.items = items
         self.console = console or Console()
@@ -105,6 +108,54 @@ class InteractiveList:
         self.editing_index: int | None = None
         self.changes: dict[str, Any] = {}
         self.should_exit = False
+
+        # Move to first non-separator item
+        if isinstance(self.items[0], SeparatorItem):
+            self._move_cursor(1)
+
+    def _move_cursor(self, delta: int):
+        """Move cursor up/down, skipping separators."""
+        if not self.items:
+            return
+
+        new_pos = self.cursor_pos + delta
+        attempts = 0
+        max_attempts = len(self.items)
+
+        # Wrap around
+        if new_pos < 0:
+            new_pos = len(self.items) - 1
+        elif new_pos >= len(self.items):
+            new_pos = 0
+
+        # Skip separators with infinite loop protection
+        while isinstance(self.items[new_pos], SeparatorItem):
+            new_pos += delta
+            if new_pos < 0:
+                new_pos = len(self.items) - 1
+            elif new_pos >= len(self.items):
+                new_pos = 0
+
+            attempts += 1
+            if attempts >= max_attempts:
+                # All items are separators - stay at current position
+                return
+
+        self.cursor_pos = new_pos
+
+    def _handle_key(self, key: str):
+        """Handle keyboard input."""
+        # Exit keys
+        if key in ["q", readchar.key.ESC]:
+            self.should_exit = True
+        # Navigation
+        elif key in ["j", readchar.key.DOWN]:
+            self._move_cursor(+1)
+        elif key in ["k", readchar.key.UP]:
+            self._move_cursor(-1)
+        # Action (placeholder for now)
+        elif key in [readchar.key.ENTER, " "]:
+            pass  # Will implement in next task
 
     def render(self) -> Panel:
         """Render the menu as a Rich Panel."""
@@ -129,6 +180,13 @@ class InteractiveList:
 
     def show(self) -> dict[str, Any]:
         """Display menu and return changes."""
-        # Placeholder - will add Live loop next
-        self.console.print(self.render())
+        with Live(self.render(), console=self.console, refresh_per_second=20) as live:
+            while not self.should_exit:
+                try:
+                    key = readchar.readkey()
+                    self._handle_key(key)
+                    live.update(self.render())
+                except KeyboardInterrupt:
+                    self.should_exit = True
+
         return self.changes
