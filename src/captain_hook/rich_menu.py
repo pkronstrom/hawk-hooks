@@ -300,6 +300,7 @@ class InteractiveList:
         self.changes: dict[str, Any] = {}
         self.should_exit = False
         self._live: Live | None = None
+        self.window_offset = 0  # For scrolling
 
         # Find first non-separator item
         for i, item in enumerate(self.items):
@@ -337,6 +338,25 @@ class InteractiveList:
                 return
 
         self.cursor_pos = new_pos
+
+    def _update_window(self, max_visible: int):
+        """Update window offset to keep cursor visible.
+
+        Args:
+            max_visible: Maximum number of items that can be displayed.
+        """
+        # If all items fit, no scrolling needed
+        if len(self.items) <= max_visible:
+            self.window_offset = 0
+            return
+
+        # Keep cursor in view
+        if self.cursor_pos < self.window_offset:
+            # Cursor moved above window, scroll up
+            self.window_offset = self.cursor_pos
+        elif self.cursor_pos >= self.window_offset + max_visible:
+            # Cursor moved below window, scroll down
+            self.window_offset = self.cursor_pos - max_visible + 1
 
     def _edit_text_item(self, item: TextItem, live: Live):
         """Enter inline text editing mode for a TextItem.
@@ -467,15 +487,37 @@ class InteractiveList:
         Returns:
             Rich Panel containing the menu items and keyboard help footer.
         """
+        # Calculate available height (terminal height - panel borders - title - footer)
+        terminal_height = self.console.height
+        max_visible = max(5, terminal_height - 8)  # Reserve space for borders, title, footer
+
+        # Update window to keep cursor visible
+        self._update_window(max_visible)
+
+        # Determine visible slice
+        window_end = min(self.window_offset + max_visible, len(self.items))
+        visible_items = self.items[self.window_offset : window_end]
+
+        # Add scroll indicators
         lines = []
-        for i, item in enumerate(self.items):
-            is_selected = i == self.cursor_pos
-            is_editing = i == self.editing_index
+        if self.window_offset > 0:
+            lines.append(f"[dim]  ↑ {self.window_offset} more above[/dim]")
+
+        # Render visible items
+        for i, item in enumerate(visible_items):
+            actual_index = self.window_offset + i
+            is_selected = actual_index == self.cursor_pos
+            is_editing = actual_index == self.editing_index
 
             # Selection indicator
             prefix = "[cyan]›[/cyan]" if is_selected else " "
             line = f"{prefix} {item.render(is_selected, is_editing)}"
             lines.append(line)
+
+        # Add more below indicator
+        items_below = len(self.items) - window_end
+        if items_below > 0:
+            lines.append(f"[dim]  ↓ {items_below} more below[/dim]")
 
         content = "\n".join(lines)
 
