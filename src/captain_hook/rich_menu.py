@@ -500,7 +500,7 @@ class InteractiveList:
             key: Key string from readchar.readkey().
         """
         # Debug: uncomment to see key codes
-        # print(f"\nDEBUG: key={repr(key)}, ESC={repr(readchar.key.ESC)}")
+        print(f"\nDEBUG: key={repr(key)}, ESC={repr(readchar.key.ESC)}")
 
         # Exit keys - handle multiple escape sequences for different terminals
         # \x1b - standard escape
