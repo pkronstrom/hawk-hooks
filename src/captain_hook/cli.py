@@ -310,7 +310,7 @@ def show_status():
 
     # Get the rendered content and count lines
     content = buffer.getvalue()
-    lines = content.split("\n")
+    lines = content.rstrip("\n").split("\n")
     terminal_height = console.height
 
     # Display with pagination if needed
@@ -318,31 +318,48 @@ def show_status():
 
     if len(lines) <= max_lines_per_page:
         # Fits on one screen - display all at once
-        console.print(content, end="")
+        # Use print() to preserve ANSI codes without Rich re-processing
+        print(content, end="")
         console.print("[dim]Press Enter to continue...[/dim]")
-        input()
+        import readchar
+
+        while True:
+            key = readchar.readkey()
+            if key == readchar.key.ENTER or key == "\r" or key == "\n":
+                break
     else:
         # Need pagination
         page_start = 0
         while page_start < len(lines):
             console.clear()
-            console.print()
+            print()  # Blank line at top
 
             page_end = min(page_start + max_lines_per_page, len(lines))
             page_lines = lines[page_start:page_end]
 
+            # Print lines with ANSI codes preserved
             for line in page_lines:
-                console.print(line)
+                print(line)
 
             # Show pagination indicator
             if page_end < len(lines):
                 remaining = len(lines) - page_end
                 console.print(f"\n[dim]↓ {remaining} more lines - Press Enter to continue...[/dim]")
-                input()
+                import readchar
+
+                while True:
+                    key = readchar.readkey()
+                    if key == readchar.key.ENTER or key == "\r" or key == "\n":
+                        break
                 page_start = page_end
             else:
                 console.print("\n[dim]Press Enter to continue...[/dim]")
-                input()
+                import readchar
+
+                while True:
+                    key = readchar.readkey()
+                    if key == readchar.key.ENTER or key == "\r" or key == "\n":
+                        break
                 break
 
 
