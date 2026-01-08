@@ -499,8 +499,16 @@ class InteractiveList:
         Args:
             key: Key string from readchar.readkey().
         """
-        # Exit keys - use \x1b as fallback for ESC on macOS
-        if key.lower() == "q" or key == readchar.key.ESC or key == "\x1b":
+        # Debug: uncomment to see key codes
+        # print(f"\nDEBUG: key={repr(key)}, ESC={repr(readchar.key.ESC)}")
+
+        # Exit keys - handle multiple escape sequences for different terminals
+        # \x1b - standard escape
+        # readchar.key.ESC - readchar's escape constant
+        # Also check first byte for ESC character (0x1b / 27)
+        is_escape = key == readchar.key.ESC or key == "\x1b" or (key and ord(key[0]) == 27)
+
+        if key.lower() == "q" or is_escape:
             self.should_exit = True
         # Navigation
         elif key.lower() == "j" or key == readchar.key.DOWN:
