@@ -94,27 +94,26 @@ class CheckboxItem(MenuItem):
             self.original_checked = self.checked
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
+        # Check if state has changed
+        change_indicator = " [yellow]●[/yellow]" if self.checked != self.original_checked else ""
+
         # Split label into name and description (if present)
         if " - " in self.label:
             name, description = self.label.split(" - ", 1)
             if self.checked:
                 checkbox = "[green]✓[/green]"
-                label = f"[green]{name}[/green] - {description}"
+                label = f"[green]{name}[/green]{change_indicator} - {description}"
             else:
                 checkbox = "[red]✗[/red]"
-                label = f"[strike red dim]{name}[/] - [dim]{description}[/]"
+                label = f"[strike red dim]{name}[/]{change_indicator} - [dim]{description}[/]"
         else:
             # No description, color entire label
             if self.checked:
                 checkbox = "[green]✓[/green]"
-                label = f"[green]{self.label}[/green]"
+                label = f"[green]{self.label}[/green]{change_indicator}"
             else:
                 checkbox = "[red]✗[/red]"
-                label = f"[strike red dim]{self.label}[/]"
-
-        # Add change indicator if state differs from original
-        if self.checked != self.original_checked:
-            label += " [yellow]●[/yellow]"
+                label = f"[strike red dim]{self.label}[/]{change_indicator}"
 
         return f"{checkbox} {label}"
 
