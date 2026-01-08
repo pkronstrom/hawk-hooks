@@ -143,6 +143,29 @@ class InteractiveList:
 
         self.cursor_pos = new_pos
 
+    def _activate_current_item(self):
+        """Handle Enter/Space on current item."""
+        item = self.items[self.cursor_pos]
+
+        # Defensive check - should never happen but be safe
+        if isinstance(item, SeparatorItem):
+            return
+
+        if isinstance(item, ToggleItem):
+            # Toggle boolean
+            item.value = not item.value
+            if item.key is not None:
+                self.changes[item.key] = item.value
+
+        elif isinstance(item, TextItem):
+            # Will implement text editing next
+            pass
+
+        elif isinstance(item, ActionItem):
+            # Exit with action (preserve other changes)
+            self.changes["action"] = item.value
+            self.should_exit = True
+
     def _handle_key(self, key: str):
         """Handle keyboard input."""
         # Exit keys
@@ -153,9 +176,9 @@ class InteractiveList:
             self._move_cursor(+1)
         elif key in ["k", readchar.key.UP]:
             self._move_cursor(-1)
-        # Action (placeholder for now)
+        # Action
         elif key in [readchar.key.ENTER, " "]:
-            pass  # Will implement in next task
+            self._activate_current_item()
 
     def render(self) -> Panel:
         """Render the menu as a Rich Panel."""
