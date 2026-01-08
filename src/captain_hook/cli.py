@@ -865,12 +865,14 @@ def interactive_config():
         menu = InteractiveList(title="Configuration", items=items, console=console)
         result = menu.show()
 
-        # Handle exit (either "Back" action or cancellation via Esc/q/Ctrl+C)
-        if result.get("action") == "back" or not result:
+        # Handle cancellation (Esc/q/Ctrl+C - no result dict)
+        if not result:
             break
 
-        # Apply changes (don't save yet)
+        # Apply changes from toggles and text fields (but not the "back" action)
         for key, value in result.items():
+            if key == "action":
+                continue  # Skip the action key
             if key == "debug":
                 cfg["debug"] = value
                 debug_changed = True
@@ -882,6 +884,10 @@ def interactive_config():
                     env_config[key] = value.strip() if isinstance(value, str) else value
                 cfg["env"] = env_config
                 env_changed = True
+
+        # Check if user selected "Back" to exit
+        if result.get("action") == "back":
+            break
 
     # Save config after loop if any changes were made
     if debug_changed or env_changed:
