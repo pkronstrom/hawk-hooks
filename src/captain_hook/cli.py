@@ -672,19 +672,24 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
 
     result_content = "\n".join(lines) if lines else "[dim]No changes[/dim]"
 
+    # Clear screen before showing success message
+    console.clear()
     console.print()
     console.print(
         Panel(
-            f"{result_content}\n\n[green]Hooks updated ({scope}).[/green]\n[dim]Changes take effect immediately.[/dim]",
-            title="[bold]✓ Success[/bold]",
+            f"{result_content}\n\n[dim]Changes take effect immediately.[/dim]\n\n[dim]Press Enter to continue...[/dim]",
+            title=f"[bold green]Updated hooks ({scope})[/bold green]",
             border_style="green",
         )
     )
-    console.print()
 
-    # Wait for user to acknowledge before returning
-    console.print("[dim]Press Enter to continue...[/dim]")
-    input()
+    # Wait for user to acknowledge (readchar to avoid showing input)
+    import readchar
+
+    while True:
+        key = readchar.readkey()
+        if key == readchar.key.ENTER or key == "\r" or key == "\n":
+            break
 
     return False  # Return to main menu instead of exiting
 
