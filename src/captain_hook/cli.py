@@ -39,7 +39,6 @@ def print_header():
             f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
-            width=80,
         )
     )
     console.print()
