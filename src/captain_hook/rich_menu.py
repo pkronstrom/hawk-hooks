@@ -95,7 +95,7 @@ class CheckboxItem(MenuItem):
             label = f"[green]{self.label}[/green]"
         else:
             checkbox = "[red]✗[/red]"
-            label = f"[red dim strike]{self.label}[/strike][/red]"
+            label = f"[strike red dim]{self.label}[/]"
         return f"{checkbox} {label}"
 
 
