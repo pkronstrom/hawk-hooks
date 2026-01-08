@@ -329,7 +329,9 @@ def show_status():
             key = readchar.readkey()
             if key == readchar.key.ENTER or key == "\r" or key == "\n":
                 break
-            if key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
+            # Check for q or escape (handle tmux/terminal variations)
+            is_escape = key == readchar.key.ESC or key == "\x1b" or (key and ord(key[0]) == 27)
+            if key.lower() == "q" or is_escape:
                 break
     else:
         # Need smooth scrolling with navigation
@@ -377,9 +379,11 @@ def show_status():
             elif key == readchar.key.ENTER or key == "\r" or key == "\n":
                 # Exit on Enter
                 break
-            elif key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
-                # Exit on q/Esc
-                break
+            else:
+                # Check for q or escape (handle tmux/terminal variations)
+                is_escape = key == readchar.key.ESC or key == "\x1b" or (key and ord(key[0]) == 27)
+                if key.lower() == "q" or is_escape:
+                    break
 
 
 def interactive_install() -> bool:
