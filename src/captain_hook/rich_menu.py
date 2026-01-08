@@ -1,4 +1,21 @@
-"""Rich.Live-based interactive menu system."""
+"""Rich.Live-based interactive menu system.
+
+A single-file, reusable menu library for building flicker-free CLI menus.
+
+Example:
+    from captain_hook.rich_menu import InteractiveList, Item
+
+    menu = InteractiveList(
+        title="Settings",
+        items=[
+            Item.toggle("debug", "Debug mode", value=True),
+            Item.text("api_key", "API Key", value=""),
+            Item.action("Save", value="save"),
+        ]
+    )
+
+    result = menu.show()  # Returns: {"debug": False, "api_key": "newkey"}
+"""
 
 from dataclasses import dataclass
 from typing import Any
@@ -11,20 +28,40 @@ from rich.panel import Panel
 
 @dataclass
 class MenuItem:
-    """Base class for menu items."""
+    """Base class for menu items.
+
+    Attributes:
+        key: Optional identifier for storing changes (None for non-interactive items).
+        label: Display text for this item.
+        enabled: Whether this item can be interacted with.
+    """
 
     key: str | None
     label: str
     enabled: bool = True
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
-        """Render this item as a string."""
+        """Render this item as a Rich markup string.
+
+        Args:
+            is_selected: Whether the cursor is on this item.
+            is_editing: Whether this item is in edit mode.
+
+        Returns:
+            Rich markup string to display in the menu.
+        """
         raise NotImplementedError
 
 
 @dataclass
 class ToggleItem(MenuItem):
-    """Boolean toggle item."""
+    """Boolean toggle item (checkbox/switch).
+
+    Toggle between True/False by pressing Enter or Space.
+
+    Attributes:
+        value: Current boolean state.
+    """
 
     value: bool = False
 
@@ -36,7 +73,14 @@ class ToggleItem(MenuItem):
 
 @dataclass
 class TextItem(MenuItem):
-    """Text input item."""
+    """Text input field.
+
+    Press Enter to edit, type normally, Enter to save, Esc to cancel.
+
+    Attributes:
+        value: Current text value.
+        max_length: Maximum allowed characters.
+    """
 
     value: str = ""
     max_length: int = 100
@@ -51,7 +95,14 @@ class TextItem(MenuItem):
 
 @dataclass
 class ActionItem(MenuItem):
-    """Action/button item."""
+    """Clickable action/button.
+
+    Pressing Enter triggers the action and exits the menu with
+    {"action": value} in the result dictionary.
+
+    Attributes:
+        value: Identifier returned when this action is triggered.
+    """
 
     value: Any = None
 
@@ -62,7 +113,10 @@ class ActionItem(MenuItem):
 
 @dataclass
 class SeparatorItem(MenuItem):
-    """Visual separator."""
+    """Visual separator/divider.
+
+    Non-interactive item used for grouping or spacing. Cursor skips over it.
+    """
 
     def __init__(self, label: str):
         super().__init__(key=None, label=label, enabled=False)
@@ -72,31 +126,101 @@ class SeparatorItem(MenuItem):
 
 
 class Item:
-    """Factory for creating menu items."""
+    """Factory for creating menu items.
+
+    Provides convenient static methods for creating different item types:
+    - toggle(): Boolean checkbox/switch
+    - text(): Text input field
+    - action(): Clickable button
+    - separator(): Visual divider
+    """
 
     @staticmethod
     def toggle(key: str, label: str, value: bool = False) -> ToggleItem:
-        """Create a boolean toggle item."""
+        """Create a boolean toggle item.
+
+        Args:
+            key: Identifier for tracking changes.
+            label: Display text.
+            value: Initial boolean state.
+
+        Returns:
+            ToggleItem that can be added to a menu.
+        """
         return ToggleItem(key=key, label=label, value=value)
 
     @staticmethod
     def text(key: str, label: str, value: str = "") -> TextItem:
-        """Create a text input item."""
+        """Create a text input item.
+
+        Args:
+            key: Identifier for tracking changes.
+            label: Display text.
+            value: Initial text value.
+
+        Returns:
+            TextItem that can be added to a menu.
+        """
         return TextItem(key=key, label=label, value=value)
 
     @staticmethod
     def action(label: str, value: Any = None) -> ActionItem:
-        """Create an action/button item."""
+        """Create an action/button item.
+
+        Args:
+            label: Display text for the button.
+            value: Identifier returned in {"action": value} when triggered.
+
+        Returns:
+            ActionItem that exits the menu when activated.
+        """
         return ActionItem(key=None, label=label, value=value)
 
     @staticmethod
     def separator(label: str) -> SeparatorItem:
-        """Create a visual separator."""
+        """Create a visual separator.
+
+        Args:
+            label: Text to display (typically blank or a category name).
+
+        Returns:
+            Non-interactive SeparatorItem for visual grouping.
+        """
         return SeparatorItem(label=label)
 
 
 class InteractiveList:
-    """Interactive menu with keyboard navigation."""
+    """Interactive menu with keyboard navigation and live updates.
+
+    Provides a flicker-free menu system using Rich.Live. Changes are tracked
+    and returned as a dictionary when the user exits or triggers an action.
+
+    Keyboard controls:
+        - Up/Down or j/k: Navigate
+        - Enter/Space: Activate item (toggle, edit, or action)
+        - Esc/q: Exit without saving changes
+        - In text edit mode: Enter saves, Esc cancels
+
+    Args:
+        title: Menu title displayed in the panel header.
+        items: List of MenuItem objects to display.
+        console: Optional Rich Console for output (auto-created if not provided).
+
+    Raises:
+        ValueError: If items list is empty.
+
+    Example:
+        menu = InteractiveList(
+            title="Settings",
+            items=[
+                Item.toggle("debug", "Debug Mode", value=False),
+                Item.text("name", "User Name", value="Alice"),
+                Item.separator(""),
+                Item.action("Save", value="save"),
+            ]
+        )
+        result = menu.show()  # {"debug": True, "name": "Bob", "action": "save"}
+    """
 
     def __init__(self, title: str, items: list[MenuItem], console: Console | None = None):
         if not items:
@@ -146,7 +270,15 @@ class InteractiveList:
         self.cursor_pos = new_pos
 
     def _edit_text_item(self, item: TextItem, live: Live):
-        """Enter inline text editing mode."""
+        """Enter inline text editing mode for a TextItem.
+
+        Displays a cursor and allows character input, backspace, Enter to save,
+        and Esc to cancel. The live display updates in real-time as the user types.
+
+        Args:
+            item: The TextItem to edit.
+            live: The Rich Live context for updating the display.
+        """
         self.editing_index = self.cursor_pos
         edit_buffer = item.value
         original_value = item.value  # Store for cancel restoration
@@ -189,7 +321,17 @@ class InteractiveList:
         self.editing_index = None
 
     def _activate_current_item(self, live: Live | None = None):
-        """Handle Enter/Space on current item."""
+        """Handle Enter/Space activation on the current menu item.
+
+        Behavior depends on item type:
+        - ToggleItem: Flip boolean value and track change
+        - TextItem: Enter text editing mode
+        - ActionItem: Set action and exit menu
+        - SeparatorItem: No effect (defensive check)
+
+        Args:
+            live: Optional Live context (required for TextItem editing).
+        """
         item = self.items[self.cursor_pos]
 
         # Defensive check - should never happen but be safe
@@ -210,7 +352,17 @@ class InteractiveList:
             self.should_exit = True
 
     def _handle_key(self, key: str):
-        """Handle keyboard input."""
+        """Handle keyboard input and update menu state.
+
+        Key mappings:
+            - q/Esc: Exit menu
+            - j/Down: Move cursor down
+            - k/Up: Move cursor up
+            - Enter/Space: Activate current item
+
+        Args:
+            key: Key string from readchar.readkey().
+        """
         # Exit keys
         if key in ["q", readchar.key.ESC]:
             self.should_exit = True
@@ -224,7 +376,11 @@ class InteractiveList:
             self._activate_current_item(self._live)
 
     def render(self) -> Panel:
-        """Render the menu as a Rich Panel."""
+        """Render the menu as a Rich Panel with cursor and help text.
+
+        Returns:
+            Rich Panel containing the menu items and keyboard help footer.
+        """
         lines = []
         for i, item in enumerate(self.items):
             is_selected = i == self.cursor_pos
@@ -245,7 +401,22 @@ class InteractiveList:
         )
 
     def show(self) -> dict[str, Any]:
-        """Display menu and return changes."""
+        """Display the interactive menu and block until user exits.
+
+        The menu runs in a Rich.Live context for flicker-free updates.
+        All changes to toggle and text items are tracked in real-time.
+
+        Returns:
+            Dictionary of changes:
+            - For toggles/text: {key: value} pairs for modified items
+            - For actions: {"action": value} when an action is triggered
+            - Empty dict if user exits without changes (Esc/q)
+
+        Example:
+            result = menu.show()
+            # User toggled "debug" and clicked "Save"
+            # Returns: {"debug": True, "action": "save"}
+        """
         with Live(self.render(), console=self.console, refresh_per_second=20) as live:
             self._live = live  # Store for activation
 
