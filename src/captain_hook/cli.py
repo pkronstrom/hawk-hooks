@@ -478,9 +478,6 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         )
 
     # Regenerate runners and sync prompt hooks
-    console.print()
-    console.print("[bold]Updating hooks...[/bold]")
-
     if scope == "project":
         runners = generator.generate_all_runners(scope="project", project_dir=Path.cwd())
         prompt_results = installer.sync_prompt_hooks(level="project", project_dir=Path.cwd())
@@ -488,16 +485,25 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         runners = generator.generate_all_runners(scope="global")
         prompt_results = installer.sync_prompt_hooks(level="user")
 
+    # Build result message
+    lines = []
     for runner in runners:
-        console.print(f"  [green]✓[/green] {runner.name}")
+        lines.append(f"[green]✓[/green] {runner.name}")
 
     for hook_name, success in prompt_results.items():
         if success:
-            console.print(f"  [green]✓[/green] {hook_name} [dim](prompt)[/dim]")
+            lines.append(f"[green]✓[/green] {hook_name} [dim](prompt)[/dim]")
+
+    result_content = "\n".join(lines) if lines else "[dim]No changes[/dim]"
 
     console.print()
-    console.print(f"[green]Hooks updated ({scope}).[/green]")
-    console.print("[dim]Changes take effect immediately.[/dim]")
+    console.print(
+        Panel(
+            f"{result_content}\n\n[green]Hooks updated ({scope}).[/green]\n[dim]Changes take effect immediately.[/dim]",
+            title="[bold]✓ Success[/bold]",
+            border_style="green",
+        )
+    )
     console.print()
     return True
 
