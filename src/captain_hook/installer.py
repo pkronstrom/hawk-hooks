@@ -46,6 +46,10 @@ CLAUDE_EVENTS = {
         "claude_event": "PreCompact",
         "matchers": [None],
     },
+    "permission_request": {
+        "claude_event": "PermissionRequest",
+        "matchers": [None],
+    },
 }
 
 
@@ -275,7 +279,9 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
     all_hooks = scanner.scan_hooks()
 
     # Get enabled hooks from config
-    cfg = config.load_config() if level == "user" else (config.load_project_config(project_dir) or {})
+    cfg = (
+        config.load_config() if level == "user" else (config.load_project_config(project_dir) or {})
+    )
     enabled_by_event = cfg.get("enabled", {})
 
     results = {}
@@ -285,13 +291,14 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
         hook_groups = settings["hooks"][claude_event]
         for hook_group in hook_groups:
             hook_group["hooks"] = [
-                h for h in hook_group.get("hooks", [])
-                if not (h.get("type") == "prompt" and h.get("prompt", "").startswith("[captain-hook]"))
+                h
+                for h in hook_group.get("hooks", [])
+                if not (
+                    h.get("type") == "prompt" and h.get("prompt", "").startswith("[captain-hook]")
+                )
             ]
         # Remove empty hook groups
-        settings["hooks"][claude_event] = [
-            hg for hg in hook_groups if hg.get("hooks")
-        ]
+        settings["hooks"][claude_event] = [hg for hg in hook_groups if hg.get("hooks")]
 
     # Clean up empty event entries
     settings["hooks"] = {k: v for k, v in settings["hooks"].items() if v}

@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-# Description: Detect repetitive action loops using Haiku CLI evaluation
+# Description: Detect repetitive action loops using transcript analysis + Haiku
 # Deps: none
 
-import hashlib
+"""
+Loop Detector - Analyzes the session transcript to detect if Claude is stuck
+in a repetitive pattern (e.g., retrying the same failing action).
+
+Uses the actual transcript file for accurate history, not temp file state.
+"""
+
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-# Track recent actions in temp file
-STATE_FILE = Path("/tmp/captain-hook-actions.json")
+# Only evaluate for mutation tools (reads are fine to repeat)
+MUTATION_TOOLS = {"Write", "Edit", "MultiEdit", "Bash", "NotebookEdit"}
 
-# Only evaluate every Nth action or after errors
-EVALUATION_INTERVAL = 5
+# Minimum actions before checking for loops
+MIN_ACTIONS_FOR_CHECK = 3
 
 JSON_SCHEMA = json.dumps(
     {
@@ -25,74 +31,97 @@ JSON_SCHEMA = json.dumps(
     }
 )
 
-PROMPT_TEMPLATE = """You are a progress validator. Analyze if Claude is making meaningful progress or stuck in a loop.
+PROMPT_TEMPLATE = """You are a progress validator analyzing Claude's recent actions for repetitive patterns.
 
 APPROVE if:
-- This action is meaningfully different from recent actions
-- Claude is trying a new approach after failure
+- Actions are meaningfully different from each other
+- Claude is trying genuinely new approaches after failures
 - Claude is making incremental progress on a multi-step task
+- Repeated similar actions are intentional (e.g., editing multiple files)
 
 BLOCK if:
-- Claude is repeating the same action that just failed
-- Claude is cycling through similar failing approaches
-- Claude keeps editing the same file with minor variations
-- Claude is retrying without addressing the root cause
+- Claude is repeating the exact same action that just failed
+- Claude is cycling through similar failing approaches without learning
+- Claude keeps editing the same file with minor variations hoping it will work
+- Claude is retrying without addressing the root cause of failure
 
-Recent actions (newest first):
+Recent actions from transcript (newest last):
 {recent_actions}
 
-Current action:
+Current action about to be taken:
 Tool: {tool_name}
-Input summary: {tool_summary}
+Input: {tool_input}
 
-Respond with your decision."""
+Analyze whether this represents meaningful progress or a repetitive loop."""
 
 
-def load_state() -> dict:
-    """Load state from file."""
+def read_transcript(path: str) -> list[dict]:
+    """Read and parse the JSONL transcript file."""
+    messages = []
     try:
-        if STATE_FILE.exists():
-            return json.loads(STATE_FILE.read_text())
-    except (json.JSONDecodeError, OSError):
+        with open(path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        messages.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except (OSError, IOError):
         pass
-    return {"actions": [], "call_count": 0, "last_error": False}
+    return messages
 
 
-def save_state(state: dict):
-    """Save state to file."""
-    STATE_FILE.write_text(json.dumps(state))
+def extract_tool_calls(messages: list[dict]) -> list[dict]:
+    """Extract recent tool calls from transcript messages."""
+    tool_calls = []
+
+    for msg in messages:
+        if msg.get("type") != "assistant":
+            continue
+
+        content = msg.get("message", {}).get("content", [])
+        if isinstance(content, str):
+            continue
+
+        for block in content:
+            if block.get("type") == "tool_use":
+                tool_calls.append(
+                    {
+                        "tool": block.get("name", "unknown"),
+                        "input": block.get("input", {}),
+                    }
+                )
+
+    return tool_calls
 
 
-def action_hash(tool_name: str, tool_input: dict) -> str:
-    """Create a short hash of an action for comparison."""
-    content = f"{tool_name}:{json.dumps(tool_input, sort_keys=True)}"
-    return hashlib.md5(content.encode()).hexdigest()[:8]
+def summarize_tool_call(tool: str, input_data: dict) -> str:
+    """Create a concise summary of a tool call."""
+    if tool == "Read":
+        return f"Read: {input_data.get('file_path', '?')}"
+    elif tool in ("Edit", "Write", "MultiEdit"):
+        path = input_data.get("file_path", "?")
+        return f"{tool}: {path}"
+    elif tool == "Bash":
+        cmd = input_data.get("command", "")[:80]
+        return f"Bash: {cmd}"
+    elif tool == "Grep":
+        pattern = input_data.get("pattern", "?")
+        return f"Grep: {pattern}"
+    elif tool == "Glob":
+        pattern = input_data.get("pattern", "?")
+        return f"Glob: {pattern}"
+    else:
+        return f"{tool}: {json.dumps(input_data)[:60]}"
 
 
-def summarize_input(tool_input: dict) -> str:
-    """Create a brief summary of tool input."""
-    if "file_path" in tool_input:
-        return f"file={tool_input['file_path']}"
-    if "command" in tool_input:
-        cmd = tool_input["command"][:100]
-        return f"cmd={cmd}"
-    if "pattern" in tool_input:
-        return f"pattern={tool_input['pattern']}"
-    return json.dumps(tool_input)[:100]
-
-
-def evaluate_with_haiku(tool_name: str, tool_input: dict, recent_actions: list) -> dict | None:
+def evaluate_with_haiku(tool_name: str, tool_input: dict, recent_actions: list[str]) -> dict | None:
     """Call claude CLI with haiku to evaluate the action."""
-    recent_str = (
-        "\n".join([f"- {a['tool']}: {a['summary']}" for a in recent_actions[-10:]])
-        if recent_actions
-        else "(no recent actions)"
-    )
-
     prompt = PROMPT_TEMPLATE.format(
         tool_name=tool_name,
-        tool_summary=summarize_input(tool_input),
-        recent_actions=recent_str,
+        tool_input=json.dumps(tool_input, indent=2)[:1000],
+        recent_actions="\n".join(f"- {a}" for a in recent_actions) or "(no recent actions)",
     )
 
     try:
@@ -107,8 +136,8 @@ def evaluate_with_haiku(tool_name: str, tool_input: dict, recent_actions: list) 
                 "json",
                 "--json-schema",
                 JSON_SCHEMA,
-                "--tools",
-                "",
+                "--max-tokens",
+                "200",
             ],
             capture_output=True,
             text=True,
@@ -117,7 +146,7 @@ def evaluate_with_haiku(tool_name: str, tool_input: dict, recent_actions: list) 
 
         if result.returncode == 0:
             response = json.loads(result.stdout)
-            return response.get("structured_output") or response.get("result")
+            return response.get("result")
     except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError):
         pass
 
@@ -127,50 +156,45 @@ def evaluate_with_haiku(tool_name: str, tool_input: dict, recent_actions: list) 
 def main():
     data = json.load(sys.stdin)
     tool_name = data.get("tool_name", "")
+
+    # Gate: only check mutation tools
+    if tool_name not in MUTATION_TOOLS:
+        return
+
     tool_input = data.get("tool_input", {})
 
-    state = load_state()
-    state["call_count"] += 1
+    # Get transcript path from session info
+    transcript_path = data.get("session", {}).get("transcript_path")
+    if not transcript_path or not Path(transcript_path).exists():
+        return  # Can't analyze without transcript
 
-    # Record this action
-    current_action = {
-        "tool": tool_name,
-        "summary": summarize_input(tool_input),
-        "hash": action_hash(tool_name, tool_input),
-    }
+    # Read and parse transcript
+    messages = read_transcript(transcript_path)
+    tool_calls = extract_tool_calls(messages)
 
-    # Quick check: exact same action hash in last 3?
-    recent_hashes = [a["hash"] for a in state["actions"][-3:]]
-    repeat_count = recent_hashes.count(current_action["hash"])
+    # Need enough history to detect patterns
+    if len(tool_calls) < MIN_ACTIONS_FOR_CHECK:
+        return
 
-    # Decide if we need Haiku evaluation
-    should_evaluate = (
-        repeat_count >= 2  # Same action 2+ times recently
-        or state["call_count"] % EVALUATION_INTERVAL == 0  # Periodic check
-        or state.get("last_error", False)  # After an error
-    )
+    # Get last N actions for context
+    recent_actions = [summarize_tool_call(tc["tool"], tc["input"]) for tc in tool_calls[-10:]]
 
-    if should_evaluate and state["actions"]:
-        result = evaluate_with_haiku(tool_name, tool_input, state["actions"])
+    # Quick heuristic: check if exact same action in last 3
+    current_summary = summarize_tool_call(tool_name, tool_input)
+    recent_summaries = recent_actions[-3:]
+    if recent_summaries.count(current_summary) >= 2:
+        # Likely loop - ask Haiku to confirm
+        result = evaluate_with_haiku(tool_name, tool_input, recent_actions)
 
         if result and result.get("decision") == "block":
             print(
                 json.dumps(
                     {
                         "decision": "block",
-                        "reason": f"[Loop Detected] {result.get('reason', 'Repetitive action pattern detected')}",
+                        "reason": f"[Loop Detected] {result.get('reason', 'Repetitive action pattern')}",
                     }
                 )
             )
-            # Don't record blocked actions
-            save_state(state)
-            return
-
-    # Record action and save
-    state["actions"].append(current_action)
-    state["actions"] = state["actions"][-20:]  # Keep last 20
-    state["last_error"] = False
-    save_state(state)
 
 
 if __name__ == "__main__":

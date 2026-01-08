@@ -16,6 +16,7 @@ EVENTS = [
     "session_start",
     "session_end",
     "pre_compact",
+    "permission_request",
 ]
 
 # Default config

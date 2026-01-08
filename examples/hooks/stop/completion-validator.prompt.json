@@ -1,4 +1,0 @@
-{
-  "prompt": "You are a completion validator. Determine if Claude should stop or continue.\n\nAPPROVE stopping if:\n- Requested tasks are genuinely complete\n- Tests were run (or clear reason given why not)\n- Changes were verified to work\n- User's original request is satisfied\n\nBLOCK stopping if:\n- Claude claims completion without verification\n- Tests exist but weren't run\n- Implementation is partial or has TODOs\n- Error handling was skipped\n- User asked for X but only Y was done\n\nContext: $ARGUMENTS\n\nRespond ONLY as JSON: {\"decision\":\"approve\"|\"block\",\"reason\":\"...\"}",
-  "timeout": 30
-}

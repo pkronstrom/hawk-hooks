@@ -14,15 +14,38 @@ A modular Claude Code hooks manager with auto-discovery, multi-language support,
 ## Installation
 
 ```bash
+# Using uv (recommended)
+uv tool install git+https://github.com/bembu/captain-hook.git
+
+# Or using pipx
 pipx install git+https://github.com/bembu/captain-hook.git
 ```
 
-Or for development:
+For development (editable install):
 ```bash
 git clone https://github.com/bembu/captain-hook.git
 cd captain-hook
+
+# Using uv (recommended)
+uv tool install --editable .
+
+# Or using pip
 pip install -e .
 ```
+
+### Installing uv
+
+If you don't have uv installed, it's the modern Python package manager (10-100x faster than pip):
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Or with Homebrew
+brew install uv
+```
+
+captain-hook will automatically use uv for installing hook dependencies if available, falling back to pip otherwise.
 
 ## Quick Start
 

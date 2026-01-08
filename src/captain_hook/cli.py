@@ -500,23 +500,38 @@ def _get_install_command(pkg_manager: str, packages: set[str]) -> str:
     return commands.get(pkg_manager, f"# Install: {pkg_list}")
 
 
+def _has_uv() -> bool:
+    """Check if uv is available."""
+    return shutil.which("uv") is not None
+
+
 def install_deps():
     """Install Python dependencies for hooks."""
     venv_dir = config.get_venv_dir()
     venv_python = config.get_venv_python()
+    use_uv = _has_uv()
 
     console.print("[bold]Installing dependencies...[/bold]")
+    if use_uv:
+        console.print("[dim]Using uv (fast)[/dim]")
     console.print(f"[dim]Venv location: {venv_dir}[/dim]")
     console.print()
 
     # Create venv if needed
     if not venv_dir.exists():
         console.print(f"  Creating venv at {venv_dir}...")
-        subprocess.run(
-            [sys.executable, "-m", "venv", str(venv_dir)],
-            check=True,
-            timeout=120,  # 2 minutes for venv creation
-        )
+        if use_uv:
+            subprocess.run(
+                ["uv", "venv", str(venv_dir)],
+                check=True,
+                timeout=60,  # uv is fast
+            )
+        else:
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(venv_dir)],
+                check=True,
+                timeout=120,  # 2 minutes for venv creation
+            )
         console.print("  [green]✓[/green] Venv created")
 
     # Get Python deps
@@ -529,11 +544,19 @@ def install_deps():
 
         if all_deps:
             console.print(f"  Installing: {', '.join(sorted(all_deps))}")
-            subprocess.run(
-                [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
-                check=True,
-                timeout=300,  # 5 minutes for pip install
-            )
+            if use_uv:
+                subprocess.run(
+                    ["uv", "pip", "install", "--python", str(venv_python), "--quiet"]
+                    + list(all_deps),
+                    check=True,
+                    timeout=120,  # uv is fast
+                )
+            else:
+                subprocess.run(
+                    [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
+                    check=True,
+                    timeout=300,  # 5 minutes for pip install
+                )
             console.print("  [green]✓[/green] Python deps installed")
     else:
         console.print("  [dim]No Python dependencies required[/dim]")
@@ -624,12 +647,18 @@ def interactive_config():
     # Merge script defaults with stored config values
     env_config = cfg.get("env", {})
 
-    console.print()
-    console.print("[bold]Configuration[/bold]")
-    console.print("─" * 50)
+    # Track last selected item to preserve caret position
+    last_choice = None
 
     while True:
-        # Build choices with current values
+        # Clear screen and redraw header for clean refresh
+        console.clear()
+        console.print()
+        console.print("[bold]Configuration[/bold]")
+        console.print("─" * 50)
+        console.print()
+
+        # Build choices with current values (refreshed each loop)
         debug_status = "✓ on " if cfg.get("debug", False) else "  off"
 
         choices = [
@@ -661,15 +690,21 @@ def interactive_config():
         choices.append(questionary.Separator("─────────"))
         choices.append(questionary.Choice("Back", value="back"))
 
-        console.print()
         choice = questionary.select(
             "Select to toggle/edit:",
             choices=choices,
+            default=last_choice,
             style=custom_style,
             instruction="(Enter select • Ctrl+C back)",
         ).ask()
 
+        # Remember this choice for next iteration
+        last_choice = choice
+
         if choice is None or choice == "back":
+            # Exit loop - clear before showing final results
+            console.clear()
+            console.print()
             break
 
         # Handle selection
@@ -687,6 +722,12 @@ def interactive_config():
                 new_value = "false" if is_on else "true"
             else:
                 # Text input for string values
+                console.clear()
+                console.print()
+                console.print(f"[bold]Edit {var_name}[/bold]")
+                console.print("─" * 50)
+                console.print()
+
                 new_value = questionary.text(
                     f"{var_name}:",
                     default=current_value,
