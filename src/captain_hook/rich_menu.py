@@ -63,3 +63,27 @@ class SeparatorItem(MenuItem):
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
         return f"[dim]{self.label}[/dim]"
+
+
+class Item:
+    """Factory for creating menu items."""
+
+    @staticmethod
+    def toggle(key: str, label: str, value: bool = False) -> ToggleItem:
+        """Create a boolean toggle item."""
+        return ToggleItem(key=key, label=label, value=value)
+
+    @staticmethod
+    def text(key: str, label: str, value: str = "") -> TextItem:
+        """Create a text input item."""
+        return TextItem(key=key, label=label, value=value)
+
+    @staticmethod
+    def action(label: str, value: Any = None) -> ActionItem:
+        """Create an action/button item."""
+        return ActionItem(key=None, label=label, value=value)
+
+    @staticmethod
+    def separator(label: str) -> SeparatorItem:
+        """Create a visual separator."""
+        return SeparatorItem(label=label)
