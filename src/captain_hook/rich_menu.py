@@ -94,18 +94,58 @@ class CheckboxItem(MenuItem):
             self.original_checked = self.checked
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
+        import textwrap
+
         # Check if state has changed
         change_indicator = " [yellow]✱[/yellow]" if self.checked != self.original_checked else ""
 
         # Split label into name and description (if present)
         if " - " in self.label:
             name, description = self.label.split(" - ", 1)
+
+            # Build the name part with indicator
             if self.checked:
                 checkbox = "[green]✓[/green]"
-                label = f"[green]{name}[/green]{change_indicator} - {description}"
+                name_part = f"[green]{name}[/green]{change_indicator}"
             else:
                 checkbox = "[red]✗[/red]"
-                label = f"[strike red dim]{name}[/]{change_indicator} - [dim]{description}[/]"
+                name_part = f"[strike red dim]{name}[/]{change_indicator}"
+
+            # Calculate indentation for wrapped lines
+            # Checkbox (1) + space (1) + max name length (~30) + " - " (3) = ~35
+            indent_spaces = len(name) + 5  # checkbox + space + " - " + indicator space
+
+            # Wrap description to fit in remaining space (assume 100 char total width)
+            desc_width = 95 - indent_spaces  # Leave some margin
+
+            if len(description) > desc_width:
+                # Wrap the description
+                wrapped_lines = textwrap.wrap(description, width=desc_width)
+                first_line = wrapped_lines[0]
+                remaining_lines = wrapped_lines[1:]
+
+                # Dim descriptions for unchecked items
+                if not self.checked:
+                    first_line = f"[dim]{first_line}[/]"
+                    result = f"{checkbox} {name_part} - {first_line}"
+
+                    # Add wrapped lines with proper indentation
+                    for line in remaining_lines:
+                        result += f"\n{' ' * (indent_spaces + 2)}[dim]{line}[/]"
+                else:
+                    result = f"{checkbox} {name_part} - {first_line}"
+
+                    # Add wrapped lines with proper indentation
+                    for line in remaining_lines:
+                        result += f"\n{' ' * (indent_spaces + 2)}{line}"
+
+                return result
+            else:
+                # No wrapping needed
+                if self.checked:
+                    label = f"{name_part} - {description}"
+                else:
+                    label = f"{name_part} - [dim]{description}[/]"
         else:
             # No description, color entire label
             if self.checked:
