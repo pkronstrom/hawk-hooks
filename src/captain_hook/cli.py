@@ -545,6 +545,9 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         else:
             current_enabled = global_enabled
 
+    # Save original state for delta comparison
+    original_enabled = {event: list(hooks) for event, hooks in current_enabled.items()}
+
     # Event name mapping with descriptions
     EVENT_INFO = {
         "pre_tool_use": ("PreToolUse", "Before each tool is executed"),
@@ -646,20 +649,26 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
 
     # Regenerate runners and sync prompt hooks
     if scope == "project":
-        runners = generator.generate_all_runners(scope="project", project_dir=Path.cwd())
-        prompt_results = installer.sync_prompt_hooks(level="project", project_dir=Path.cwd())
+        generator.generate_all_runners(scope="project", project_dir=Path.cwd())
+        installer.sync_prompt_hooks(level="project", project_dir=Path.cwd())
     else:
-        runners = generator.generate_all_runners(scope="global")
-        prompt_results = installer.sync_prompt_hooks(level="user")
+        generator.generate_all_runners(scope="global")
+        installer.sync_prompt_hooks(level="user")
 
-    # Build result message
+    # Build delta message (show only what changed)
     lines = []
-    for runner in runners:
-        lines.append(f"[green]✓[/green] {runner.name}")
+    for event in config.EVENTS:
+        original = set(original_enabled.get(event, []))
+        new = set(enabled_by_event.get(event, []))
 
-    for hook_name, success in prompt_results.items():
-        if success:
-            lines.append(f"[green]✓[/green] {hook_name} [dim](prompt)[/dim]")
+        enabled = new - original  # Newly enabled
+        disabled = original - new  # Newly disabled
+
+        for hook_name in sorted(enabled):
+            lines.append(f"[green]✓[/green] Enabled:  {event}/{hook_name}")
+
+        for hook_name in sorted(disabled):
+            lines.append(f"[red]✗[/red] Disabled: {event}/{hook_name}")
 
     result_content = "\n".join(lines) if lines else "[dim]No changes[/dim]"
 
@@ -677,7 +686,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     console.print("[dim]Press Enter to continue...[/dim]")
     input()
 
-    return True
+    return False  # Return to main menu instead of exiting
 
 
 def _detect_package_manager() -> str | None:
