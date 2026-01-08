@@ -39,6 +39,7 @@ def print_header():
             f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
+            width=80,
         )
     )
     console.print()
@@ -46,6 +47,7 @@ def print_header():
 
 def run_wizard():
     """Run the first-time setup wizard."""
+    console.clear()
     console.print(
         Panel(
             "[bold cyan]Welcome to captain-hook![/bold cyan]\n"
@@ -166,6 +168,7 @@ def run_wizard():
 
 def show_status():
     """Show status of all installed hooks and enabled handlers."""
+    console.clear()
     console.print()
 
     # Claude settings status
@@ -234,6 +237,7 @@ def show_status():
 
 def interactive_install() -> bool:
     """Interactive installation wizard. Returns True on success, False on cancel."""
+    console.clear()
     menu = InteractiveList(
         title="Install captain-hook to:",
         items=[
@@ -268,6 +272,7 @@ def interactive_install() -> bool:
 
 def interactive_uninstall():
     """Interactive uninstallation wizard."""
+    console.clear()
     menu = InteractiveList(
         title="Uninstall captain-hook from:",
         items=[
@@ -332,6 +337,7 @@ def interactive_uninstall():
 
 def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bool:
     """Interactive handler toggle with checkbox multi-select. Returns True on success, False on cancel."""
+    console.clear()
     # First, ask for scope (unless skipped for wizard)
     if not skip_scope:
         menu = InteractiveList(
@@ -351,6 +357,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     # For project scope, ask about git exclude
     add_to_git_exclude = True
     if scope == "project":
+        console.clear()
         menu = InteractiveList(
             title="Project config visibility:",
             items=[
@@ -623,6 +630,7 @@ def interactive_config():
     env_config = cfg.get("env", {})
 
     while True:
+        console.clear()
         # Build menu items
         items = [
             Item.toggle("debug", "Log hook calls", value=cfg.get("debug", False)),
@@ -686,6 +694,7 @@ def interactive_config():
 
 def interactive_add_hook() -> bool:
     """Interactive hook creation wizard. Returns True on success, False on cancel."""
+    console.clear()
     console.print()
     console.print("[bold]Add Hook[/bold]")
     console.print("─" * 50)
@@ -703,6 +712,7 @@ def interactive_add_hook() -> bool:
         return False
 
     # Step 2: Select hook type
+    console.clear()
     menu = InteractiveList(
         title="Hook type:",
         items=[
@@ -802,6 +812,7 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
 
 def _add_new_script(event: str, hooks_dir: Path) -> bool:
     """Create a new script from template. Returns True on success, False on cancel."""
+    console.clear()
     # Select script type
     menu = InteractiveList(
         title="Script type:",
@@ -1043,6 +1054,8 @@ def interactive_menu():
     print_header()
 
     while True:
+        console.clear()
+        print_header()
         menu = InteractiveList(
             title="What would you like to do?",
             items=[
