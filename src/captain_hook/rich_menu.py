@@ -261,9 +261,13 @@ class InteractiveList:
             new_pos = 0
 
         # Skip separators with infinite loop protection
-        # Scan circularly forward to find next interactive item
+        # Continue in the same direction as delta
         while isinstance(self.items[new_pos], SeparatorItem):
-            new_pos = (new_pos + 1) % len(self.items)
+            new_pos += delta
+            if new_pos < 0:
+                new_pos = len(self.items) - 1
+            elif new_pos >= len(self.items):
+                new_pos = 0
 
             attempts += 1
             if attempts >= max_attempts:

@@ -70,19 +70,16 @@ def run_wizard():
     config.ensure_dirs()
 
     # Step 1: Choose installation level
-    level = questionary.select(
-        "Install hooks to:",
-        choices=[
-            questionary.Choice(
-                "User settings   ~/.claude/settings.json (all projects)", value="user"
-            ),
-            questionary.Choice(
-                "Project settings  .claude/settings.json (this project)", value="project"
-            ),
+    menu = InteractiveList(
+        title="Install hooks to:",
+        items=[
+            Item.action("User settings   ~/.claude/settings.json (all projects)", value="user"),
+            Item.action("Project settings  .claude/settings.json (this project)", value="project"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    level = result.get("action")
 
     if level is None:
         return
@@ -237,19 +234,16 @@ def show_status():
 
 def interactive_install() -> bool:
     """Interactive installation wizard. Returns True on success, False on cancel."""
-    level = questionary.select(
-        "Install captain-hook to:",
-        choices=[
-            questionary.Choice(
-                "User settings   ~/.claude/settings.json (all projects)", value="user"
-            ),
-            questionary.Choice(
-                "Project settings  .claude/settings.json (this project)", value="project"
-            ),
+    menu = InteractiveList(
+        title="Install captain-hook to:",
+        items=[
+            Item.action("User settings   ~/.claude/settings.json (all projects)", value="user"),
+            Item.action("Project settings  .claude/settings.json (this project)", value="project"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    level = result.get("action")
 
     if level is None:
         return False
@@ -274,16 +268,17 @@ def interactive_install() -> bool:
 
 def interactive_uninstall():
     """Interactive uninstallation wizard."""
-    level = questionary.select(
-        "Uninstall captain-hook from:",
-        choices=[
-            questionary.Choice("User settings   ~/.claude/settings.json", value="user"),
-            questionary.Choice("Project settings  .claude/settings.json", value="project"),
-            questionary.Choice("Both", value="both"),
+    menu = InteractiveList(
+        title="Uninstall captain-hook from:",
+        items=[
+            Item.action("User settings   ~/.claude/settings.json", value="user"),
+            Item.action("Project settings  .claude/settings.json", value="project"),
+            Item.action("Both", value="both"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    level = result.get("action")
 
     if level is None:
         return
@@ -339,15 +334,16 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     """Interactive handler toggle with checkbox multi-select. Returns True on success, False on cancel."""
     # First, ask for scope (unless skipped for wizard)
     if not skip_scope:
-        scope = questionary.select(
-            "Toggle scope:",
-            choices=[
-                questionary.Choice(f"Global        {config.get_config_path()}", value="global"),
-                questionary.Choice("This project  .claude/captain-hook/", value="project"),
+        menu = InteractiveList(
+            title="Toggle scope:",
+            items=[
+                Item.action(f"Global        {config.get_config_path()}", value="global"),
+                Item.action("This project  .claude/captain-hook/", value="project"),
             ],
-            style=custom_style,
-            instruction="(Ctrl+C cancel)",
-        ).ask()
+            console=console,
+        )
+        result = menu.show()
+        scope = result.get("action")
 
         if scope is None:
             return False
@@ -355,15 +351,16 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     # For project scope, ask about git exclude
     add_to_git_exclude = True
     if scope == "project":
-        visibility = questionary.select(
-            "Project config visibility:",
-            choices=[
-                questionary.Choice("Personal   (added to .git/info/exclude)", value="personal"),
-                questionary.Choice("Shared     (committable, team can use)", value="shared"),
+        menu = InteractiveList(
+            title="Project config visibility:",
+            items=[
+                Item.action("Personal   (added to .git/info/exclude)", value="personal"),
+                Item.action("Shared     (committable, team can use)", value="shared"),
             ],
-            style=custom_style,
-            instruction="(Ctrl+C cancel)",
-        ).ask()
+            console=console,
+        )
+        result = menu.show()
+        visibility = result.get("action")
 
         if visibility is None:
             return False
@@ -694,29 +691,31 @@ def interactive_add_hook() -> bool:
     console.print("─" * 50)
 
     # Step 1: Select event
-    event = questionary.select(
-        "Select event:",
-        choices=[questionary.Choice(e, value=e) for e in config.EVENTS],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+    menu = InteractiveList(
+        title="Select event:",
+        items=[Item.action(e, value=e) for e in config.EVENTS],
+        console=console,
+    )
+    result = menu.show()
+    event = result.get("action")
 
     if event is None:
         return False
 
     # Step 2: Select hook type
-    hook_type = questionary.select(
-        "Hook type:",
-        choices=[
-            questionary.Choice("Link existing script (updates with original)", value="link"),
-            questionary.Choice("Copy existing script (independent snapshot)", value="copy"),
-            questionary.Choice("Create command script (.py/.sh/.js/.ts)", value="script"),
-            questionary.Choice("Create stdout hook (.stdout.md)", value="stdout"),
-            questionary.Choice("Create prompt hook (.prompt.json)", value="prompt"),
+    menu = InteractiveList(
+        title="Hook type:",
+        items=[
+            Item.action("Link existing script (updates with original)", value="link"),
+            Item.action("Copy existing script (independent snapshot)", value="copy"),
+            Item.action("Create command script (.py/.sh/.js/.ts)", value="script"),
+            Item.action("Create stdout hook (.stdout.md)", value="stdout"),
+            Item.action("Create prompt hook (.prompt.json)", value="prompt"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    hook_type = result.get("action")
 
     if hook_type is None:
         return False
@@ -804,17 +803,18 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
 def _add_new_script(event: str, hooks_dir: Path) -> bool:
     """Create a new script from template. Returns True on success, False on cancel."""
     # Select script type
-    script_type = questionary.select(
-        "Script type:",
-        choices=[
-            questionary.Choice("Python (.py)", value=".py"),
-            questionary.Choice("Shell (.sh)", value=".sh"),
-            questionary.Choice("Node (.js)", value=".js"),
-            questionary.Choice("TypeScript (.ts)", value=".ts"),
+    menu = InteractiveList(
+        title="Script type:",
+        items=[
+            Item.action("Python (.py)", value=".py"),
+            Item.action("Shell (.sh)", value=".sh"),
+            Item.action("Node (.js)", value=".js"),
+            Item.action("TypeScript (.ts)", value=".ts"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    script_type = result.get("action")
 
     if script_type is None:
         return False
@@ -1043,29 +1043,24 @@ def interactive_menu():
     print_header()
 
     while True:
-        choice = questionary.select(
-            "What would you like to do?",
-            choices=[
-                questionary.Choice("Status       Show hooks + enabled state", value="status"),
-                questionary.Choice(
-                    "Toggle       Enable/disable hooks + regenerate", value="toggle"
-                ),
-                questionary.Choice("Add hook    Create or link a new hook", value="add"),
-                questionary.Choice("Config       Debug mode, notifications", value="config"),
-                questionary.Separator("─────────"),
-                questionary.Choice(
-                    "Install      Register hooks in Claude settings", value="install"
-                ),
-                questionary.Choice(
-                    "Uninstall    Remove hooks from Claude settings", value="uninstall"
-                ),
-                questionary.Choice("Install-deps Install Python dependencies", value="deps"),
-                questionary.Separator("─────────"),
-                questionary.Choice("Exit", value="exit"),
+        menu = InteractiveList(
+            title="What would you like to do?",
+            items=[
+                Item.action("Status       Show hooks + enabled state", value="status"),
+                Item.action("Toggle       Enable/disable hooks + regenerate", value="toggle"),
+                Item.action("Add hook    Create or link a new hook", value="add"),
+                Item.action("Config       Debug mode, notifications", value="config"),
+                Item.separator("─────────"),
+                Item.action("Install      Register hooks in Claude settings", value="install"),
+                Item.action("Uninstall    Remove hooks from Claude settings", value="uninstall"),
+                Item.action("Install-deps Install Python dependencies", value="deps"),
+                Item.separator("─────────"),
+                Item.action("Exit", value="exit"),
             ],
-            style=custom_style,
-            instruction="(↑↓ navigate • Enter select • Ctrl+C exit)",
-        ).ask()
+            console=console,
+        )
+        result = menu.show()
+        choice = result.get("action")
 
         if choice is None or choice == "exit":
             break
