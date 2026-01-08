@@ -329,8 +329,8 @@ def show_status():
             key = readchar.readkey()
             if key == readchar.key.ENTER or key == "\r" or key == "\n":
                 break
-            # Check for q or escape (handle tmux/terminal variations)
-            is_escape = key == readchar.key.ESC or key == "\x1b" or (key and ord(key[0]) == 27)
+            # Check for q or escape (don't catch arrow keys which start with \x1b)
+            is_escape = key == readchar.key.ESC or key == "\x1b" or key == "\x1b\x1b"
             if key.lower() == "q" or is_escape:
                 break
     else:
@@ -380,8 +380,8 @@ def show_status():
                 # Exit on Enter
                 break
             else:
-                # Check for q or escape (handle tmux/terminal variations)
-                is_escape = key == readchar.key.ESC or key == "\x1b" or (key and ord(key[0]) == 27)
+                # Check for q or escape (don't catch arrow keys which start with \x1b)
+                is_escape = key == readchar.key.ESC or key == "\x1b" or key == "\x1b\x1b"
                 if key.lower() == "q" or is_escape:
                     break
 
