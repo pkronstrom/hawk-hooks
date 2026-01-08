@@ -39,6 +39,7 @@ def print_header():
             f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
+            width=80,
         )
     )
     console.print()
@@ -386,60 +387,52 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         if not current_enabled:
             current_enabled = config.load_config().get("enabled", {})
 
-    # Build checkbox choices grouped by event
-    choices = []
+    # Event name mapping for display
+    EVENT_DISPLAY_NAMES = {
+        "pre_tool_use": "PreToolUse",
+        "post_tool_use": "PostToolUse",
+        "user_prompt_submit": "UserPromptSubmit",
+        "session_start": "SessionStart",
+        "session_end": "SessionEnd",
+        "pre_compact": "PreCompact",
+        "notification": "Notification",
+        "stop": "Stop",
+        "subagent_stop": "SubagentStop",
+    }
 
+    # Build checkbox menu items
+    items = []
     for event in config.EVENTS:
         event_hooks = hooks.get(event, [])
         if not event_hooks:
             continue
 
-        # Add separator for event group
-        choices.append(questionary.Separator(f"── {event} ──"))
+        # Add separator with formatted event name
+        event_display = EVENT_DISPLAY_NAMES.get(event, event.replace("_", " ").title())
+        items.append(Item.separator(f"── {event_display} ──"))
 
         enabled_list = current_enabled.get(event, [])
 
         for hook in event_hooks:
-            is_enabled = hook.name in enabled_list
-            if hook.is_native_prompt:
-                hook_type = "[prompt]"
-            elif hook.is_stdout:
-                hook_type = "[stdout]"
-            else:
-                hook_type = f"[{hook.extension}]"
-            label = f"{hook.name:20} {hook_type:10} {hook.description}"
+            is_checked = hook.name in enabled_list
 
-            choices.append(
-                questionary.Choice(
-                    label,
-                    value=(event, hook.name),
-                    checked=is_enabled,
+            # Build display label
+            label = hook.name
+            if hook.description:  # If hook has description metadata
+                label = f"{hook.name} - {hook.description}"
+
+            items.append(
+                Item.checkbox(
+                    key=(event, hook.name),
+                    label=label,
+                    checked=is_checked,
                 )
             )
 
-    if not choices:
+    if not items:
         console.print("[yellow]No hooks found. Add scripts to:[/yellow]")
         console.print(f"  {config.get_hooks_dir()}/{{event}}/")
         return False
-
-    # Build checkbox menu items
-    items = []
-    for choice in choices:
-        if isinstance(choice, questionary.Separator):
-            items.append(Item.separator(choice.value))
-        else:
-            event, hook_name = choice.value
-            # Check if currently enabled
-            enabled_hooks = current_enabled.get(event, [])
-            is_checked = hook_name in enabled_hooks
-            items.append(
-                Item.checkbox(
-                    key=choice.value,  # (event, hook_name) tuple
-                    label=choice.title,
-                    checked=is_checked,
-                    value=choice.value,
-                )
-            )
 
     # Add submit/cancel actions
     items.append(Item.separator("─────────"))
