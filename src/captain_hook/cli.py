@@ -234,6 +234,10 @@ def show_status():
 
     console.print()
 
+    # Wait for user to acknowledge before returning
+    console.print("[dim]Press Enter to continue...[/dim]")
+    input()
+
 
 def interactive_install() -> bool:
     """Interactive installation wizard. Returns True on success, False on cancel."""
@@ -885,6 +889,8 @@ def _add_new_script(event: str, hooks_dir: Path) -> bool:
     # Validate suffix
     if not filename.endswith(script_type):
         console.print(f"[red]Filename must end with {script_type}[/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
         return False
 
     dest_path = hooks_dir / filename
@@ -938,6 +944,8 @@ def _add_new_stdout(event: str, hooks_dir: Path) -> bool:
     # Validate suffix
     if not (filename.endswith(".stdout.md") or filename.endswith(".stdout.txt")):
         console.print("[red]Filename must end with .stdout.md or .stdout.txt[/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
         return False
 
     dest_path = hooks_dir / filename
@@ -979,6 +987,8 @@ def _add_new_prompt(event: str, hooks_dir: Path) -> bool:
     # Validate suffix
     if not filename.endswith(".prompt.json"):
         console.print("[red]Filename must end with .prompt.json[/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
         return False
 
     dest_path = hooks_dir / filename
