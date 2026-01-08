@@ -500,12 +500,12 @@ class InteractiveList:
             key: Key string from readchar.readkey().
         """
         # Exit keys - use \x1b as fallback for ESC on macOS
-        if key in ["q", readchar.key.ESC, "\x1b"]:
+        if key.lower() == "q" or key == readchar.key.ESC or key == "\x1b":
             self.should_exit = True
         # Navigation
-        elif key in ["j", readchar.key.DOWN]:
+        elif key.lower() == "j" or key == readchar.key.DOWN:
             self._move_cursor(+1)
-        elif key in ["k", readchar.key.UP]:
+        elif key.lower() == "k" or key == readchar.key.UP:
             self._move_cursor(-1)
         # Action
         elif key in [readchar.key.ENTER, " "]:
