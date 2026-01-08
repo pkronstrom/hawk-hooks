@@ -382,14 +382,20 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     hooks = scanner.scan_hooks()
 
     # Get current enabled state
+    # When in project scope, we need to track both global and project separately
+    global_enabled = config.load_config().get("enabled", {})
+    project_enabled = {}
+
     if scope == "global":
-        current_enabled = config.load_config().get("enabled", {})
+        current_enabled = global_enabled
     else:
         project_cfg = config.load_project_config() or {}
-        current_enabled = project_cfg.get("enabled", {})
-        # Fall back to global for display
-        if not current_enabled:
-            current_enabled = config.load_config().get("enabled", {})
+        project_enabled = project_cfg.get("enabled", {})
+        # For checkbox state, use project config if it exists, otherwise fall back to global
+        if project_enabled:
+            current_enabled = project_enabled
+        else:
+            current_enabled = global_enabled
 
     # Event name mapping with descriptions
     EVENT_INFO = {
@@ -424,10 +430,22 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         for hook in event_hooks:
             is_checked = hook.name in enabled_list
 
-            # Build display label
+            # Build display label with scope indicator (for project scope)
             label = hook.name
             if hook.description:  # If hook has description metadata
                 label = f"{hook.name} - {hook.description}"
+
+            # Add scope badge when in project mode
+            if scope == "project":
+                in_global = hook.name in global_enabled.get(event, [])
+                in_project = hook.name in project_enabled.get(event, [])
+
+                if in_global and in_project:
+                    label = f"{label} [cyan](both)[/cyan]"
+                elif in_project:
+                    label = f"{label} [yellow](project)[/yellow]"
+                elif in_global:
+                    label = f"{label} [dim](global)[/dim]"
 
             items.append(
                 Item.checkbox(
