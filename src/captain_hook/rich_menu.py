@@ -406,6 +406,7 @@ class InteractiveList:
             f"{content}\n\n{footer}",
             title=f"[bold]{self.title}[/bold]",
             border_style="cyan",
+            width=80,
         )
 
     def show(self) -> dict[str, Any]:
