@@ -3,6 +3,9 @@
 from dataclasses import dataclass
 from typing import Any
 
+from rich.console import Console
+from rich.panel import Panel
+
 
 @dataclass
 class MenuItem:
@@ -87,3 +90,45 @@ class Item:
     def separator(label: str) -> SeparatorItem:
         """Create a visual separator."""
         return SeparatorItem(label=label)
+
+
+
+
+class InteractiveList:
+    """Interactive menu with keyboard navigation."""
+
+    def __init__(self, title: str, items: list[MenuItem], console: Console | None = None):
+        self.title = title
+        self.items = items
+        self.console = console or Console()
+        self.cursor_pos = 0
+        self.editing_index: int | None = None
+        self.changes: dict[str, Any] = {}
+        self.should_exit = False
+
+    def render(self) -> Panel:
+        """Render the menu as a Rich Panel."""
+        lines = []
+        for i, item in enumerate(self.items):
+            is_selected = i == self.cursor_pos
+            is_editing = i == self.editing_index
+
+            # Selection indicator
+            prefix = "[cyan]›[/cyan]" if is_selected else " "
+            line = f"{prefix} {item.render(is_selected, is_editing)}"
+            lines.append(line)
+
+        content = "\n".join(lines)
+        footer = "[dim]↑↓/jk navigate • Enter/Space select • Esc/q exit[/dim]"
+
+        return Panel(
+            f"{content}\n\n{footer}",
+            title=f"[bold]{self.title}[/bold]",
+            border_style="cyan",
+        )
+
+    def show(self) -> dict[str, Any]:
+        """Display menu and return changes."""
+        # Placeholder - will add Live loop next
+        self.console.print(self.render())
+        return self.changes
