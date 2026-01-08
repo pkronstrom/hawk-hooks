@@ -195,39 +195,104 @@ def show_status():
 
     console.print()
 
-    # Discovered hooks
-    console.print(
-        "[bold]Discovered Hooks[/bold]  [dim]([green]✓[/green] enabled  [dim]✗[/dim] disabled)[/dim]"
-    )
+    # Event name mapping
+    EVENT_INFO = {
+        "pre_tool_use": ("PreToolUse", "Before each tool is executed"),
+        "post_tool_use": ("PostToolUse", "After each tool completes"),
+        "user_prompt_submit": ("UserPromptSubmit", "When user sends a message"),
+        "session_start": ("SessionStart", "At the start of a session"),
+        "session_end": ("SessionEnd", "When a session ends"),
+        "pre_compact": ("PreCompact", "Before conversation is summarized"),
+        "notification": ("Notification", "On system notifications"),
+        "stop": ("Stop", "Before completing a response"),
+        "subagent_stop": ("SubagentStop", "When a subagent completes"),
+    }
+
+    # Load configs
+    hooks = scanner.scan_hooks()
+    global_cfg = config.load_config()
+    project_cfg = config.load_project_config()
+    has_project = project_cfg is not None and project_cfg.get("enabled")
+
+    # Header
+    if has_project:
+        console.print(
+            "[bold]Enabled Hooks[/bold]  [dim]([yellow](P)[/yellow] project  [dim](G)[/dim] global)[/dim]"
+        )
+    else:
+        console.print("[bold]Enabled Hooks[/bold]")
     console.print("─" * 50)
 
-    hooks = scanner.scan_hooks()
-    cfg = config.load_config()
-
+    any_enabled = False
     for event in config.EVENTS:
         event_hooks = hooks.get(event, [])
-        enabled = cfg.get("enabled", {}).get(event, [])
-
         if not event_hooks:
             continue
 
-        console.print(f"\n  [cyan]{event}[/cyan]")
+        # Get enabled lists
+        global_enabled = global_cfg.get("enabled", {}).get(event, [])
+        project_enabled = project_cfg.get("enabled", {}).get(event, []) if project_cfg else []
+
+        # Determine which hooks to show (enabled in either scope)
+        enabled_hooks = []
         for hook in event_hooks:
-            is_enabled = hook.name in enabled
-            icon = "[green]✓[/green]" if is_enabled else "[dim]✗[/dim]"
+            in_global = hook.name in global_enabled
+            in_project = hook.name in project_enabled
+
+            if has_project:
+                # Show if enabled in project config
+                if in_project:
+                    enabled_hooks.append((hook, "project"))
+                elif in_global:
+                    enabled_hooks.append((hook, "global"))
+            else:
+                # Show if enabled in global config
+                if in_global:
+                    enabled_hooks.append((hook, "global"))
+
+        if not enabled_hooks:
+            continue
+
+        # Print event header
+        if event in EVENT_INFO:
+            event_display, event_desc = EVENT_INFO[event]
+            console.print(f"\n  [cyan]{event_display}[/cyan] [dim]- {event_desc}[/dim]")
+        else:
+            event_display = event.replace("_", " ").title()
+            console.print(f"\n  [cyan]{event_display}[/cyan]")
+
+        any_enabled = True
+
+        # Print enabled hooks
+        for hook, scope in enabled_hooks:
+            # Hook type badge
             if hook.is_native_prompt:
                 hook_type = "[magenta]prompt[/magenta]"
             elif hook.is_stdout:
                 hook_type = "[cyan]stdout[/cyan]"
             else:
                 hook_type = f"[dim]{hook.extension}[/dim]"
-            console.print(f"    {icon} {hook.name:20} {hook_type:15} {hook.description}")
+
+            # Scope badge
+            scope_badge = ""
+            if has_project:
+                if scope == "project":
+                    scope_badge = " [yellow](P)[/yellow]"
+                else:
+                    scope_badge = " [dim](G)[/dim]"
+
+            # Print hook (name + type + scope on one line, description on next)
+            console.print(f"    [green]✓[/green] {hook.name} {hook_type}{scope_badge}")
+            if hook.description:
+                console.print(f"       [dim]{hook.description}[/dim]")
+
+    if not any_enabled:
+        console.print("\n  [dim]No hooks enabled[/dim]")
 
     console.print()
 
     # Project config indicator
-    project_config = config.load_project_config()
-    if project_config:
+    if has_project:
         console.print("[dim]Project overrides active: .claude/captain-hook/config.json[/dim]")
     else:
         console.print("[dim]Using global config[/dim]")
