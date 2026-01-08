@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from . import __version__, config, generator, installer, scanner, templates
+from .rich_menu import InteractiveList, Item
 
 console = Console()
 
@@ -38,6 +39,7 @@ def print_header():
             f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
+            width=100,
         )
     )
     console.print()
@@ -45,6 +47,7 @@ def print_header():
 
 def run_wizard():
     """Run the first-time setup wizard."""
+    console.clear()
     console.print(
         Panel(
             "[bold cyan]Welcome to captain-hook![/bold cyan]\n"
@@ -69,19 +72,16 @@ def run_wizard():
     config.ensure_dirs()
 
     # Step 1: Choose installation level
-    level = questionary.select(
-        "Install hooks to:",
-        choices=[
-            questionary.Choice(
-                "User settings   ~/.claude/settings.json (all projects)", value="user"
-            ),
-            questionary.Choice(
-                "Project settings  .claude/settings.json (this project)", value="project"
-            ),
+    menu = InteractiveList(
+        title="Install hooks to:",
+        items=[
+            Item.action("User settings   ~/.claude/settings.json (all projects)", value="user"),
+            Item.action("Project settings  .claude/settings.json (this project)", value="project"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    level = result.get("action")
 
     if level is None:
         return
@@ -168,87 +168,233 @@ def run_wizard():
 
 def show_status():
     """Show status of all installed hooks and enabled handlers."""
-    console.print()
+    console.clear()
+
+    # Build all content first to check if we need pagination
+    from io import StringIO
+
+    from rich.console import Console as RichConsole
+
+    buffer = StringIO()
+    temp_console = RichConsole(
+        file=buffer, width=console.width, legacy_windows=False, force_terminal=True
+    )
+
+    temp_console.print()
 
     # Claude settings status
     status = installer.get_status()
 
-    console.print("[bold]Claude Settings[/bold]")
-    console.print("─" * 50)
+    temp_console.print("[bold]Claude Settings[/bold]")
+    temp_console.print("─" * 50)
 
     # User level
     if status["user"]["installed"]:
-        console.print("  User:    [green]✓ Installed[/green]")
-        console.print(f"           [dim]{status['user']['path']}[/dim]")
+        temp_console.print("  User:    [green]✓ Installed[/green]")
+        temp_console.print(f"           [dim]{status['user']['path']}[/dim]")
     else:
-        console.print("  User:    [dim]✗ Not installed[/dim]")
-        console.print(f"           [dim]{status['user']['path']}[/dim]")
+        temp_console.print("  User:    [dim]✗ Not installed[/dim]")
+        temp_console.print(f"           [dim]{status['user']['path']}[/dim]")
 
     # Project level
     if status["project"]["installed"]:
-        console.print("  Project: [green]✓ Installed[/green]")
-        console.print(f"           [dim]{status['project']['path']}[/dim]")
+        temp_console.print("  Project: [green]✓ Installed[/green]")
+        temp_console.print(f"           [dim]{status['project']['path']}[/dim]")
     else:
-        console.print("  Project: [dim]✗ Not installed[/dim]")
-        console.print(f"           [dim]{status['project']['path']}[/dim]")
+        temp_console.print("  Project: [dim]✗ Not installed[/dim]")
+        temp_console.print(f"           [dim]{status['project']['path']}[/dim]")
 
-    console.print()
+    temp_console.print()
 
-    # Discovered hooks
-    console.print(
-        "[bold]Discovered Hooks[/bold]  [dim]([green]✓[/green] enabled  [dim]✗[/dim] disabled)[/dim]"
-    )
-    console.print("─" * 50)
+    # Event name mapping
+    EVENT_INFO = {
+        "pre_tool_use": ("PreToolUse", "Before each tool is executed"),
+        "post_tool_use": ("PostToolUse", "After each tool completes"),
+        "user_prompt_submit": ("UserPromptSubmit", "When user sends a message"),
+        "session_start": ("SessionStart", "At the start of a session"),
+        "session_end": ("SessionEnd", "When a session ends"),
+        "pre_compact": ("PreCompact", "Before conversation is summarized"),
+        "notification": ("Notification", "On system notifications"),
+        "stop": ("Stop", "Before completing a response"),
+        "subagent_stop": ("SubagentStop", "When a subagent completes"),
+    }
 
+    # Load configs
     hooks = scanner.scan_hooks()
-    cfg = config.load_config()
+    global_cfg = config.load_config()
+    project_cfg = config.load_project_config()
+    has_project = project_cfg is not None and project_cfg.get("enabled")
 
+    # Header
+    if has_project:
+        temp_console.print(
+            "[bold]Enabled Hooks[/bold]  [dim]([yellow](P)[/yellow] project  [dim](G)[/dim] global)[/dim]"
+        )
+    else:
+        temp_console.print("[bold]Enabled Hooks[/bold]")
+    temp_console.print("─" * 50)
+
+    any_enabled = False
     for event in config.EVENTS:
         event_hooks = hooks.get(event, [])
-        enabled = cfg.get("enabled", {}).get(event, [])
-
         if not event_hooks:
             continue
 
-        console.print(f"\n  [cyan]{event}[/cyan]")
+        # Get enabled lists
+        global_enabled = global_cfg.get("enabled", {}).get(event, [])
+        project_enabled = project_cfg.get("enabled", {}).get(event, []) if project_cfg else []
+
+        # Determine which hooks to show (enabled in either scope)
+        enabled_hooks = []
         for hook in event_hooks:
-            is_enabled = hook.name in enabled
-            icon = "[green]✓[/green]" if is_enabled else "[dim]✗[/dim]"
+            in_global = hook.name in global_enabled
+            in_project = hook.name in project_enabled
+
+            if has_project:
+                # Show if enabled in project config
+                if in_project:
+                    enabled_hooks.append((hook, "project"))
+                elif in_global:
+                    enabled_hooks.append((hook, "global"))
+            else:
+                # Show if enabled in global config
+                if in_global:
+                    enabled_hooks.append((hook, "global"))
+
+        if not enabled_hooks:
+            continue
+
+        # Print event header
+        if event in EVENT_INFO:
+            event_display, event_desc = EVENT_INFO[event]
+            temp_console.print(f"\n  [cyan]{event_display}[/cyan] [dim]- {event_desc}[/dim]")
+        else:
+            event_display = event.replace("_", " ").title()
+            temp_console.print(f"\n  [cyan]{event_display}[/cyan]")
+
+        any_enabled = True
+
+        # Print enabled hooks
+        for hook, scope in enabled_hooks:
+            # Hook type badge
             if hook.is_native_prompt:
                 hook_type = "[magenta]prompt[/magenta]"
             elif hook.is_stdout:
                 hook_type = "[cyan]stdout[/cyan]"
             else:
                 hook_type = f"[dim]{hook.extension}[/dim]"
-            console.print(f"    {icon} {hook.name:20} {hook_type:15} {hook.description}")
 
-    console.print()
+            # Scope badge
+            scope_badge = ""
+            if has_project:
+                if scope == "project":
+                    scope_badge = " [yellow](P)[/yellow]"
+                else:
+                    scope_badge = " [dim](G)[/dim]"
+
+            # Print hook (name + type + scope on one line, description on next)
+            temp_console.print(f"    [green]✓[/green] {hook.name} {hook_type}{scope_badge}")
+            if hook.description:
+                temp_console.print(f"       [dim]{hook.description}[/dim]")
+
+    if not any_enabled:
+        temp_console.print("\n  [dim]No hooks enabled[/dim]")
+
+    temp_console.print()
 
     # Project config indicator
-    project_config = config.load_project_config()
-    if project_config:
-        console.print("[dim]Project overrides active: .claude/captain-hook/config.json[/dim]")
+    if has_project:
+        temp_console.print("[dim]Project overrides active: .claude/captain-hook/config.json[/dim]")
     else:
-        console.print("[dim]Using global config[/dim]")
+        temp_console.print("[dim]Using global config[/dim]")
 
-    console.print()
+    temp_console.print()
+
+    # Get the rendered content and count lines
+    content = buffer.getvalue()
+    lines = content.rstrip("\n").split("\n")
+    terminal_height = console.height
+
+    # Display with pagination if needed
+    max_lines_per_page = terminal_height - 3  # Leave room for prompt
+
+    if len(lines) <= max_lines_per_page:
+        # Fits on one screen - display all at once
+        # Use print() to preserve ANSI codes without Rich re-processing
+        print(content, end="")
+        console.print("[dim]Press Enter or q to exit...[/dim]")
+        import readchar
+
+        while True:
+            key = readchar.readkey()
+            if key == readchar.key.ENTER or key == "\r" or key == "\n":
+                break
+            if key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
+                break
+    else:
+        # Need smooth scrolling with navigation
+        import readchar
+
+        window_offset = 0
+
+        while True:
+            console.clear()
+            print()  # Blank line at top
+
+            window_end = min(window_offset + max_lines_per_page, len(lines))
+            visible_lines = lines[window_offset:window_end]
+
+            # Print lines with ANSI codes preserved
+            for line in visible_lines:
+                print(line)
+
+            # Build navigation hint
+            lines_above = window_offset
+            lines_below = len(lines) - window_end
+
+            hint_parts = []
+            if lines_above > 0:
+                hint_parts.append(f"[dim]↑ {lines_above} more above[/dim]")
+            if lines_below > 0:
+                hint_parts.append(f"[dim]↓ {lines_below} more below[/dim]")
+
+            hint_parts.append(f"[dim]Line {window_offset + 1}-{window_end}/{len(lines)}[/dim]")
+            hint_parts.append("[dim]↑/↓ scroll  Enter/q exit[/dim]")
+
+            console.print("\n" + "  ".join(hint_parts))
+
+            # Handle navigation
+            key = readchar.readkey()
+
+            if key == readchar.key.DOWN:
+                # Scroll down one line
+                if window_end < len(lines):
+                    window_offset += 1
+            elif key == readchar.key.UP:
+                # Scroll up one line
+                if window_offset > 0:
+                    window_offset -= 1
+            elif key == readchar.key.ENTER or key == "\r" or key == "\n":
+                # Exit on Enter
+                break
+            elif key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
+                # Exit on q/Esc
+                break
 
 
 def interactive_install() -> bool:
     """Interactive installation wizard. Returns True on success, False on cancel."""
-    level = questionary.select(
-        "Install captain-hook to:",
-        choices=[
-            questionary.Choice(
-                "User settings   ~/.claude/settings.json (all projects)", value="user"
-            ),
-            questionary.Choice(
-                "Project settings  .claude/settings.json (this project)", value="project"
-            ),
+    console.clear()
+    menu = InteractiveList(
+        title="Install captain-hook to:",
+        items=[
+            Item.action("User settings   ~/.claude/settings.json (all projects)", value="user"),
+            Item.action("Project settings  .claude/settings.json (this project)", value="project"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    level = result.get("action")
 
     if level is None:
         return False
@@ -271,21 +417,23 @@ def interactive_install() -> bool:
     return True
 
 
-def interactive_uninstall():
-    """Interactive uninstallation wizard."""
-    level = questionary.select(
-        "Uninstall captain-hook from:",
-        choices=[
-            questionary.Choice("User settings   ~/.claude/settings.json", value="user"),
-            questionary.Choice("Project settings  .claude/settings.json", value="project"),
-            questionary.Choice("Both", value="both"),
+def interactive_uninstall() -> bool:
+    """Interactive uninstallation wizard. Returns True on success, False on cancel."""
+    console.clear()
+    menu = InteractiveList(
+        title="Uninstall captain-hook from:",
+        items=[
+            Item.action("User settings   ~/.claude/settings.json", value="user"),
+            Item.action("Project settings  .claude/settings.json", value="project"),
+            Item.action("Both", value="both"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    level = result.get("action")
 
     if level is None:
-        return
+        return False
 
     confirm = questionary.confirm(
         f"Remove captain-hook from {level} settings?",
@@ -294,7 +442,7 @@ def interactive_uninstall():
     ).ask()
 
     if not confirm:
-        return
+        return False
 
     # Uninstall from Claude
     if level == "both":
@@ -332,21 +480,24 @@ def interactive_uninstall():
     console.print(f"  [cyan]rm -rf {config.get_config_dir()}[/cyan]  [dim](config + hooks)[/dim]")
     console.print("  [cyan]pipx uninstall captain-hook[/cyan]  [dim](program)[/dim]")
     console.print()
+    return True
 
 
 def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bool:
     """Interactive handler toggle with checkbox multi-select. Returns True on success, False on cancel."""
+    console.clear()
     # First, ask for scope (unless skipped for wizard)
     if not skip_scope:
-        scope = questionary.select(
-            "Toggle scope:",
-            choices=[
-                questionary.Choice(f"Global        {config.get_config_path()}", value="global"),
-                questionary.Choice("This project  .claude/captain-hook/", value="project"),
+        menu = InteractiveList(
+            title="Toggle scope:",
+            items=[
+                Item.action(f"Global        {config.get_config_path()}", value="global"),
+                Item.action("This project  .claude/captain-hook/", value="project"),
             ],
-            style=custom_style,
-            instruction="(Ctrl+C cancel)",
-        ).ask()
+            console=console,
+        )
+        result = menu.show()
+        scope = result.get("action")
 
         if scope is None:
             return False
@@ -354,15 +505,17 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     # For project scope, ask about git exclude
     add_to_git_exclude = True
     if scope == "project":
-        visibility = questionary.select(
-            "Project config visibility:",
-            choices=[
-                questionary.Choice("Personal   (added to .git/info/exclude)", value="personal"),
-                questionary.Choice("Shared     (committable, team can use)", value="shared"),
+        console.clear()
+        menu = InteractiveList(
+            title="Project config visibility:",
+            items=[
+                Item.action("Personal   (added to .git/info/exclude)", value="personal"),
+                Item.action("Shared     (committable, team can use)", value="shared"),
             ],
-            style=custom_style,
-            instruction="(Ctrl+C cancel)",
-        ).ask()
+            console=console,
+        )
+        result = menu.show()
+        visibility = result.get("action")
 
         if visibility is None:
             return False
@@ -373,61 +526,103 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     hooks = scanner.scan_hooks()
 
     # Get current enabled state
+    # When in project scope, we need to track both global and project separately
+    global_enabled = config.load_config().get("enabled", {})
+    project_enabled = {}
+
     if scope == "global":
-        current_enabled = config.load_config().get("enabled", {})
+        current_enabled = global_enabled
     else:
         project_cfg = config.load_project_config() or {}
-        current_enabled = project_cfg.get("enabled", {})
-        # Fall back to global for display
-        if not current_enabled:
-            current_enabled = config.load_config().get("enabled", {})
+        project_enabled = project_cfg.get("enabled", {})
+        # For checkbox state, use project config if it exists, otherwise fall back to global
+        if project_enabled:
+            current_enabled = project_enabled
+        else:
+            current_enabled = global_enabled
 
-    # Build checkbox choices grouped by event
-    choices = []
+    # Event name mapping with descriptions
+    EVENT_INFO = {
+        "pre_tool_use": ("PreToolUse", "Before each tool is executed"),
+        "post_tool_use": ("PostToolUse", "After each tool completes"),
+        "user_prompt_submit": ("UserPromptSubmit", "When user sends a message"),
+        "session_start": ("SessionStart", "At the start of a session"),
+        "session_end": ("SessionEnd", "When a session ends"),
+        "pre_compact": ("PreCompact", "Before conversation is summarized"),
+        "notification": ("Notification", "On system notifications"),
+        "stop": ("Stop", "Before completing a response"),
+        "subagent_stop": ("SubagentStop", "When a subagent completes"),
+    }
 
+    # Build checkbox menu items
+    items = []
     for event in config.EVENTS:
         event_hooks = hooks.get(event, [])
         if not event_hooks:
             continue
 
-        # Add separator for event group
-        choices.append(questionary.Separator(f"── {event} ──"))
+        # Add separator with formatted event name and description
+        if event in EVENT_INFO:
+            event_display, event_desc = EVENT_INFO[event]
+            items.append(Item.separator(f"── {event_display} - {event_desc} ──"))
+        else:
+            event_display = event.replace("_", " ").title()
+            items.append(Item.separator(f"── {event_display} ──"))
 
         enabled_list = current_enabled.get(event, [])
 
         for hook in event_hooks:
-            is_enabled = hook.name in enabled_list
-            if hook.is_native_prompt:
-                hook_type = "[prompt]"
-            elif hook.is_stdout:
-                hook_type = "[stdout]"
-            else:
-                hook_type = f"[{hook.extension}]"
-            label = f"{hook.name:20} {hook_type:10} {hook.description}"
+            is_checked = hook.name in enabled_list
 
-            choices.append(
-                questionary.Choice(
-                    label,
-                    value=(event, hook.name),
-                    checked=is_enabled,
+            # Build display label with scope indicator (for project scope)
+            label = hook.name
+            if hook.description:  # If hook has description metadata
+                label = f"{hook.name} - {hook.description}"
+
+            # Add scope badge when in project mode
+            if scope == "project":
+                in_global = hook.name in global_enabled.get(event, [])
+                in_project = hook.name in project_enabled.get(event, [])
+
+                if in_global and in_project:
+                    label = f"{label} [cyan](both)[/cyan]"
+                elif in_project:
+                    label = f"{label} [yellow](project)[/yellow]"
+                elif in_global:
+                    label = f"{label} [dim](global)[/dim]"
+
+            items.append(
+                Item.checkbox(
+                    key=(event, hook.name),
+                    label=label,
+                    checked=is_checked,
                 )
             )
 
-    if not choices:
+    if not items:
         console.print("[yellow]No hooks found. Add scripts to:[/yellow]")
         console.print(f"  {config.get_hooks_dir()}/{{event}}/")
         return False
 
-    console.print()
-    selected = questionary.checkbox(
-        f"Toggle hooks ({scope}):",
-        choices=choices,
-        style=custom_style,
-        instruction="(Space toggle • A all • I invert • Enter save • Ctrl+C cancel)",
-    ).ask()
+    # Add submit/cancel actions
+    items.append(Item.separator("─────────"))
+    items.append(Item.action("Save", value="save"))
+    items.append(Item.action("Cancel", value="cancel"))
 
-    if selected is None:
+    # Show menu
+    menu = InteractiveList(title=f"Toggle hooks ({scope})", items=items, console=console)
+    result = menu.show()
+
+    # Handle cancel
+    if result.get("action") == "cancel" or not result:
         return False
+
+    # Handle exit without action (Esc/q)
+    if "action" not in result:
+        return False
+
+    # Get checked items
+    selected = menu.get_checked_values()
 
     console.print()
 
@@ -446,9 +641,6 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         )
 
     # Regenerate runners and sync prompt hooks
-    console.print()
-    console.print("[bold]Updating hooks...[/bold]")
-
     if scope == "project":
         runners = generator.generate_all_runners(scope="project", project_dir=Path.cwd())
         prompt_results = installer.sync_prompt_hooks(level="project", project_dir=Path.cwd())
@@ -456,17 +648,31 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         runners = generator.generate_all_runners(scope="global")
         prompt_results = installer.sync_prompt_hooks(level="user")
 
+    # Build result message
+    lines = []
     for runner in runners:
-        console.print(f"  [green]✓[/green] {runner.name}")
+        lines.append(f"[green]✓[/green] {runner.name}")
 
     for hook_name, success in prompt_results.items():
         if success:
-            console.print(f"  [green]✓[/green] {hook_name} [dim](prompt)[/dim]")
+            lines.append(f"[green]✓[/green] {hook_name} [dim](prompt)[/dim]")
+
+    result_content = "\n".join(lines) if lines else "[dim]No changes[/dim]"
 
     console.print()
-    console.print(f"[green]Hooks updated ({scope}).[/green]")
-    console.print("[dim]Changes take effect immediately.[/dim]")
+    console.print(
+        Panel(
+            f"{result_content}\n\n[green]Hooks updated ({scope}).[/green]\n[dim]Changes take effect immediately.[/dim]",
+            title="[bold]✓ Success[/bold]",
+            border_style="green",
+        )
+    )
     console.print()
+
+    # Wait for user to acknowledge before returning
+    console.print("[dim]Press Enter to continue...[/dim]")
+    input()
+
     return True
 
 
@@ -500,38 +706,23 @@ def _get_install_command(pkg_manager: str, packages: set[str]) -> str:
     return commands.get(pkg_manager, f"# Install: {pkg_list}")
 
 
-def _has_uv() -> bool:
-    """Check if uv is available."""
-    return shutil.which("uv") is not None
-
-
 def install_deps():
     """Install Python dependencies for hooks."""
     venv_dir = config.get_venv_dir()
     venv_python = config.get_venv_python()
-    use_uv = _has_uv()
 
     console.print("[bold]Installing dependencies...[/bold]")
-    if use_uv:
-        console.print("[dim]Using uv (fast)[/dim]")
     console.print(f"[dim]Venv location: {venv_dir}[/dim]")
     console.print()
 
     # Create venv if needed
     if not venv_dir.exists():
         console.print(f"  Creating venv at {venv_dir}...")
-        if use_uv:
-            subprocess.run(
-                ["uv", "venv", str(venv_dir)],
-                check=True,
-                timeout=60,  # uv is fast
-            )
-        else:
-            subprocess.run(
-                [sys.executable, "-m", "venv", str(venv_dir)],
-                check=True,
-                timeout=120,  # 2 minutes for venv creation
-            )
+        subprocess.run(
+            [sys.executable, "-m", "venv", str(venv_dir)],
+            check=True,
+            timeout=120,  # 2 minutes for venv creation
+        )
         console.print("  [green]✓[/green] Venv created")
 
     # Get Python deps
@@ -544,19 +735,11 @@ def install_deps():
 
         if all_deps:
             console.print(f"  Installing: {', '.join(sorted(all_deps))}")
-            if use_uv:
-                subprocess.run(
-                    ["uv", "pip", "install", "--python", str(venv_python), "--quiet"]
-                    + list(all_deps),
-                    check=True,
-                    timeout=120,  # uv is fast
-                )
-            else:
-                subprocess.run(
-                    [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
-                    check=True,
-                    timeout=300,  # 5 minutes for pip install
-                )
+            subprocess.run(
+                [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
+                check=True,
+                timeout=300,  # 5 minutes for pip install
+            )
             console.print("  [green]✓[/green] Python deps installed")
     else:
         console.print("  [dim]No Python dependencies required[/dim]")
@@ -647,101 +830,58 @@ def interactive_config():
     # Merge script defaults with stored config values
     env_config = cfg.get("env", {})
 
-    # Track last selected item to preserve caret position
-    last_choice = None
-
     while True:
-        # Clear screen and redraw header for clean refresh
         console.clear()
-        console.print()
-        console.print("[bold]Configuration[/bold]")
-        console.print("─" * 50)
-        console.print()
-
-        # Build choices with current values (refreshed each loop)
-        debug_status = "✓ on " if cfg.get("debug", False) else "  off"
-
-        choices = [
-            questionary.Choice(f"debug           {debug_status}   Log hook calls", value="debug"),
+        # Build menu items
+        items = [
+            Item.toggle("debug", "Log hook calls", value=cfg.get("debug", False)),
         ]
 
-        # Add script-defined env vars (grouped by prefix = hook name)
+        # Add env var items
         if script_env_vars:
-            choices.append(questionary.Separator("── Hook Settings ──"))
+            items.append(Item.separator("── Hook Settings ──"))
 
-            # Group env vars by hook prefix
             for var_name, default_value in sorted(script_env_vars.items()):
-                # Get current value (from config or default)
                 current_value = env_config.get(var_name, default_value)
-
-                # Detect boolean values
+                # Ensure it's a string to avoid AttributeError
+                if not isinstance(current_value, str):
+                    current_value = str(current_value) if current_value is not None else ""
                 is_bool = current_value.lower() in ("true", "false", "1", "0", "yes", "no")
 
                 if is_bool:
-                    is_on = current_value.lower() in ("true", "1", "yes")
-                    status = "✓ on " if is_on else "  off"
-                    display = f"{var_name:<25} {status}"
+                    value = current_value.lower() in ("true", "1", "yes")
+                    items.append(Item.toggle(var_name, var_name, value=value))
                 else:
-                    display_val = current_value[:15] if current_value else "(not set)"
-                    display = f"{var_name:<25} {display_val}"
+                    items.append(Item.text(var_name, var_name, value=current_value))
 
-                choices.append(questionary.Choice(display, value=("env", var_name, is_bool)))
+        items.append(Item.separator("─────────"))
+        items.append(Item.action("Back", value="back"))
 
-        choices.append(questionary.Separator("─────────"))
-        choices.append(questionary.Choice("Back", value="back"))
+        # Show menu
+        menu = InteractiveList(title="Configuration", items=items, console=console)
+        result = menu.show()
 
-        choice = questionary.select(
-            "Select to toggle/edit:",
-            choices=choices,
-            default=last_choice,
-            style=custom_style,
-            instruction="(Enter select • Ctrl+C back)",
-        ).ask()
-
-        # Remember this choice for next iteration
-        last_choice = choice
-
-        if choice is None or choice == "back":
-            # Exit loop - clear before showing final results
-            console.clear()
-            console.print()
+        # Handle exit (either "Back" action or cancellation via Esc/q/Ctrl+C)
+        if result.get("action") == "back" or not result:
             break
 
-        # Handle selection
-        if choice == "debug":
-            cfg["debug"] = not cfg.get("debug", False)
-            debug_changed = True
-            config.save_config(cfg)
-        elif isinstance(choice, tuple) and choice[0] == "env":
-            _, var_name, is_bool = choice
-            current_value = env_config.get(var_name, script_env_vars.get(var_name, ""))
-
-            if is_bool:
-                # Toggle boolean
-                is_on = current_value.lower() in ("true", "1", "yes")
-                new_value = "false" if is_on else "true"
-            else:
-                # Text input for string values
-                console.clear()
-                console.print()
-                console.print(f"[bold]Edit {var_name}[/bold]")
-                console.print("─" * 50)
-                console.print()
-
-                new_value = questionary.text(
-                    f"{var_name}:",
-                    default=current_value,
-                    style=custom_style,
-                ).ask()
-
-            if new_value is not None:
-                env_config[var_name] = new_value
+        # Apply changes (don't save yet)
+        for key, value in result.items():
+            if key == "debug":
+                cfg["debug"] = value
+                debug_changed = True
+            elif key in script_env_vars:
+                # Convert bool back to string for env vars
+                if isinstance(value, bool):
+                    env_config[key] = "true" if value else "false"
+                else:
+                    env_config[key] = value.strip() if isinstance(value, str) else value
                 cfg["env"] = env_config
-                config.save_config(cfg)
                 env_changed = True
 
-    # Regenerate runners if debug or env changed
+    # Save config after loop if any changes were made
     if debug_changed or env_changed:
+        config.save_config(cfg)
         console.print()
         console.print("[bold]Regenerating runners...[/bold]")
         runners = generator.generate_all_runners()
@@ -755,34 +895,38 @@ def interactive_config():
 
 def interactive_add_hook() -> bool:
     """Interactive hook creation wizard. Returns True on success, False on cancel."""
+    console.clear()
     console.print()
     console.print("[bold]Add Hook[/bold]")
     console.print("─" * 50)
 
     # Step 1: Select event
-    event = questionary.select(
-        "Select event:",
-        choices=[questionary.Choice(e, value=e) for e in config.EVENTS],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+    menu = InteractiveList(
+        title="Select event:",
+        items=[Item.action(e, value=e) for e in config.EVENTS],
+        console=console,
+    )
+    result = menu.show()
+    event = result.get("action")
 
     if event is None:
         return False
 
     # Step 2: Select hook type
-    hook_type = questionary.select(
-        "Hook type:",
-        choices=[
-            questionary.Choice("Link existing script (updates with original)", value="link"),
-            questionary.Choice("Copy existing script (independent snapshot)", value="copy"),
-            questionary.Choice("Create command script (.py/.sh/.js/.ts)", value="script"),
-            questionary.Choice("Create stdout hook (.stdout.md)", value="stdout"),
-            questionary.Choice("Create prompt hook (.prompt.json)", value="prompt"),
+    console.clear()
+    menu = InteractiveList(
+        title="Hook type:",
+        items=[
+            Item.action("Link existing script (updates with original)", value="link"),
+            Item.action("Copy existing script (independent snapshot)", value="copy"),
+            Item.action("Create command script (.py/.sh/.js/.ts)", value="script"),
+            Item.action("Create stdout hook (.stdout.md)", value="stdout"),
+            Item.action("Create prompt hook (.prompt.json)", value="prompt"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    hook_type = result.get("action")
 
     if hook_type is None:
         return False
@@ -869,18 +1013,20 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
 
 def _add_new_script(event: str, hooks_dir: Path) -> bool:
     """Create a new script from template. Returns True on success, False on cancel."""
+    console.clear()
     # Select script type
-    script_type = questionary.select(
-        "Script type:",
-        choices=[
-            questionary.Choice("Python (.py)", value=".py"),
-            questionary.Choice("Shell (.sh)", value=".sh"),
-            questionary.Choice("Node (.js)", value=".js"),
-            questionary.Choice("TypeScript (.ts)", value=".ts"),
+    menu = InteractiveList(
+        title="Script type:",
+        items=[
+            Item.action("Python (.py)", value=".py"),
+            Item.action("Shell (.sh)", value=".sh"),
+            Item.action("Node (.js)", value=".js"),
+            Item.action("TypeScript (.ts)", value=".ts"),
         ],
-        style=custom_style,
-        instruction="(Ctrl+C cancel)",
-    ).ask()
+        console=console,
+    )
+    result = menu.show()
+    script_type = result.get("action")
 
     if script_type is None:
         return False
@@ -905,6 +1051,8 @@ def _add_new_script(event: str, hooks_dir: Path) -> bool:
     # Validate suffix
     if not filename.endswith(script_type):
         console.print(f"[red]Filename must end with {script_type}[/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
         return False
 
     dest_path = hooks_dir / filename
@@ -958,6 +1106,8 @@ def _add_new_stdout(event: str, hooks_dir: Path) -> bool:
     # Validate suffix
     if not (filename.endswith(".stdout.md") or filename.endswith(".stdout.txt")):
         console.print("[red]Filename must end with .stdout.md or .stdout.txt[/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
         return False
 
     dest_path = hooks_dir / filename
@@ -999,6 +1149,8 @@ def _add_new_prompt(event: str, hooks_dir: Path) -> bool:
     # Validate suffix
     if not filename.endswith(".prompt.json"):
         console.print("[red]Filename must end with .prompt.json[/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
         return False
 
     dest_path = hooks_dir / filename
@@ -1109,29 +1261,26 @@ def interactive_menu():
     print_header()
 
     while True:
-        choice = questionary.select(
-            "What would you like to do?",
-            choices=[
-                questionary.Choice("Status       Show hooks + enabled state", value="status"),
-                questionary.Choice(
-                    "Toggle       Enable/disable hooks + regenerate", value="toggle"
-                ),
-                questionary.Choice("Add hook    Create or link a new hook", value="add"),
-                questionary.Choice("Config       Debug mode, notifications", value="config"),
-                questionary.Separator("─────────"),
-                questionary.Choice(
-                    "Install      Register hooks in Claude settings", value="install"
-                ),
-                questionary.Choice(
-                    "Uninstall    Remove hooks from Claude settings", value="uninstall"
-                ),
-                questionary.Choice("Install-deps Install Python dependencies", value="deps"),
-                questionary.Separator("─────────"),
-                questionary.Choice("Exit", value="exit"),
+        console.clear()
+        print_header()
+        menu = InteractiveList(
+            title="What would you like to do?",
+            items=[
+                Item.action("Status       Show hooks + enabled state", value="status"),
+                Item.action("Toggle       Enable/disable hooks + regenerate", value="toggle"),
+                Item.action("Add hook    Create or link a new hook", value="add"),
+                Item.action("Config       Debug mode, notifications", value="config"),
+                Item.separator("─────────"),
+                Item.action("Install      Register hooks in Claude settings", value="install"),
+                Item.action("Uninstall    Remove hooks from Claude settings", value="uninstall"),
+                Item.action("Install-deps Install Python dependencies", value="deps"),
+                Item.separator("─────────"),
+                Item.action("Exit", value="exit"),
             ],
-            style=custom_style,
-            instruction="(↑↓ navigate • Enter select • Ctrl+C exit)",
-        ).ask()
+            console=console,
+        )
+        result = menu.show()
+        choice = result.get("action")
 
         if choice is None or choice == "exit":
             break
@@ -1150,8 +1299,8 @@ def interactive_menu():
             if interactive_install():
                 break  # Exit on successful completion
         elif choice == "uninstall":
-            interactive_uninstall()
-            break  # Exit after uninstall
+            if interactive_uninstall():
+                break  # Exit on successful completion
         elif choice == "deps":
             install_deps()
 
