@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from . import __version__, config, generator, installer, scanner, templates
+from .rich_menu import InteractiveList, Item
 
 console = Console()
 
@@ -624,77 +625,49 @@ def interactive_config():
     # Merge script defaults with stored config values
     env_config = cfg.get("env", {})
 
-    console.print()
-    console.print("[bold]Configuration[/bold]")
-    console.print("─" * 50)
-
     while True:
-        # Build choices with current values
-        debug_status = "✓ on " if cfg.get("debug", False) else "  off"
-
-        choices = [
-            questionary.Choice(f"debug           {debug_status}   Log hook calls", value="debug"),
+        # Build menu items
+        items = [
+            Item.toggle("debug", "Log hook calls", value=cfg.get("debug", False)),
         ]
 
-        # Add script-defined env vars (grouped by prefix = hook name)
+        # Add env var items
         if script_env_vars:
-            choices.append(questionary.Separator("── Hook Settings ──"))
+            items.append(Item.separator("── Hook Settings ──"))
 
-            # Group env vars by hook prefix
             for var_name, default_value in sorted(script_env_vars.items()):
-                # Get current value (from config or default)
                 current_value = env_config.get(var_name, default_value)
-
-                # Detect boolean values
                 is_bool = current_value.lower() in ("true", "false", "1", "0", "yes", "no")
 
                 if is_bool:
-                    is_on = current_value.lower() in ("true", "1", "yes")
-                    status = "✓ on " if is_on else "  off"
-                    display = f"{var_name:<25} {status}"
+                    value = current_value.lower() in ("true", "1", "yes")
+                    items.append(Item.toggle(var_name, var_name, value=value))
                 else:
-                    display_val = current_value[:15] if current_value else "(not set)"
-                    display = f"{var_name:<25} {display_val}"
+                    items.append(Item.text(var_name, var_name, value=current_value))
 
-                choices.append(questionary.Choice(display, value=("env", var_name, is_bool)))
+        items.append(Item.separator("─────────"))
+        items.append(Item.action("Back", value="back"))
 
-        choices.append(questionary.Separator("─────────"))
-        choices.append(questionary.Choice("Back", value="back"))
+        # Show menu
+        menu = InteractiveList(title="Configuration", items=items, console=console)
+        result = menu.show()
 
-        console.print()
-        choice = questionary.select(
-            "Select to toggle/edit:",
-            choices=choices,
-            style=custom_style,
-            instruction="(Enter select • Ctrl+C back)",
-        ).ask()
-
-        if choice is None or choice == "back":
+        # Handle exit
+        if "action" in result and result["action"] == "back":
             break
 
-        # Handle selection
-        if choice == "debug":
-            cfg["debug"] = not cfg.get("debug", False)
-            debug_changed = True
-            config.save_config(cfg)
-        elif isinstance(choice, tuple) and choice[0] == "env":
-            _, var_name, is_bool = choice
-            current_value = env_config.get(var_name, script_env_vars.get(var_name, ""))
-
-            if is_bool:
-                # Toggle boolean
-                is_on = current_value.lower() in ("true", "1", "yes")
-                new_value = "false" if is_on else "true"
-            else:
-                # Text input for string values
-                new_value = questionary.text(
-                    f"{var_name}:",
-                    default=current_value,
-                    style=custom_style,
-                ).ask()
-
-            if new_value is not None:
-                env_config[var_name] = new_value
+        # Apply changes
+        for key, value in result.items():
+            if key == "debug":
+                cfg["debug"] = value
+                debug_changed = True
+                config.save_config(cfg)
+            elif key in script_env_vars:
+                # Convert bool back to string for env vars
+                if isinstance(value, bool):
+                    env_config[key] = "true" if value else "false"
+                else:
+                    env_config[key] = value
                 cfg["env"] = env_config
                 config.save_config(cfg)
                 env_changed = True
