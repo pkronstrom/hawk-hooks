@@ -637,6 +637,9 @@ def interactive_config():
 
             for var_name, default_value in sorted(script_env_vars.items()):
                 current_value = env_config.get(var_name, default_value)
+                # Ensure it's a string to avoid AttributeError
+                if not isinstance(current_value, str):
+                    current_value = str(current_value) if current_value is not None else ""
                 is_bool = current_value.lower() in ("true", "false", "1", "0", "yes", "no")
 
                 if is_bool:
@@ -652,28 +655,27 @@ def interactive_config():
         menu = InteractiveList(title="Configuration", items=items, console=console)
         result = menu.show()
 
-        # Handle exit
-        if "action" in result and result["action"] == "back":
+        # Handle exit (either "Back" action or cancellation via Esc/q/Ctrl+C)
+        if result.get("action") == "back" or not result:
             break
 
-        # Apply changes
+        # Apply changes (don't save yet)
         for key, value in result.items():
             if key == "debug":
                 cfg["debug"] = value
                 debug_changed = True
-                config.save_config(cfg)
             elif key in script_env_vars:
                 # Convert bool back to string for env vars
                 if isinstance(value, bool):
                     env_config[key] = "true" if value else "false"
                 else:
-                    env_config[key] = value
+                    env_config[key] = value.strip() if isinstance(value, str) else value
                 cfg["env"] = env_config
-                config.save_config(cfg)
                 env_changed = True
 
-    # Regenerate runners if debug or env changed
+    # Save config after loop if any changes were made
     if debug_changed or env_changed:
+        config.save_config(cfg)
         console.print()
         console.print("[bold]Regenerating runners...[/bold]")
         runners = generator.generate_all_runners()
