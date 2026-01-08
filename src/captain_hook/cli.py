@@ -320,17 +320,23 @@ def show_status():
         # Fits on one screen - display all at once
         # Use print() to preserve ANSI codes without Rich re-processing
         print(content, end="")
-        console.print("[dim]Press Enter to continue...[/dim]")
+        console.print("[dim]Press Enter or q to exit...[/dim]")
         import readchar
 
         while True:
             key = readchar.readkey()
             if key == readchar.key.ENTER or key == "\r" or key == "\n":
                 break
+            if key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
+                break
     else:
-        # Need pagination
+        # Need pagination with navigation
+        import readchar
+
         page_start = 0
-        while page_start < len(lines):
+        total_pages = (len(lines) + max_lines_per_page - 1) // max_lines_per_page
+
+        while True:
             console.clear()
             print()  # Blank line at top
 
@@ -341,25 +347,38 @@ def show_status():
             for line in page_lines:
                 print(line)
 
-            # Show pagination indicator
-            if page_end < len(lines):
-                remaining = len(lines) - page_end
-                console.print(f"\n[dim]↓ {remaining} more lines - Press Enter to continue...[/dim]")
-                import readchar
+            # Build navigation hint
+            current_page = (page_start // max_lines_per_page) + 1
+            lines_above = page_start
+            lines_below = len(lines) - page_end
 
-                while True:
-                    key = readchar.readkey()
-                    if key == readchar.key.ENTER or key == "\r" or key == "\n":
-                        break
-                page_start = page_end
-            else:
-                console.print("\n[dim]Press Enter to continue...[/dim]")
-                import readchar
+            hint_parts = []
+            if lines_above > 0:
+                hint_parts.append(f"[dim]↑ {lines_above} more above[/dim]")
+            if lines_below > 0:
+                hint_parts.append(f"[dim]↓ {lines_below} more below[/dim]")
 
-                while True:
-                    key = readchar.readkey()
-                    if key == readchar.key.ENTER or key == "\r" or key == "\n":
-                        break
+            hint_parts.append(f"[dim]Page {current_page}/{total_pages}[/dim]")
+            hint_parts.append("[dim]↑/↓ navigate  Enter/q exit[/dim]")
+
+            console.print("\n" + "  ".join(hint_parts))
+
+            # Handle navigation
+            key = readchar.readkey()
+
+            if key == readchar.key.DOWN:
+                # Go to next page
+                if page_end < len(lines):
+                    page_start = page_end
+            elif key == readchar.key.UP:
+                # Go to previous page
+                if page_start > 0:
+                    page_start = max(0, page_start - max_lines_per_page)
+            elif key == readchar.key.ENTER or key == "\r" or key == "\n":
+                # Exit on Enter
+                break
+            elif key.lower() == "q" or key == "\x1b" or key == readchar.key.ESC:
+                # Exit on q/Esc
                 break
 
 
