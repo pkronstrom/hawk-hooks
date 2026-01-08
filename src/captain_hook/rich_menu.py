@@ -90,12 +90,24 @@ class CheckboxItem(MenuItem):
             self.value = self.key
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
-        if self.checked:
-            checkbox = "[green]✓[/green]"
-            label = f"[green]{self.label}[/green]"
+        # Split label into name and description (if present)
+        if " - " in self.label:
+            name, description = self.label.split(" - ", 1)
+            if self.checked:
+                checkbox = "[green]✓[/green]"
+                label = f"[green]{name}[/green] - {description}"
+            else:
+                checkbox = "[red]✗[/red]"
+                label = f"[strike red dim]{name}[/] - [dim]{description}[/]"
         else:
-            checkbox = "[red]✗[/red]"
-            label = f"[strike red dim]{self.label}[/]"
+            # No description, color entire label
+            if self.checked:
+                checkbox = "[green]✓[/green]"
+                label = f"[green]{self.label}[/green]"
+            else:
+                checkbox = "[red]✗[/red]"
+                label = f"[strike red dim]{self.label}[/]"
+
         return f"{checkbox} {label}"
 
 
@@ -471,7 +483,7 @@ class InteractiveList:
             f"{content}\n\n{footer}",
             title=f"[bold]{self.title}[/bold]",
             border_style="cyan",
-            width=80,
+            width=100,
         )
 
     def show(self) -> dict[str, Any]:

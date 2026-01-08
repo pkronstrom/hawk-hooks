@@ -39,7 +39,7 @@ def print_header():
             f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
-            width=80,
+            width=100,
         )
     )
     console.print()
@@ -387,17 +387,17 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         if not current_enabled:
             current_enabled = config.load_config().get("enabled", {})
 
-    # Event name mapping for display
-    EVENT_DISPLAY_NAMES = {
-        "pre_tool_use": "PreToolUse",
-        "post_tool_use": "PostToolUse",
-        "user_prompt_submit": "UserPromptSubmit",
-        "session_start": "SessionStart",
-        "session_end": "SessionEnd",
-        "pre_compact": "PreCompact",
-        "notification": "Notification",
-        "stop": "Stop",
-        "subagent_stop": "SubagentStop",
+    # Event name mapping with descriptions
+    EVENT_INFO = {
+        "pre_tool_use": ("PreToolUse", "Before each tool is executed"),
+        "post_tool_use": ("PostToolUse", "After each tool completes"),
+        "user_prompt_submit": ("UserPromptSubmit", "When user sends a message"),
+        "session_start": ("SessionStart", "At the start of a session"),
+        "session_end": ("SessionEnd", "When a session ends"),
+        "pre_compact": ("PreCompact", "Before conversation is summarized"),
+        "notification": ("Notification", "On system notifications"),
+        "stop": ("Stop", "Before completing a response"),
+        "subagent_stop": ("SubagentStop", "When a subagent completes"),
     }
 
     # Build checkbox menu items
@@ -407,9 +407,13 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         if not event_hooks:
             continue
 
-        # Add separator with formatted event name
-        event_display = EVENT_DISPLAY_NAMES.get(event, event.replace("_", " ").title())
-        items.append(Item.separator(f"── {event_display} ──"))
+        # Add separator with formatted event name and description
+        if event in EVENT_INFO:
+            event_display, event_desc = EVENT_INFO[event]
+            items.append(Item.separator(f"── {event_display} - {event_desc} ──"))
+        else:
+            event_display = event.replace("_", " ").title()
+            items.append(Item.separator(f"── {event_display} ──"))
 
         enabled_list = current_enabled.get(event, [])
 
