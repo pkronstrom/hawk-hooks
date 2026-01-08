@@ -72,6 +72,29 @@ class ToggleItem(MenuItem):
 
 
 @dataclass
+class CheckboxItem(MenuItem):
+    """Menu item with checkbox for multi-select.
+
+    Attributes:
+        key: Unique identifier for this item (required).
+        label: Display text for the item.
+        checked: Whether the checkbox is checked.
+        value: Optional value to return (defaults to key).
+    """
+
+    checked: bool = False
+    value: Any = None
+
+    def __post_init__(self):
+        if self.value is None:
+            self.value = self.key
+
+    def render(self, is_selected: bool, is_editing: bool) -> str:
+        checkbox = "[green]☑[/green]" if self.checked else "☐"
+        return f"{checkbox} {self.label}"
+
+
+@dataclass
 class TextItem(MenuItem):
     """Text input field.
 
@@ -148,6 +171,21 @@ class Item:
             ToggleItem that can be added to a menu.
         """
         return ToggleItem(key=key, label=label, value=value)
+
+    @staticmethod
+    def checkbox(key: str, label: str, checked: bool = False, value: Any = None) -> CheckboxItem:
+        """Create a checkbox item for multi-select.
+
+        Args:
+            key: Unique identifier.
+            label: Display text.
+            checked: Initial checked state.
+            value: Optional value (defaults to key).
+
+        Returns:
+            CheckboxItem instance.
+        """
+        return CheckboxItem(key=key, label=label, checked=checked, value=value)
 
     @staticmethod
     def text(key: str, label: str, value: str = "") -> TextItem:
@@ -333,6 +371,7 @@ class InteractiveList:
 
         Behavior depends on item type:
         - ToggleItem: Flip boolean value and track change
+        - CheckboxItem: Toggle checked state (no exit, allows multi-select)
         - TextItem: Enter text editing mode
         - ActionItem: Set action and exit menu
         - SeparatorItem: No effect (defensive check)
@@ -350,6 +389,11 @@ class InteractiveList:
             item.value = not item.value
             if item.key is not None:
                 self.changes[item.key] = item.value
+
+        elif isinstance(item, CheckboxItem):
+            item.checked = not item.checked
+            # Don't exit on checkbox toggle - allow multi-select
+            # Checkboxes are collected when user presses a submit action
 
         elif isinstance(item, TextItem):
             if live:
@@ -371,8 +415,8 @@ class InteractiveList:
         Args:
             key: Key string from readchar.readkey().
         """
-        # Exit keys
-        if key in ["q", readchar.key.ESC]:
+        # Exit keys - use \x1b as fallback for ESC on macOS
+        if key in ["q", readchar.key.ESC, "\x1b"]:
             self.should_exit = True
         # Navigation
         elif key in ["j", readchar.key.DOWN]:
@@ -382,6 +426,16 @@ class InteractiveList:
         # Action
         elif key in [readchar.key.ENTER, " "]:
             self._activate_current_item(self._live)
+
+    def get_checked_values(self) -> list[Any]:
+        """Get values of all checked CheckboxItems.
+
+        Returns:
+            List of values from checked items.
+        """
+        return [
+            item.value for item in self.items if isinstance(item, CheckboxItem) and item.checked
+        ]
 
     def render(self) -> Panel:
         """Render the menu as a Rich Panel with cursor and help text.
@@ -400,7 +454,13 @@ class InteractiveList:
             lines.append(line)
 
         content = "\n".join(lines)
-        footer = "[dim]↑↓/jk navigate • Enter/Space select • Esc/q exit[/dim]"
+
+        # Check if menu has checkboxes
+        has_checkboxes = any(isinstance(item, CheckboxItem) for item in self.items)
+        if has_checkboxes:
+            footer = "[dim]↑↓/jk navigate • Space toggle • Enter confirm • Esc/q cancel[/dim]"
+        else:
+            footer = "[dim]↑↓/jk navigate • Enter/Space select • Esc/q exit[/dim]"
 
         return Panel(
             f"{content}\n\n{footer}",
