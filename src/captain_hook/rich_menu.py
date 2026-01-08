@@ -39,6 +39,7 @@ class TextItem(MenuItem):
     """Text input item."""
 
     value: str = ""
+    max_length: int = 100
 
     def render(self, is_selected: bool, is_editing: bool) -> str:
         # is_selected not used - future enhancement for visual highlighting
@@ -108,6 +109,7 @@ class InteractiveList:
         self.editing_index: int | None = None
         self.changes: dict[str, Any] = {}
         self.should_exit = False
+        self._live: Live | None = None
 
         # Move to first non-separator item
         if isinstance(self.items[0], SeparatorItem):
@@ -143,7 +145,50 @@ class InteractiveList:
 
         self.cursor_pos = new_pos
 
-    def _activate_current_item(self):
+    def _edit_text_item(self, item: TextItem, live: Live):
+        """Enter inline text editing mode."""
+        self.editing_index = self.cursor_pos
+        edit_buffer = item.value
+        original_value = item.value  # Store for cancel restoration
+
+        while True:
+            # Update display with cursor
+            live.update(self.render())
+
+            try:
+                key = readchar.readkey()
+            except KeyboardInterrupt:
+                item.value = original_value  # Restore on interrupt
+                break
+
+            # Commit changes
+            if key == readchar.key.ENTER:
+                item.value = edit_buffer
+                if item.key is not None:  # Guard against None key
+                    self.changes[item.key] = edit_buffer
+                break
+
+            # Cancel editing
+            elif key == readchar.key.ESC:
+                item.value = original_value  # Restore original value
+                break
+
+            # Delete character
+            elif key == readchar.key.BACKSPACE:
+                if edit_buffer:
+                    edit_buffer = edit_buffer[:-1]
+
+            # Add printable characters
+            elif len(key) == 1 and key.isprintable():
+                if len(edit_buffer) < item.max_length:
+                    edit_buffer += key
+
+            # Update item value for live preview
+            item.value = edit_buffer
+
+        self.editing_index = None
+
+    def _activate_current_item(self, live: Live | None = None):
         """Handle Enter/Space on current item."""
         item = self.items[self.cursor_pos]
 
@@ -152,17 +197,15 @@ class InteractiveList:
             return
 
         if isinstance(item, ToggleItem):
-            # Toggle boolean
             item.value = not item.value
             if item.key is not None:
                 self.changes[item.key] = item.value
 
         elif isinstance(item, TextItem):
-            # Will implement text editing next
-            pass
+            if live:
+                self._edit_text_item(item, live)
 
         elif isinstance(item, ActionItem):
-            # Exit with action (preserve other changes)
             self.changes["action"] = item.value
             self.should_exit = True
 
@@ -178,7 +221,7 @@ class InteractiveList:
             self._move_cursor(-1)
         # Action
         elif key in [readchar.key.ENTER, " "]:
-            self._activate_current_item()
+            self._activate_current_item(self._live)
 
     def render(self) -> Panel:
         """Render the menu as a Rich Panel."""
@@ -204,6 +247,8 @@ class InteractiveList:
     def show(self) -> dict[str, Any]:
         """Display menu and return changes."""
         with Live(self.render(), console=self.console, refresh_per_second=20) as live:
+            self._live = live  # Store for activation
+
             while not self.should_exit:
                 try:
                     key = readchar.readkey()
