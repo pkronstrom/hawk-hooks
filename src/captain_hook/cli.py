@@ -423,16 +423,44 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         console.print(f"  {config.get_hooks_dir()}/{{event}}/")
         return False
 
-    console.print()
-    selected = questionary.checkbox(
-        f"Toggle hooks ({scope}):",
-        choices=choices,
-        style=custom_style,
-        instruction="(Space toggle • A all • I invert • Enter save • Ctrl+C cancel)",
-    ).ask()
+    # Build checkbox menu items
+    items = []
+    for choice in choices:
+        if isinstance(choice, questionary.Separator):
+            items.append(Item.separator(choice.value))
+        else:
+            event, hook_name = choice.value
+            # Check if currently enabled
+            enabled_hooks = current_enabled.get(event, [])
+            is_checked = hook_name in enabled_hooks
+            items.append(
+                Item.checkbox(
+                    key=choice.value,  # (event, hook_name) tuple
+                    label=choice.title,
+                    checked=is_checked,
+                    value=choice.value,
+                )
+            )
 
-    if selected is None:
+    # Add submit/cancel actions
+    items.append(Item.separator("─────────"))
+    items.append(Item.action("Save", value="save"))
+    items.append(Item.action("Cancel", value="cancel"))
+
+    # Show menu
+    menu = InteractiveList(title=f"Toggle hooks ({scope})", items=items, console=console)
+    result = menu.show()
+
+    # Handle cancel
+    if result.get("action") == "cancel" or not result:
         return False
+
+    # Handle exit without action (Esc/q)
+    if "action" not in result:
+        return False
+
+    # Get checked items
+    selected = menu.get_checked_values()
 
     console.print()
 
