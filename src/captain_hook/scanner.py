@@ -16,6 +16,9 @@ VALID_PACKAGE_NAME = re.compile(r"^[@a-zA-Z0-9._-]+$")
 # Security: Max length for env var values
 MAX_ENV_VALUE_LENGTH = 1000
 
+# Max lines to scan for metadata comments at start of hook files
+METADATA_SCAN_LINES = 20
+
 
 def validate_package_name(name: str) -> bool:
     """Validate a package name is safe for shell commands.
@@ -108,7 +111,7 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
         content = path.read_text()
         lines = content.split("\n")
 
-        for line in lines[:20]:  # Check first 20 lines for metadata
+        for line in lines[:METADATA_SCAN_LINES]:
             # Description pattern
             desc_match = re.match(r"^[#/\-*\s]*Description:\s*(.+)$", line, re.IGNORECASE)
             if desc_match:
