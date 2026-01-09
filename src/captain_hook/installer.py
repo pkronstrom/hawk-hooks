@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config, scanner
-from .types import Scope
+from .types import InstallStatus, Scope, StatusResult
 
 
 def get_user_settings_path() -> Path:
@@ -189,12 +189,12 @@ def uninstall_hooks(
     return results
 
 
-def get_status(project_dir: Path | None = None) -> dict[str, Any]:
+def get_status(project_dir: Path | None = None) -> StatusResult:
     """
     Get status of installed hooks.
 
     Returns:
-        Dict with 'user' and 'project' keys containing installation info
+        StatusResult with user and project installation info.
     """
     user_path = get_user_settings_path()
     project_path = get_project_settings_path(project_dir)
@@ -210,16 +210,10 @@ def get_status(project_dir: Path | None = None) -> dict[str, Any]:
                         return True
         return False
 
-    return {
-        "user": {
-            "path": str(user_path),
-            "installed": has_our_hooks(user_settings),
-        },
-        "project": {
-            "path": str(project_path),
-            "installed": has_our_hooks(project_settings),
-        },
-    }
+    return StatusResult(
+        user=InstallStatus(path=str(user_path), installed=has_our_hooks(user_settings)),
+        project=InstallStatus(path=str(project_path), installed=has_our_hooks(project_settings)),
+    )
 
 
 def sync_prompt_hooks(
