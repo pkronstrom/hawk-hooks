@@ -38,7 +38,7 @@ def _atomic_write_executable(path: Path, content: str) -> None:
         os.close(fd)
         # Atomic rename
         os.rename(tmp_path, path)
-    except Exception:
+    except (OSError, IOError):
         os.close(fd)
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
