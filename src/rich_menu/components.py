@@ -86,72 +86,66 @@ class CheckboxItem(MenuItem):
         if self.original_checked is None:
             self.original_checked = self.checked
 
-    def render(self, is_selected: bool, is_editing: bool, theme: Theme = DEFAULT_THEME) -> str:
-        # Check if state has changed
-        if self.checked != self.original_checked:
-            change_indicator = (
-                f" [{theme.warning_color}]{theme.change_icon}[/{theme.warning_color}]"
-            )
-        else:
-            change_indicator = ""
+    def _get_checkbox_icon(self, theme: Theme) -> str:
+        """Get the checkbox icon based on checked state."""
+        if self.checked:
+            return f"[{theme.checked_color}]{theme.checked_icon}[/{theme.checked_color}]"
+        return f"[{theme.unchecked_color}]{theme.unchecked_icon}[/{theme.unchecked_color}]"
 
-        # Split label into name and description (if present)
+    def _get_change_indicator(self, theme: Theme) -> str:
+        """Get change indicator if state differs from original."""
+        if self.checked != self.original_checked:
+            return f" [{theme.warning_color}]{theme.change_icon}[/{theme.warning_color}]"
+        return ""
+
+    def _style_name(self, name: str, theme: Theme) -> str:
+        """Style the name part based on checked state."""
+        change = self._get_change_indicator(theme)
+        if self.checked:
+            return f"[{theme.checked_color}]{name}[/{theme.checked_color}]{change}"
+        return f"[strike {theme.unchecked_color} {theme.dim_color}]{name}[/]{change}"
+
+    def _style_description(self, desc: str, theme: Theme) -> str:
+        """Style description text (dimmed when unchecked)."""
+        if self.checked:
+            return desc
+        return f"[{theme.dim_color}]{desc}[/{theme.dim_color}]"
+
+    def _render_with_description(self, name: str, description: str, theme: Theme) -> str:
+        """Render checkbox with name - description format."""
+        checkbox = self._get_checkbox_icon(theme)
+        name_part = self._style_name(name, theme)
+
+        # Calculate indentation and wrapping
+        indent_spaces = len(name) + 5
+        desc_width = 95 - indent_spaces
+
+        if len(description) <= desc_width:
+            # Single line description
+            desc_part = self._style_description(description, theme)
+            return f"{checkbox} {name_part} - {desc_part}"
+
+        # Multi-line wrapped description
+        wrapped = textwrap.wrap(description, width=desc_width)
+        indent = " " * (indent_spaces + 2)
+
+        lines = [f"{checkbox} {name_part} - {self._style_description(wrapped[0], theme)}"]
+        for line in wrapped[1:]:
+            lines.append(f"{indent}{self._style_description(line, theme)}")
+
+        return "\n".join(lines)
+
+    def _render_simple(self, theme: Theme) -> str:
+        """Render checkbox with simple label (no description)."""
+        checkbox = self._get_checkbox_icon(theme)
+        label = self._style_name(self.label, theme)
+        return f"{checkbox} {label}"
+
+    def render(self, is_selected: bool, is_editing: bool, theme: Theme = DEFAULT_THEME) -> str:
         if " - " in self.label:
             name, description = self.label.split(" - ", 1)
-
-            # Build the name part with indicator
-            if self.checked:
-                checkbox = f"[{theme.checked_color}]{theme.checked_icon}[/{theme.checked_color}]"
-                name_part = (
-                    f"[{theme.checked_color}]{name}[/{theme.checked_color}]{change_indicator}"
-                )
-            else:
-                checkbox = (
-                    f"[{theme.unchecked_color}]{theme.unchecked_icon}[/{theme.unchecked_color}]"
-                )
-                name_part = (
-                    f"[strike {theme.unchecked_color} {theme.dim_color}]{name}[/]{change_indicator}"
-                )
-
-            # Calculate indentation for wrapped lines
-            indent_spaces = len(name) + 5
-
-            # Wrap description to fit (assume ~100 char total width)
-            desc_width = 95 - indent_spaces
-
-            if len(description) > desc_width:
-                wrapped_lines = textwrap.wrap(description, width=desc_width)
-                first_line = wrapped_lines[0]
-                remaining_lines = wrapped_lines[1:]
-
-                if not self.checked:
-                    first_line = f"[{theme.dim_color}]{first_line}[/{theme.dim_color}]"
-                    result = f"{checkbox} {name_part} - {first_line}"
-                    for line in remaining_lines:
-                        result += f"\n{' ' * (indent_spaces + 2)}[{theme.dim_color}]{line}[/{theme.dim_color}]"
-                else:
-                    result = f"{checkbox} {name_part} - {first_line}"
-                    for line in remaining_lines:
-                        result += f"\n{' ' * (indent_spaces + 2)}{line}"
-                return result
-            else:
-                if self.checked:
-                    label = f"{name_part} - {description}"
-                else:
-                    label = f"{name_part} - [{theme.dim_color}]{description}[/{theme.dim_color}]"
-        else:
-            if self.checked:
-                checkbox = f"[{theme.checked_color}]{theme.checked_icon}[/{theme.checked_color}]"
-                label = (
-                    f"[{theme.checked_color}]{self.label}[/{theme.checked_color}]{change_indicator}"
-                )
-            else:
-                checkbox = (
-                    f"[{theme.unchecked_color}]{theme.unchecked_icon}[/{theme.unchecked_color}]"
-                )
-                label = f"[strike {theme.unchecked_color} {theme.dim_color}]{self.label}[/]{change_indicator}"
-
-        return f"{checkbox} {label}"
+            return self._render_with_description(name, description, theme)
+        return self._render_simple(theme)
 
 
 @dataclass
