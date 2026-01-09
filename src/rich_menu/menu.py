@@ -252,14 +252,14 @@ class InteractiveList:
                     item.value = original_value
                     break
 
-                if key == readchar.key.ESC:
+                if is_escape(key):
                     item.value = original_value
                     break
-                elif key == readchar.key.ENTER:
+                elif is_enter(key):
                     if item.key is not None:
                         self.changes[item.key] = edit_buffer
                     break
-                elif key == readchar.key.BACKSPACE:
+                elif is_backspace(key):
                     if edit_buffer:
                         edit_buffer = edit_buffer[:-1]
                 elif len(key) == 1 and key.isprintable():
@@ -295,16 +295,13 @@ class InteractiveList:
 
     def _handle_key(self, key: str):
         """Handle keyboard input and update menu state."""
-        # Exit keys - escape but not arrow sequences
-        is_escape = key == readchar.key.ESC or key == "\x1b" or key == "\x1b\x1b"
-
-        if key.lower() == "q" or is_escape:
+        if is_exit(key):
             self.should_exit = True
-        elif key.lower() == "j" or key == readchar.key.DOWN:
+        elif is_down(key):
             self._move_cursor(+1)
-        elif key.lower() == "k" or key == readchar.key.UP:
+        elif is_up(key):
             self._move_cursor(-1)
-        elif key in [readchar.key.ENTER, " "]:
+        elif is_select(key):
             self._activate_current_item(self._live)
 
     def get_checked_values(self) -> list[Any]:
