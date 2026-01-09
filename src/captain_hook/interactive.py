@@ -448,8 +448,9 @@ def _handle_edit_hook(menu, item) -> bool:
 
     subprocess.run([editor, str(hook.path)], check=False)
 
-    # Restart the live display
+    # Clear and restart the live display
     if menu._live:
+        menu.console.clear()
         menu._live.start()
 
     return False  # Don't exit menu
