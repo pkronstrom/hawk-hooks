@@ -177,10 +177,9 @@ def show_status():
 
         while True:
             key = readchar.readkey()
-            if key == readchar.key.ENTER or key == "\r" or key == "\n":
+            if is_enter(key):
                 break
-            is_escape = key == readchar.key.ESC or key == "\x1b" or key == "\x1b\x1b"
-            if key.lower() == "q" or is_escape:
+            if is_exit(key):
                 break
     else:
         window_offset = 0
@@ -211,18 +210,16 @@ def show_status():
 
             key = readchar.readkey()
 
-            if key == readchar.key.DOWN:
+            if is_down(key):
                 if window_end < len(lines):
                     window_offset += 1
-            elif key == readchar.key.UP:
+            elif is_up(key):
                 if window_offset > 0:
                     window_offset -= 1
-            elif key == readchar.key.ENTER or key == "\r" or key == "\n":
+            elif is_enter(key):
                 break
-            else:
-                is_escape = key == readchar.key.ESC or key == "\x1b" or key == "\x1b\x1b"
-                if key.lower() == "q" or is_escape:
-                    break
+            elif is_exit(key):
+                break
 
 
 def interactive_install() -> bool:
@@ -480,7 +477,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
 
     while True:
         key = readchar.readkey()
-        if key == readchar.key.ENTER or key == "\r" or key == "\n":
+        if is_enter(key):
             break
 
     return False
@@ -579,7 +576,7 @@ def interactive_config():
 
         while True:
             key = readchar.readkey()
-            if key == readchar.key.ENTER or key == "\r" or key == "\n":
+            if is_enter(key):
                 break
     else:
         console.clear()
@@ -590,7 +587,7 @@ def interactive_config():
 
         while True:
             key = readchar.readkey()
-            if key == readchar.key.ENTER or key == "\r" or key == "\n":
+            if is_enter(key):
                 break
 
 

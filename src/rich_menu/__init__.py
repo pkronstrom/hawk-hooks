@@ -24,6 +24,16 @@ from .components import (
     TextItem,
     ToggleItem,
 )
+from .keys import (
+    is_backspace,
+    is_down,
+    is_enter,
+    is_escape,
+    is_exit,
+    is_select,
+    is_space,
+    is_up,
+)
 from .menu import InteractiveList, Item
 from .themes import DEFAULT_THEME, Theme
 
@@ -41,4 +51,13 @@ __all__ = [
     # Theming
     "Theme",
     "DEFAULT_THEME",
+    # Key helpers
+    "is_enter",
+    "is_escape",
+    "is_exit",
+    "is_up",
+    "is_down",
+    "is_backspace",
+    "is_space",
+    "is_select",
 ]
