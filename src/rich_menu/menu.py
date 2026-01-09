@@ -160,7 +160,21 @@ class InteractiveList:
         items: list[MenuItem],
         console: Console | None = None,
         theme: Theme | None = None,
+        key_handlers: dict[str, callable] | None = None,
+        footer: str | None = None,
     ):
+        """Initialize the interactive menu.
+
+        Args:
+            title: Menu title displayed in the panel header.
+            items: List of MenuItem objects to display.
+            console: Rich Console instance (creates new one if None).
+            theme: Visual theme for styling.
+            key_handlers: Optional dict mapping key chars to callbacks.
+                          Callback signature: (menu, item) -> bool
+                          Return True to request exit after handling.
+            footer: Optional custom footer text (overrides default hints).
+        """
         if not items:
             raise ValueError("Menu must have at least one item")
 
@@ -177,6 +191,8 @@ class InteractiveList:
         self.should_exit = False
         self._live: Live | None = None
         self.window_offset = 0
+        self.key_handlers = key_handlers or {}
+        self._custom_footer = footer
 
         # Restore cursor position for this menu title
         if title in InteractiveList._cursor_memory:
@@ -296,6 +312,14 @@ class InteractiveList:
 
     def _handle_key(self, key: str):
         """Handle keyboard input and update menu state."""
+        # Check custom key handlers first
+        if key in self.key_handlers:
+            item = self.items[self.cursor_pos]
+            should_exit = self.key_handlers[key](self, item)
+            if should_exit:
+                self.should_exit = True
+            return
+
         if is_exit(key):
             self.should_exit = True
         elif is_down(key):
@@ -350,8 +374,9 @@ class InteractiveList:
 
         content = "\n".join(lines)
 
-        has_checkboxes = any(isinstance(item, CheckboxItem) for item in self.items)
-        if has_checkboxes:
+        if self._custom_footer:
+            footer = f"[{self.theme.dim_color}]{self._custom_footer}[/{self.theme.dim_color}]"
+        elif any(isinstance(item, CheckboxItem) for item in self.items):
             footer = (
                 f"[{self.theme.dim_color}]{self.theme.scroll_up_icon}{self.theme.scroll_down_icon}/jk navigate "
                 f"• Space toggle • [{self.theme.warning_color}]{self.theme.change_icon}[/{self.theme.warning_color}] unsaved "

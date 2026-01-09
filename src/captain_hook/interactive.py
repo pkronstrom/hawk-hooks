@@ -425,10 +425,77 @@ def _build_toggle_items(
                     key=(event, hook.name),
                     label=label,
                     checked=is_checked,
+                    value=(event, hook),  # Store hook object for key handlers
                 )
             )
 
     return items
+
+
+def _handle_edit_hook(menu, item) -> bool:
+    """Open hook file in editor."""
+    from rich_menu.components import CheckboxItem
+
+    if not isinstance(item, CheckboxItem):
+        return False
+
+    event, hook = item.value
+    editor = os.environ.get("EDITOR", "nano")
+    subprocess.run([editor, str(hook.path)], check=False)
+    return False  # Don't exit menu
+
+
+def _handle_show_hook(menu, item) -> bool:
+    """Show hook file in system file manager."""
+    from rich_menu.components import CheckboxItem
+
+    if not isinstance(item, CheckboxItem):
+        return False
+
+    event, hook = item.value
+    hook_dir = hook.path.parent
+
+    if sys.platform == "darwin":
+        subprocess.run(["open", "-R", str(hook.path)], check=False)
+    elif sys.platform == "win32":
+        subprocess.run(["explorer", "/select,", str(hook.path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(hook_dir)], check=False)
+
+    return False  # Don't exit menu
+
+
+def _handle_delete_hook(menu, item) -> bool:
+    """Delete hook file after confirmation."""
+    from rich_menu.components import CheckboxItem
+
+    if not isinstance(item, CheckboxItem):
+        return False
+
+    event, hook = item.value
+
+    confirm = questionary.confirm(
+        f"Delete {hook.path.name}?",
+        default=False,
+        style=custom_style,
+    ).ask()
+
+    if not confirm:
+        return False
+
+    # Disable the hook first if enabled
+    manager = HookManager(scope=Scope.USER)
+    manager.disable_hook(event, hook.name)
+
+    # Delete the file
+    hook.path.unlink()
+
+    # Remove item from menu
+    menu.items.remove(item)
+    if menu.cursor_pos >= len(menu.items):
+        menu.cursor_pos = max(0, len(menu.items) - 1)
+
+    return False  # Don't exit menu
 
 
 def _apply_toggle_changes(
@@ -541,7 +608,20 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     items.append(Item.action("Save", value="save"))
     items.append(Item.action("Cancel", value="cancel"))
 
-    menu = InteractiveList(title=f"Toggle hooks ({scope})", items=items, console=console)
+    key_handlers = {
+        "e": _handle_edit_hook,
+        "s": _handle_show_hook,
+        "d": _handle_delete_hook,
+    }
+    footer = "↑↓/jk navigate • Space toggle • e edit • s show • d delete • Enter save • Esc cancel"
+
+    menu = InteractiveList(
+        title=f"Toggle hooks ({scope})",
+        items=items,
+        console=console,
+        key_handlers=key_handlers,
+        footer=footer,
+    )
     result = menu.show()
 
     if result.get("action") == "cancel" or not result or "action" not in result:
@@ -1137,89 +1217,6 @@ def install_deps():
     console.print()
 
 
-def interactive_delete_hook() -> bool:
-    """Interactive hook deletion."""
-    console.clear()
-
-    hooks = scanner.scan_hooks()
-    all_hooks = []
-    for event in EVENTS:
-        for hook in hooks.get(event, []):
-            all_hooks.append((event, hook))
-
-    if not all_hooks:
-        console.print("[yellow]No hooks found.[/yellow]")
-        console.print("[dim]Press Enter to continue...[/dim]")
-        while True:
-            key = readchar.readkey()
-            if is_enter(key):
-                break
-        return False
-
-    items = []
-    for event, hook in all_hooks:
-        label = f"{event}/{hook.name}"
-        if hook.description:
-            label = f"{label} - {hook.description}"
-        items.append(Item.action(label, value=(event, hook)))
-
-    items.append(Item.separator("─────────"))
-    items.append(Item.action("Cancel", value="cancel"))
-
-    menu = InteractiveList(title="Delete hook:", items=items, console=console)
-    result = menu.show()
-
-    if result.get("action") == "cancel" or not result.get("action"):
-        return False
-
-    event, hook = result["action"]
-
-    confirm = questionary.confirm(
-        f"Delete {hook.path.name}?",
-        default=False,
-        style=custom_style,
-    ).ask()
-
-    if not confirm:
-        return False
-
-    # Disable the hook first if enabled
-    manager = HookManager(scope=Scope.USER)
-    manager.disable_hook(event, hook.name)
-
-    # Delete the file
-    hook.path.unlink()
-    console.print(f"[green]✓[/green] Deleted {hook.path}")
-    console.print()
-    console.print("[dim]Press Enter to continue...[/dim]")
-
-    while True:
-        key = readchar.readkey()
-        if is_enter(key):
-            break
-
-    return False
-
-
-def interactive_open_dir() -> None:
-    """Open hooks directory in system file manager."""
-    hooks_dir = config.get_hooks_dir()
-
-    if not hooks_dir.exists():
-        hooks_dir.mkdir(parents=True, exist_ok=True)
-
-    # macOS: use 'open', Linux: use 'xdg-open', Windows: use 'explorer'
-    if sys.platform == "darwin":
-        subprocess.run(["open", str(hooks_dir)], check=False)
-    elif sys.platform == "win32":
-        subprocess.run(["explorer", str(hooks_dir)], check=False)
-    else:
-        subprocess.run(["xdg-open", str(hooks_dir)], check=False)
-
-    console.print(f"[green]✓[/green] Opened {hooks_dir}")
-    console.print()
-
-
 def run_wizard():
     """Run the first-time setup wizard."""
     console.clear()
@@ -1355,15 +1352,13 @@ def interactive_menu():
             title="What would you like to do?",
             items=[
                 Item.action("Status       Show hooks + enabled state", value="status"),
-                Item.action("Toggle       Enable/disable hooks + regenerate", value="toggle"),
+                Item.action("Toggle       Enable/disable/edit/delete hooks", value="toggle"),
                 Item.action("Add hook     Create or link a new hook", value="add"),
-                Item.action("Delete hook  Remove a hook file", value="delete"),
                 Item.action("Config       Debug mode, notifications", value="config"),
                 Item.separator("─────────"),
                 Item.action("Install      Register hooks in Claude settings", value="install"),
                 Item.action("Uninstall    Remove hooks from Claude settings", value="uninstall"),
                 Item.action("Install-deps Install Python dependencies", value="deps"),
-                Item.action("Open dir     Open hooks directory in Finder", value="opendir"),
                 Item.separator("─────────"),
                 Item.action("Exit", value="exit"),
             ],
@@ -1382,8 +1377,6 @@ def interactive_menu():
             interactive_toggle()
         elif choice == "add":
             interactive_add_hook()
-        elif choice == "delete":
-            interactive_delete_hook()
         elif choice == "config":
             interactive_config()
         elif choice == "install":
@@ -1392,5 +1385,3 @@ def interactive_menu():
             interactive_uninstall()
         elif choice == "deps":
             install_deps()
-        elif choice == "opendir":
-            interactive_open_dir()
