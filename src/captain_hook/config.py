@@ -1,11 +1,14 @@
 """Configuration management for captain-hook."""
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
 from typing import Any
 
 from .events import EVENTS
+from .types import Scope
 
 # Default config
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -255,12 +258,25 @@ def get_enabled_hooks(event: str, project_dir: Path | None = None) -> list[str]:
 def set_enabled_hooks(
     event: str,
     hooks: list[str],
-    scope: str = "global",
+    scope: Scope | str = Scope.USER,
     project_dir: Path | None = None,
     add_to_git_exclude: bool = True,
 ) -> None:
-    """Set the list of enabled hooks for an event."""
-    if scope == "global":
+    """Set the list of enabled hooks for an event.
+
+    Args:
+        event: The event name.
+        hooks: List of hook names to enable.
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
+        project_dir: Project directory (for PROJECT scope).
+        add_to_git_exclude: Whether to add project config to .git/info/exclude.
+    """
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
+    if scope == Scope.USER:
         config = load_config()
         config["enabled"][event] = hooks
         save_config(config)

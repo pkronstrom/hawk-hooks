@@ -1,5 +1,7 @@
 """Runner generator for captain-hook."""
 
+from __future__ import annotations
+
 import os
 import shlex
 import shutil
@@ -8,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from . import config, scanner
+from .types import Scope
 
 
 def _get_interpreter_path(interpreter: str) -> str:
@@ -290,22 +293,29 @@ exit 0
     return runner_path
 
 
-def generate_all_runners(scope: str = "global", project_dir: Path | None = None) -> list[Path]:
+def generate_all_runners(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> list[Path]:
     """Generate runners for all events.
 
     Args:
-        scope: 'global' or 'project'
-        project_dir: Project directory for project scope
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
+        project_dir: Project directory for PROJECT scope.
 
     Returns:
         List of generated runner paths.
     """
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
     runners = []
 
     for event in config.EVENTS:
-        enabled = config.get_enabled_hooks(event, project_dir if scope == "project" else None)
+        enabled = config.get_enabled_hooks(event, project_dir if scope == Scope.PROJECT else None)
 
-        if scope == "project":
+        if scope == Scope.PROJECT:
             runner = generate_runner(
                 event=event,
                 enabled_hooks=enabled,

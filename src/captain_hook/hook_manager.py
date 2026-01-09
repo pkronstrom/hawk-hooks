@@ -5,16 +5,19 @@ and synchronization operations. It consolidates the scattered enable/disable
 logic from cli.py into a single, testable service.
 
 Example:
-    manager = HookManager(scope="global")
+    manager = HookManager(scope=Scope.USER)
     manager.enable_hook("pre_tool_use", "my-hook")
     manager.sync()  # Regenerates runners and syncs prompt hooks
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 
 from . import config, generator, installer, scanner
 from .events import EVENTS
 from .scanner import HookInfo
+from .types import Scope
 
 
 class HookManager:
@@ -24,20 +27,22 @@ class HookManager:
     ensuring that all state changes are properly synchronized.
 
     Attributes:
-        scope: Either "global" or "project".
-        project_dir: Project directory (required when scope is "project").
+        scope: Either Scope.USER or Scope.PROJECT.
+        project_dir: Project directory (required when scope is PROJECT).
     """
 
-    def __init__(self, scope: str = "global", project_dir: Path | None = None):
+    def __init__(self, scope: Scope | str = Scope.USER, project_dir: Path | None = None):
         """Initialize the hook manager.
 
         Args:
-            scope: "global" for user-wide hooks, "project" for project-specific.
-            project_dir: Project directory when scope is "project".
+            scope: USER for user-wide hooks, PROJECT for project-specific.
+                   Accepts Scope enum or string ("user", "global", "project").
+            project_dir: Project directory when scope is PROJECT.
                          Defaults to current working directory.
         """
-        if scope not in ("global", "project"):
-            raise ValueError(f"Invalid scope: {scope}. Must be 'global' or 'project'.")
+        # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+        if isinstance(scope, str):
+            scope = Scope.from_string(scope)
 
         self.scope = scope
         self.project_dir = project_dir if project_dir else Path.cwd()
@@ -51,7 +56,7 @@ class HookManager:
         Returns:
             List of enabled hook names.
         """
-        if self.scope == "project":
+        if self.scope == Scope.PROJECT:
             return config.get_enabled_hooks(event, self.project_dir)
         return config.get_enabled_hooks(event)
 
@@ -74,7 +79,7 @@ class HookManager:
             event=event,
             hooks=hooks,
             scope=self.scope,
-            project_dir=self.project_dir if self.scope == "project" else None,
+            project_dir=self.project_dir if self.scope == Scope.PROJECT else None,
             add_to_git_exclude=add_to_git_exclude,
         )
 
@@ -130,12 +135,12 @@ class HookManager:
         This regenerates all runners and syncs native prompt hooks.
         Call this after batch changes to enabled hooks.
         """
-        if self.scope == "project":
-            generator.generate_all_runners(scope="project", project_dir=self.project_dir)
-            installer.sync_prompt_hooks(scope="project", project_dir=self.project_dir)
+        if self.scope == Scope.PROJECT:
+            generator.generate_all_runners(scope=Scope.PROJECT, project_dir=self.project_dir)
+            installer.sync_prompt_hooks(scope=Scope.PROJECT, project_dir=self.project_dir)
         else:
-            generator.generate_all_runners(scope="global")
-            installer.sync_prompt_hooks(scope="user")
+            generator.generate_all_runners(scope=Scope.USER)
+            installer.sync_prompt_hooks(scope=Scope.USER)
 
     def find_hook(self, name: str) -> HookInfo | None:
         """Find a hook by name across all events.
