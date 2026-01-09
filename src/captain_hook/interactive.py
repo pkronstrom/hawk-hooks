@@ -22,7 +22,53 @@ from .hook_manager import HookManager
 from .rich_menu import InteractiveList, Item
 from .types import Scope
 
-console = Console()
+# Console management for testability
+# Tests can call set_console() to inject a mock console
+_console_instance: Console | None = None
+
+
+def _get_console() -> Console:
+    """Get the console instance, creating one if needed."""
+    global _console_instance
+    if _console_instance is None:
+        _console_instance = Console()
+    return _console_instance
+
+
+def set_console(new_console: Console | None) -> None:
+    """Set the console instance (for testing).
+
+    Args:
+        new_console: Console to use, or None to reset to default.
+
+    Example:
+        from io import StringIO
+        from rich.console import Console
+        from captain_hook import interactive
+
+        # Capture output in tests
+        output = StringIO()
+        interactive.set_console(Console(file=output, force_terminal=True))
+        # ... run code ...
+        interactive.set_console(None)  # Reset
+    """
+    global _console_instance
+    _console_instance = new_console
+
+
+class _ConsoleProxy:
+    """Proxy that delegates to the current console instance.
+
+    This allows set_console() to affect all code using the module-level
+    `console` variable, even after import.
+    """
+
+    def __getattr__(self, name: str):
+        return getattr(_get_console(), name)
+
+
+# Module-level console that can be swapped via set_console()
+console = _ConsoleProxy()
 
 # Custom style for questionary
 custom_style = Style(
