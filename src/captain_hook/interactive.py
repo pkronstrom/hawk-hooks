@@ -476,37 +476,31 @@ def _handle_show_hook(menu, item) -> bool:
     return False  # Don't exit menu
 
 
-def _handle_delete_hook(menu, item) -> bool:
-    """Delete hook file after confirmation."""
-    from rich_menu.components import CheckboxItem
+def _make_delete_handler(marked_for_deletion: set):
+    """Create a delete handler with access to the deletion set."""
 
-    if not isinstance(item, CheckboxItem):
-        return False
+    def _handle_delete_hook(menu, item) -> bool:
+        """Toggle mark for deletion on hook."""
+        from rich_menu.components import CheckboxItem
 
-    event, hook = item.value
+        if not isinstance(item, CheckboxItem):
+            return False
 
-    confirm = questionary.confirm(
-        f"Delete {hook.path.name}?",
-        default=False,
-        style=custom_style,
-    ).ask()
+        event, hook = item.value
+        key = (event, hook.name)
 
-    if not confirm:
-        return False
+        if key in marked_for_deletion:
+            # Unmark - remove strikethrough from label
+            marked_for_deletion.discard(key)
+            item.label = item.label.replace("[strike red]", "").replace("[/strike red]", "")
+        else:
+            # Mark for deletion - add strikethrough
+            marked_for_deletion.add(key)
+            item.label = f"[strike red]{item.label}[/strike red]"
 
-    # Disable the hook first if enabled
-    manager = HookManager(scope=Scope.USER)
-    manager.disable_hook(event, hook.name)
+        return False  # Don't exit menu
 
-    # Delete the file
-    hook.path.unlink()
-
-    # Remove item from menu
-    menu.items.remove(item)
-    if menu.cursor_pos >= len(menu.items):
-        menu.cursor_pos = max(0, len(menu.items) - 1)
-
-    return False  # Don't exit menu
+    return _handle_delete_hook
 
 
 def _apply_toggle_changes(
@@ -619,10 +613,12 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     items.append(Item.action("Save", value="save"))
     items.append(Item.action("Cancel", value="cancel"))
 
+    marked_for_deletion: set[tuple[str, str]] = set()
+
     key_handlers = {
         "e": _handle_edit_hook,
         "s": _handle_show_hook,
-        "d": _handle_delete_hook,
+        "d": _make_delete_handler(marked_for_deletion),
     }
     footer = "↑↓/jk navigate • Space toggle • e edit • s show • d delete • Enter save • Esc cancel"
 
@@ -637,6 +633,17 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
 
     if result.get("action") == "cancel" or not result or "action" not in result:
         return False
+
+    # Delete marked hooks
+    for event, hook_name in marked_for_deletion:
+        for hook in hooks.get(event, []):
+            if hook.name == hook_name:
+                # Disable first
+                manager = HookManager(scope=Scope.USER)
+                manager.disable_hook(event, hook_name)
+                # Delete file
+                hook.path.unlink()
+                break
 
     selected = menu.get_checked_values()
     console.print()
