@@ -39,7 +39,7 @@ dev = [
 captain-hook = "captain_hook.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/captain_hook"]
+packages = ["src/captain_hook", "src/rich_menu"]
 
 [tool.ruff]
 line-length = 100
@@ -47,3 +47,8 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"

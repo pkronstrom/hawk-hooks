@@ -1,5 +1,7 @@
 """Runner generator for captain-hook."""
 
+from __future__ import annotations
+
 import os
 import shlex
 import shutil
@@ -8,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from . import config, scanner
+from .types import Scope
 
 
 def _get_interpreter_path(interpreter: str) -> str:
@@ -35,7 +38,7 @@ def _atomic_write_executable(path: Path, content: str) -> None:
         os.close(fd)
         # Atomic rename
         os.rename(tmp_path, path)
-    except Exception:
+    except (OSError, IOError):
         os.close(fd)
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -87,15 +90,20 @@ export PATH="$VENV_BIN:$PATH"
 """
 
 
-def _get_env_exports() -> str:
-    """Generate export statements for env vars."""
+def _get_env_exports(cfg: dict | None = None) -> str:
+    """Generate export statements for env vars.
+
+    Args:
+        cfg: Config dict. If None, loads from disk.
+    """
     # Get all env vars from scripts (with defaults)
     script_env_vars = scanner.get_all_env_vars()
     if not script_env_vars:
         return ""
 
     # Get configured values
-    cfg = config.load_config()
+    if cfg is None:
+        cfg = config.load_config()
     env_config = cfg.get("env", {})
 
     # Build export statements
@@ -112,9 +120,18 @@ def _get_env_exports() -> str:
     return ""
 
 
-def _get_debug_snippets(event: str, is_project: bool = False) -> dict[str, str]:
-    """Get debug code snippets if debug is enabled."""
-    cfg = config.load_config()
+def _get_debug_snippets(
+    event: str, is_project: bool = False, cfg: dict | None = None
+) -> dict[str, str]:
+    """Get debug code snippets if debug is enabled.
+
+    Args:
+        event: Event name for logging.
+        is_project: Whether this is a project runner.
+        cfg: Config dict. If None, loads from disk.
+    """
+    if cfg is None:
+        cfg = config.load_config()
     if not cfg.get("debug", False):
         return {
             "debug_setup": "",
@@ -257,9 +274,9 @@ exit 0
 
     hook_calls_str = "\n".join(hook_calls)
 
-    # Get debug snippets and env exports
-    debug = _get_debug_snippets(event, is_project=is_project)
-    env_exports = _get_env_exports()
+    # Get debug snippets and env exports (pass cfg to avoid reloading)
+    debug = _get_debug_snippets(event, is_project=is_project, cfg=cfg)
+    env_exports = _get_env_exports(cfg=cfg)
 
     # Generate runner content
     if is_project:
@@ -290,22 +307,29 @@ exit 0
     return runner_path
 
 
-def generate_all_runners(scope: str = "global", project_dir: Path | None = None) -> list[Path]:
+def generate_all_runners(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> list[Path]:
     """Generate runners for all events.
 
     Args:
-        scope: 'global' or 'project'
-        project_dir: Project directory for project scope
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
+        project_dir: Project directory for PROJECT scope.
 
     Returns:
         List of generated runner paths.
     """
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
     runners = []
 
     for event in config.EVENTS:
-        enabled = config.get_enabled_hooks(event, project_dir if scope == "project" else None)
+        enabled = config.get_enabled_hooks(event, project_dir if scope == Scope.PROJECT else None)
 
-        if scope == "project":
+        if scope == Scope.PROJECT:
             runner = generate_runner(
                 event=event,
                 enabled_hooks=enabled,
@@ -322,16 +346,6 @@ def generate_all_runners(scope: str = "global", project_dir: Path | None = None)
             runners.append(runner)
 
     return runners
-
-
-def _make_executable(path: Path) -> None:
-    """Make a file executable."""
-    try:
-        current = path.stat().st_mode
-        path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    except (OSError, PermissionError):
-        # On Windows or read-only systems, this may fail
-        pass
 
 
 def get_runner_path(event: str) -> Path:
