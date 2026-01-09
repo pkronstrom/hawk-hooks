@@ -20,6 +20,7 @@ from . import __version__, config, generator, installer, scanner, templates
 from .events import EVENTS, get_event_display
 from .hook_manager import HookManager
 from .rich_menu import InteractiveList, Item
+from .rich_menu.keys import is_down, is_enter, is_exit, is_up
 from .types import Scope
 
 # Console management for testability
@@ -98,43 +99,30 @@ def print_header():
     console.print()
 
 
-def show_status():
-    """Show status of all installed hooks and enabled handlers."""
-    console.clear()
-
-    buffer = StringIO()
-    temp_console = RichConsole(
-        file=buffer, width=console.width, legacy_windows=False, force_terminal=True
-    )
-
-    temp_console.print()
-
-    # Claude settings status
-    status = installer.get_status()
-
+def _render_install_status(temp_console: RichConsole, status) -> None:
+    """Render Claude settings installation status."""
     temp_console.print("[bold]Claude Settings[/bold]")
     temp_console.print("─" * 50)
 
-    if status["user"]["installed"]:
+    if status.user.installed:
         temp_console.print("  User:    [green]✓ Installed[/green]")
-        temp_console.print(f"           [dim]{status['user']['path']}[/dim]")
     else:
         temp_console.print("  User:    [dim]✗ Not installed[/dim]")
-        temp_console.print(f"           [dim]{status['user']['path']}[/dim]")
+    temp_console.print(f"           [dim]{status.user.path}[/dim]")
 
-    if status["project"]["installed"]:
+    if status.project.installed:
         temp_console.print("  Project: [green]✓ Installed[/green]")
-        temp_console.print(f"           [dim]{status['project']['path']}[/dim]")
     else:
         temp_console.print("  Project: [dim]✗ Not installed[/dim]")
-        temp_console.print(f"           [dim]{status['project']['path']}[/dim]")
+    temp_console.print(f"           [dim]{status.project.path}[/dim]")
 
     temp_console.print()
 
-    # Load configs
-    hooks = scanner.scan_hooks()
-    global_cfg = config.load_config()
-    project_cfg = config.load_project_config()
+
+def _render_enabled_hooks(
+    temp_console: RichConsole, hooks: dict, global_cfg: dict, project_cfg: dict | None
+) -> None:
+    """Render enabled hooks section."""
     has_project = project_cfg is not None and project_cfg.get("enabled")
 
     # Header
@@ -211,61 +199,83 @@ def show_status():
 
     temp_console.print()
 
-    content = buffer.getvalue()
-    lines = content.rstrip("\n").split("\n")
-    terminal_height = console.height
 
-    max_lines_per_page = terminal_height - 3
-
+def _paginate_output(lines: list[str], max_lines_per_page: int) -> None:
+    """Display paginated output with scroll support."""
     if len(lines) <= max_lines_per_page:
-        print(content, end="")
+        for line in lines:
+            print(line)
         console.print("[dim]Press Enter or q to exit...[/dim]")
 
         while True:
             key = readchar.readkey()
-            if is_enter(key):
+            if is_enter(key) or is_exit(key):
                 break
-            if is_exit(key):
-                break
-    else:
-        window_offset = 0
+        return
 
-        while True:
-            console.clear()
-            print()
+    window_offset = 0
 
-            window_end = min(window_offset + max_lines_per_page, len(lines))
-            visible_lines = lines[window_offset:window_end]
+    while True:
+        console.clear()
+        print()
 
-            for line in visible_lines:
-                print(line)
+        window_end = min(window_offset + max_lines_per_page, len(lines))
+        visible_lines = lines[window_offset:window_end]
 
-            hint_parts = []
-            lines_above = window_offset
-            lines_below = len(lines) - window_end
+        for line in visible_lines:
+            print(line)
 
-            if lines_above > 0:
-                hint_parts.append(f"[dim]↑ {lines_above} more above[/dim]")
-            if lines_below > 0:
-                hint_parts.append(f"[dim]↓ {lines_below} more below[/dim]")
+        hint_parts = []
+        lines_above = window_offset
+        lines_below = len(lines) - window_end
 
-            hint_parts.append(f"[dim]Line {window_offset + 1}-{window_end}/{len(lines)}[/dim]")
-            hint_parts.append("[dim]↑/↓ scroll  Enter/q exit[/dim]")
+        if lines_above > 0:
+            hint_parts.append(f"[dim]↑ {lines_above} more above[/dim]")
+        if lines_below > 0:
+            hint_parts.append(f"[dim]↓ {lines_below} more below[/dim]")
 
-            console.print("\n" + "  ".join(hint_parts))
+        hint_parts.append(f"[dim]Line {window_offset + 1}-{window_end}/{len(lines)}[/dim]")
+        hint_parts.append("[dim]↑/↓ scroll  Enter/q exit[/dim]")
 
-            key = readchar.readkey()
+        console.print("\n" + "  ".join(hint_parts))
 
-            if is_down(key):
-                if window_end < len(lines):
-                    window_offset += 1
-            elif is_up(key):
-                if window_offset > 0:
-                    window_offset -= 1
-            elif is_enter(key):
-                break
-            elif is_exit(key):
-                break
+        key = readchar.readkey()
+
+        if is_down(key) and window_end < len(lines):
+            window_offset += 1
+        elif is_up(key) and window_offset > 0:
+            window_offset -= 1
+        elif is_enter(key) or is_exit(key):
+            break
+
+
+def show_status():
+    """Show status of all installed hooks and enabled handlers."""
+    console.clear()
+
+    buffer = StringIO()
+    temp_console = RichConsole(
+        file=buffer, width=console.width, legacy_windows=False, force_terminal=True
+    )
+
+    temp_console.print()
+
+    # Claude settings status
+    status = installer.get_status()
+    _render_install_status(temp_console, status)
+
+    # Load configs and render enabled hooks
+    hooks = scanner.scan_hooks()
+    global_cfg = config.load_config()
+    project_cfg = config.load_project_config()
+    _render_enabled_hooks(temp_console, hooks, global_cfg, project_cfg)
+
+    # Paginate and display
+    content = buffer.getvalue()
+    lines = content.rstrip("\n").split("\n")
+    max_lines_per_page = console.height - 3
+
+    _paginate_output(lines, max_lines_per_page)
 
 
 def interactive_install() -> bool:
@@ -367,6 +377,100 @@ def interactive_uninstall() -> bool:
     return True
 
 
+def _build_toggle_items(
+    hooks: dict, scope: str, current_enabled: dict, global_enabled: dict, project_enabled: dict
+) -> list:
+    """Build menu items for hook toggle selection."""
+    items = []
+    for event in EVENTS:
+        event_hooks = hooks.get(event, [])
+        if not event_hooks:
+            continue
+
+        event_display, event_desc = get_event_display(event)
+        if event_desc:
+            items.append(Item.separator(f"── {event_display} - {event_desc} ──"))
+        else:
+            items.append(Item.separator(f"── {event_display} ──"))
+
+        enabled_list = current_enabled.get(event, [])
+
+        for hook in event_hooks:
+            is_checked = hook.name in enabled_list
+
+            label = hook.name
+            if hook.description:
+                label = f"{hook.name} - {hook.description}"
+
+            if scope == "project":
+                in_global = hook.name in global_enabled.get(event, [])
+                in_project = hook.name in project_enabled.get(event, [])
+
+                if in_global and in_project:
+                    label = f"{label} [cyan](both)[/cyan]"
+                elif in_project:
+                    label = f"{label} [yellow](project)[/yellow]"
+                elif in_global:
+                    label = f"{label} [dim](global)[/dim]"
+
+            items.append(
+                Item.checkbox(
+                    key=(event, hook.name),
+                    label=label,
+                    checked=is_checked,
+                )
+            )
+
+    return items
+
+
+def _apply_toggle_changes(
+    selected: list, scope: str, add_to_git_exclude: bool, original_enabled: dict
+) -> None:
+    """Apply hook toggle changes and display result."""
+    enabled_by_event: dict[str, list[str]] = {event: [] for event in EVENTS}
+    for event, hook_name in selected:
+        enabled_by_event[event].append(hook_name)
+
+    manager = HookManager(scope=scope, project_dir=Path.cwd() if scope == "project" else None)
+
+    for event, enabled_hooks in enabled_by_event.items():
+        manager.set_enabled_hooks(event, enabled_hooks, add_to_git_exclude=add_to_git_exclude)
+
+    manager.sync()
+
+    lines = []
+    for event in EVENTS:
+        original = set(original_enabled.get(event, []))
+        new = set(enabled_by_event.get(event, []))
+
+        enabled = new - original
+        disabled = original - new
+
+        for hook_name in sorted(enabled):
+            lines.append(f"[green]✓[/green] Enabled:  {event}/{hook_name}")
+
+        for hook_name in sorted(disabled):
+            lines.append(f"[red]✗[/red] Disabled: {event}/{hook_name}")
+
+    result_content = "\n".join(lines) if lines else "[dim]No changes[/dim]"
+
+    console.clear()
+    console.print()
+    console.print(
+        Panel(
+            f"{result_content}\n\n[dim]Changes take effect immediately.[/dim]\n\n[dim]Press Enter to continue...[/dim]",
+            title=f"[bold green]Updated hooks ({scope})[/bold green]",
+            border_style="green",
+        )
+    )
+
+    while True:
+        key = readchar.readkey()
+        if is_enter(key):
+            break
+
+
 def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bool:
     """Interactive handler toggle with checkbox multi-select."""
     console.clear()
@@ -415,52 +519,11 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     else:
         project_cfg = config.load_project_config() or {}
         project_enabled = project_cfg.get("enabled", {})
-        if project_enabled:
-            current_enabled = project_enabled
-        else:
-            current_enabled = global_enabled
+        current_enabled = project_enabled if project_enabled else global_enabled
 
     original_enabled = {event: list(hooks_list) for event, hooks_list in current_enabled.items()}
 
-    items = []
-    for event in EVENTS:
-        event_hooks = hooks.get(event, [])
-        if not event_hooks:
-            continue
-
-        event_display, event_desc = get_event_display(event)
-        if event_desc:
-            items.append(Item.separator(f"── {event_display} - {event_desc} ──"))
-        else:
-            items.append(Item.separator(f"── {event_display} ──"))
-
-        enabled_list = current_enabled.get(event, [])
-
-        for hook in event_hooks:
-            is_checked = hook.name in enabled_list
-
-            label = hook.name
-            if hook.description:
-                label = f"{hook.name} - {hook.description}"
-
-            if scope == "project":
-                in_global = hook.name in global_enabled.get(event, [])
-                in_project = hook.name in project_enabled.get(event, [])
-
-                if in_global and in_project:
-                    label = f"{label} [cyan](both)[/cyan]"
-                elif in_project:
-                    label = f"{label} [yellow](project)[/yellow]"
-                elif in_global:
-                    label = f"{label} [dim](global)[/dim]"
-
-            items.append(
-                Item.checkbox(
-                    key=(event, hook.name),
-                    label=label,
-                    checked=is_checked,
-                )
-            )
+    items = _build_toggle_items(hooks, scope, current_enabled, global_enabled, project_enabled)
 
     if not items:
         console.print("[yellow]No hooks found. Add scripts to:[/yellow]")
@@ -474,57 +537,13 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     menu = InteractiveList(title=f"Toggle hooks ({scope})", items=items, console=console)
     result = menu.show()
 
-    if result.get("action") == "cancel" or not result:
-        return False
-
-    if "action" not in result:
+    if result.get("action") == "cancel" or not result or "action" not in result:
         return False
 
     selected = menu.get_checked_values()
-
     console.print()
 
-    enabled_by_event: dict[str, list[str]] = {event: [] for event in EVENTS}
-    for event, hook_name in selected:
-        enabled_by_event[event].append(hook_name)
-
-    manager = HookManager(scope=scope, project_dir=Path.cwd() if scope == "project" else None)
-
-    for event, enabled_hooks in enabled_by_event.items():
-        manager.set_enabled_hooks(event, enabled_hooks, add_to_git_exclude=add_to_git_exclude)
-
-    manager.sync()
-
-    lines = []
-    for event in EVENTS:
-        original = set(original_enabled.get(event, []))
-        new = set(enabled_by_event.get(event, []))
-
-        enabled = new - original
-        disabled = original - new
-
-        for hook_name in sorted(enabled):
-            lines.append(f"[green]✓[/green] Enabled:  {event}/{hook_name}")
-
-        for hook_name in sorted(disabled):
-            lines.append(f"[red]✗[/red] Disabled: {event}/{hook_name}")
-
-    result_content = "\n".join(lines) if lines else "[dim]No changes[/dim]"
-
-    console.clear()
-    console.print()
-    console.print(
-        Panel(
-            f"{result_content}\n\n[dim]Changes take effect immediately.[/dim]\n\n[dim]Press Enter to continue...[/dim]",
-            title=f"[bold green]Updated hooks ({scope})[/bold green]",
-            border_style="green",
-        )
-    )
-
-    while True:
-        key = readchar.readkey()
-        if is_enter(key):
-            break
+    _apply_toggle_changes(selected, scope, add_to_git_exclude, original_enabled)
 
     return False
 
@@ -981,15 +1000,8 @@ def _get_install_command_list(pkg_manager: str, packages: set[str]) -> list[str]
     return commands.get(pkg_manager, [])
 
 
-def install_deps():
-    """Install Python dependencies for hooks."""
-    venv_dir = config.get_venv_dir()
-    venv_python = config.get_venv_python()
-
-    console.print("[bold]Installing dependencies...[/bold]")
-    console.print(f"[dim]Venv location: {venv_dir}[/dim]")
-    console.print()
-
+def _ensure_venv(venv_dir: Path) -> None:
+    """Create venv if it doesn't exist."""
     if not venv_dir.exists():
         console.print(f"  Creating venv at {venv_dir}...")
         subprocess.run(
@@ -999,23 +1011,101 @@ def install_deps():
         )
         console.print("  [green]✓[/green] Venv created")
 
+
+def _install_python_deps(venv_python: Path) -> None:
+    """Install Python dependencies into venv."""
     python_deps = scanner.get_python_deps()
 
-    if python_deps:
-        all_deps = set()
-        for deps in python_deps.values():
-            all_deps.update(deps)
-
-        if all_deps:
-            console.print(f"  Installing: {', '.join(sorted(all_deps))}")
-            subprocess.run(
-                [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
-                check=True,
-                timeout=300,
-            )
-            console.print("  [green]✓[/green] Python deps installed")
-    else:
+    if not python_deps:
         console.print("  [dim]No Python dependencies required[/dim]")
+        return
+
+    all_deps = set()
+    for deps in python_deps.values():
+        all_deps.update(deps)
+
+    if all_deps:
+        console.print(f"  Installing: {', '.join(sorted(all_deps))}")
+        subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
+            check=True,
+            timeout=300,
+        )
+        console.print("  [green]✓[/green] Python deps installed")
+
+
+def _install_shell_tools(shell_tools: set[str]) -> None:
+    """Install shell tools via package manager."""
+    pkg_manager = _detect_package_manager()
+    if not pkg_manager:
+        console.print("[bold]Shell tools needed (install manually):[/bold]")
+        console.print(f"  {', '.join(sorted(shell_tools))}")
+        return
+
+    install_cmd_display = _get_install_command(pkg_manager, shell_tools)
+    install_cmd_list = _get_install_command_list(pkg_manager, shell_tools)
+    console.print(f"[bold]Shell tools needed:[/bold] {', '.join(sorted(shell_tools))}")
+    console.print(f"[dim]Command: {install_cmd_display}[/dim]")
+    console.print()
+
+    install_shell = questionary.confirm(
+        f"Install via {pkg_manager}?",
+        default=True,
+        style=custom_style,
+    ).ask()
+    console.print()
+
+    if install_shell and install_cmd_list:
+        try:
+            subprocess.run(install_cmd_list, check=True, timeout=300)
+            console.print("  [green]✓[/green] Shell tools installed")
+        except subprocess.CalledProcessError as e:
+            console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
+            console.print(f"  [dim]Run manually: {install_cmd_display}[/dim]")
+        except subprocess.TimeoutExpired:
+            console.print("  [red]✗[/red] Installation timed out")
+
+
+def _install_node_deps(node_deps: set[str]) -> None:
+    """Install Node packages via npm."""
+    npm_cmd_display = f"npm install -g {' '.join(sorted(node_deps))}"
+    npm_cmd_list = ["npm", "install", "-g", *sorted(node_deps)]
+    console.print(f"[bold]Node packages needed:[/bold] {', '.join(sorted(node_deps))}")
+    console.print(f"[dim]Command: {npm_cmd_display}[/dim]")
+    console.print()
+
+    if not shutil.which("npm"):
+        console.print("[dim]npm not found - install Node.js first[/dim]")
+        return
+
+    install_node = questionary.confirm(
+        "Install via npm?",
+        default=True,
+        style=custom_style,
+    ).ask()
+    console.print()
+
+    if install_node:
+        try:
+            subprocess.run(npm_cmd_list, check=True, timeout=300)
+            console.print("  [green]✓[/green] Node packages installed")
+        except subprocess.CalledProcessError as e:
+            console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
+        except subprocess.TimeoutExpired:
+            console.print("  [red]✗[/red] Installation timed out")
+
+
+def install_deps():
+    """Install Python dependencies for hooks."""
+    venv_dir = config.get_venv_dir()
+    venv_python = config.get_venv_python()
+
+    console.print("[bold]Installing dependencies...[/bold]")
+    console.print(f"[dim]Venv location: {venv_dir}[/dim]")
+    console.print()
+
+    _ensure_venv(venv_dir)
+    _install_python_deps(venv_python)
 
     other_deps = scanner.get_non_python_deps()
     if other_deps:
@@ -1031,60 +1121,11 @@ def install_deps():
                     node_deps.update(deps)
 
         if shell_tools:
-            pkg_manager = _detect_package_manager()
-            if pkg_manager:
-                install_cmd_display = _get_install_command(pkg_manager, shell_tools)
-                install_cmd_list = _get_install_command_list(pkg_manager, shell_tools)
-                console.print(f"[bold]Shell tools needed:[/bold] {', '.join(sorted(shell_tools))}")
-                console.print(f"[dim]Command: {install_cmd_display}[/dim]")
-                console.print()
-
-                install_shell = questionary.confirm(
-                    f"Install via {pkg_manager}?",
-                    default=True,
-                    style=custom_style,
-                ).ask()
-                console.print()
-
-                if install_shell and install_cmd_list:
-                    try:
-                        subprocess.run(install_cmd_list, check=True, timeout=300)
-                        console.print("  [green]✓[/green] Shell tools installed")
-                    except subprocess.CalledProcessError as e:
-                        console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
-                        console.print(f"  [dim]Run manually: {install_cmd_display}[/dim]")
-                    except subprocess.TimeoutExpired:
-                        console.print("  [red]✗[/red] Installation timed out")
-            else:
-                console.print("[bold]Shell tools needed (install manually):[/bold]")
-                console.print(f"  {', '.join(sorted(shell_tools))}")
+            _install_shell_tools(shell_tools)
 
         if node_deps:
             console.print()
-            npm_cmd_display = f"npm install -g {' '.join(sorted(node_deps))}"
-            npm_cmd_list = ["npm", "install", "-g", *sorted(node_deps)]
-            console.print(f"[bold]Node packages needed:[/bold] {', '.join(sorted(node_deps))}")
-            console.print(f"[dim]Command: {npm_cmd_display}[/dim]")
-            console.print()
-
-            if shutil.which("npm"):
-                install_node = questionary.confirm(
-                    "Install via npm?",
-                    default=True,
-                    style=custom_style,
-                ).ask()
-                console.print()
-
-                if install_node:
-                    try:
-                        subprocess.run(npm_cmd_list, check=True, timeout=300)
-                        console.print("  [green]✓[/green] Node packages installed")
-                    except subprocess.CalledProcessError as e:
-                        console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
-                    except subprocess.TimeoutExpired:
-                        console.print("  [red]✗[/red] Installation timed out")
-            else:
-                console.print("[dim]npm not found - install Node.js first[/dim]")
+            _install_node_deps(node_deps)
 
     console.print()
 
