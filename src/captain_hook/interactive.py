@@ -16,11 +16,12 @@ from rich.console import Console
 from rich.console import Console as RichConsole
 from rich.panel import Panel
 
+from rich_menu import InteractiveList, Item
+from rich_menu.keys import is_down, is_enter, is_exit, is_up
+
 from . import __version__, config, generator, installer, scanner, templates
 from .events import EVENTS, get_event_display
 from .hook_manager import HookManager
-from .rich_menu import InteractiveList, Item
-from .rich_menu.keys import is_down, is_enter, is_exit, is_up
 from .types import Scope
 
 # Console management for testability
