@@ -634,20 +634,76 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     if result.get("action") == "cancel" or not result or "action" not in result:
         return False
 
-    # Delete marked hooks
+    # Calculate changes
+    selected = menu.get_checked_values()
+    enabled_by_event: dict[str, list[str]] = {event: [] for event in EVENTS}
+    for event, hook in selected:
+        enabled_by_event[event].append(hook.name)
+
+    to_enable = []
+    to_disable = []
+    for event in EVENTS:
+        original = set(original_enabled.get(event, []))
+        new = set(enabled_by_event.get(event, []))
+        for name in sorted(new - original):
+            to_enable.append(f"{event}/{name}")
+        for name in sorted(original - new):
+            to_disable.append(f"{event}/{name}")
+
+    to_delete = [f"{event}/{name}" for event, name in sorted(marked_for_deletion)]
+
+    # Check if there are any changes
+    if not to_enable and not to_disable and not to_delete:
+        console.clear()
+        console.print()
+        console.print(Panel("[dim]No changes[/dim]", title="Toggle hooks", border_style="dim"))
+        console.print("[dim]Press Enter to continue...[/dim]")
+        while True:
+            if is_enter(readchar.readkey()):
+                break
+        return False
+
+    # Show confirmation
+    console.clear()
+    console.print()
+    lines = []
+    if to_enable:
+        lines.append("[green]Enable:[/green]")
+        for name in to_enable:
+            lines.append(f"  [green]✓[/green] {name}")
+    if to_disable:
+        lines.append("[yellow]Disable:[/yellow]")
+        for name in to_disable:
+            lines.append(f"  [yellow]✗[/yellow] {name}")
+    if to_delete:
+        lines.append("[red]Delete:[/red]")
+        for name in to_delete:
+            lines.append(f"  [red]✗[/red] {name}")
+
+    console.print(
+        Panel("\n".join(lines), title="[bold]Confirm changes[/bold]", border_style="cyan")
+    )
+    console.print()
+
+    confirm = questionary.confirm(
+        "Apply these changes?",
+        default=True,
+        style=custom_style,
+    ).ask()
+
+    if not confirm:
+        return False
+
+    # Apply deletions
     for event, hook_name in marked_for_deletion:
         for hook in hooks.get(event, []):
             if hook.name == hook_name:
-                # Disable first
                 manager = HookManager(scope=Scope.USER)
                 manager.disable_hook(event, hook_name)
-                # Delete file
                 hook.path.unlink()
                 break
 
-    selected = menu.get_checked_values()
-    console.print()
-
+    # Apply toggle changes
     _apply_toggle_changes(selected, scope, add_to_git_exclude, original_enabled)
 
     return False

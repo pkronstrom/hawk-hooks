@@ -103,7 +103,7 @@ class CheckboxItem(MenuItem):
         change = self._get_change_indicator(theme)
         if self.checked:
             return f"[{theme.checked_color}]{name}[/{theme.checked_color}]{change}"
-        return f"[strike {theme.unchecked_color} {theme.dim_color}]{name}[/]{change}"
+        return f"[{theme.dim_color}]{name}[/{theme.dim_color}]{change}"
 
     def _style_description(self, desc: str, theme: Theme) -> str:
         """Style description text (dimmed when unchecked)."""
