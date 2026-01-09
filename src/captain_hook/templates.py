@@ -87,8 +87,8 @@ PROMPT_TEMPLATE = """{
 }
 """
 
-# Documentation file content
-HOOKS_DOC = """# Captain-Hook Reference
+# Documentation file header (static content)
+_HOOKS_DOC_HEADER = """# Captain-Hook Reference
 
 Official Claude Code hooks documentation:
 https://docs.anthropic.com/en/docs/claude-code/hooks
@@ -105,44 +105,22 @@ https://docs.anthropic.com/en/docs/claude-code/hooks
 - `2` = block operation (stderr shown to Claude)
 - `other` = error (shown to user, non-blocking)
 
-## Events
-
-### pre_tool_use
-Runs before tool execution. Can block.
-Fields: session_id, cwd, tool_name, tool_input, tool_use_id
-
-### post_tool_use
-Runs after tool completes. Can provide feedback.
-Fields: session_id, cwd, tool_name, tool_input, tool_response
-
-### stop
-Runs when agent finishes. Can request continuation.
-Fields: session_id, cwd, stop_reason
-
-### user_prompt_submit
-Runs when user submits prompt. Can block or add context.
-Fields: session_id, cwd, prompt
-
-### notification
-Runs when Claude sends notifications.
-Fields: session_id, cwd, message
-
-### subagent_stop
-Runs when subagent/Task tool finishes.
-Fields: session_id, cwd, stop_reason
-
-### session_start
-Runs at session start/resume/clear.
-Fields: session_id, cwd, source (startup|resume|clear|compact)
-
-### session_end
-Runs when session ends.
-Fields: session_id, cwd, reason
-
-### pre_compact
-Runs before context compaction.
-Fields: session_id, cwd, source (manual|auto)
 """
+
+
+def get_hooks_doc() -> str:
+    """Generate hooks documentation from event definitions.
+
+    Returns full documentation including header and events section.
+    Events are generated from the canonical EVENTS definitions.
+    """
+    from .events import generate_events_doc
+
+    return _HOOKS_DOC_HEADER + generate_events_doc()
+
+
+# Backwards compatibility - lazy property that generates on first access
+HOOKS_DOC = get_hooks_doc()
 
 
 # Static templates (no runtime detection needed)
