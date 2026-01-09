@@ -15,15 +15,15 @@ A modular Claude Code hooks manager with auto-discovery, multi-language support,
 
 ```bash
 # Using uv (recommended)
-uv tool install git+https://github.com/bembu/captain-hook.git
+uv tool install git+https://github.com/pkronstrom/captain-hook.git
 
 # Or using pipx
-pipx install git+https://github.com/bembu/captain-hook.git
+pipx install git+https://github.com/pkronstrom/captain-hook.git
 ```
 
 For development (editable install):
 ```bash
-git clone https://github.com/bembu/captain-hook.git
+git clone https://github.com/pkronstrom/captain-hook.git
 cd captain-hook
 
 # Using uv (recommended)

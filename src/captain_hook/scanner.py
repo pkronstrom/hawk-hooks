@@ -6,6 +6,32 @@ from pathlib import Path
 
 from . import config
 
+# Security: Package name validation pattern
+# Allows alphanumeric, hyphens, underscores, dots, and @ for scoped npm packages
+VALID_PACKAGE_NAME = re.compile(r"^[@a-zA-Z0-9._-]+$")
+
+# Security: Max length for env var values
+MAX_ENV_VALUE_LENGTH = 1000
+
+
+def validate_package_name(name: str) -> bool:
+    """Validate a package name is safe for shell commands.
+
+    Returns True if the name contains only allowed characters.
+    """
+    if not name or len(name) > 200:
+        return False
+    return bool(VALID_PACKAGE_NAME.match(name))
+
+
+def validate_env_value(value: str) -> bool:
+    """Validate an environment variable value is safe.
+
+    Returns True if the value is within length limits.
+    """
+    return len(value) <= MAX_ENV_VALUE_LENGTH
+
+
 # Supported file extensions and their interpreters
 INTERPRETERS: dict[str, str] = {
     ".py": "python",
@@ -84,16 +110,22 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
             deps_match = re.match(r"^[#/\-*\s]*Deps:\s*(.+)$", line, re.IGNORECASE)
             if deps_match:
                 deps_str = deps_match.group(1).strip()
-                deps = [d.strip() for d in deps_str.split(",") if d.strip()]
+                # Security: validate each package name
+                raw_deps = [d.strip() for d in deps_str.split(",") if d.strip()]
+                deps = [d for d in raw_deps if validate_package_name(d)]
 
             # Env pattern: # Env: VAR_NAME=default_value
-            env_match = re.match(r"^[#/\-*\s]*Env:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line, re.IGNORECASE)
+            env_match = re.match(
+                r"^[#/\-*\s]*Env:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$", line, re.IGNORECASE
+            )
             if env_match:
                 var_name = env_match.group(1).upper()
                 default_value = env_match.group(2).strip()
-                # Namespace by hook name
-                full_var_name = prefix + var_name
-                env_vars[full_var_name] = default_value
+                # Security: validate env value length
+                if validate_env_value(default_value):
+                    # Namespace by hook name
+                    full_var_name = prefix + var_name
+                    env_vars[full_var_name] = default_value
 
     except Exception:
         pass
@@ -120,14 +152,10 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
         resolved_event_dir = event_dir.resolve()
 
         for path in sorted(event_dir.iterdir()):
-            # Security: skip symlinks pointing outside the hooks directory
+            # Security: skip symlinks entirely for safety
+            # This prevents path traversal attacks and accidental inclusion of sensitive files
             if path.is_symlink():
-                try:
-                    real_path = path.resolve()
-                    # Use relative_to for proper path containment check
-                    real_path.relative_to(resolved_event_dir)
-                except (OSError, ValueError):
-                    continue  # Skip symlinks pointing outside or broken
+                continue
 
             if not path.is_file():
                 continue
@@ -144,7 +172,7 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
             elif filename.endswith(PROMPT_SUFFIX):
                 # e.g., completion-check.prompt.json → native Claude prompt hook
                 hook_type = "prompt"
-                name = filename[:-len(PROMPT_SUFFIX)]
+                name = filename[: -len(PROMPT_SUFFIX)]
             elif ext in INTERPRETERS:
                 # Regular command hook
                 hook_type = "command"

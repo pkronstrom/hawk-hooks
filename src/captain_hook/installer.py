@@ -333,9 +333,17 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
             if not prompt_text or not isinstance(prompt_text, str):
                 results[hook.name] = False
                 continue
+
+            # Security: sanitize prompt text
+            # Remove control characters (except newlines and tabs) and limit length
+            MAX_PROMPT_LENGTH = 10000
+            sanitized_prompt = "".join(c for c in prompt_text if c.isprintable() or c in "\n\t")[
+                :MAX_PROMPT_LENGTH
+            ]
+
             hook_entry = {
                 "type": "prompt",
-                "prompt": f"[captain-hook] {prompt_text}",
+                "prompt": f"[captain-hook] {sanitized_prompt}",
             }
             if "timeout" in prompt_config:
                 hook_entry["timeout"] = prompt_config["timeout"]
