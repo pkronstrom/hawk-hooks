@@ -1,56 +1,14 @@
 """Install/uninstall hooks to Claude Code settings."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any
 
 from . import config, scanner
-
-# Claude event mapping - all 9 events registered upfront
-# This ensures toggling hooks works without restarting Claude Code
-# (runner script content is re-read each time, but settings.json is cached at session start)
-CLAUDE_EVENTS = {
-    "pre_tool_use": {
-        "claude_event": "PreToolUse",
-        "matchers": ["Edit|Write|MultiEdit", "Bash"],
-    },
-    "post_tool_use": {
-        "claude_event": "PostToolUse",
-        "matchers": ["Edit|Write|MultiEdit"],
-    },
-    "stop": {
-        "claude_event": "Stop",
-        "matchers": [None],
-    },
-    "subagent_stop": {
-        "claude_event": "SubagentStop",
-        "matchers": [None],
-    },
-    "notification": {
-        "claude_event": "Notification",
-        "matchers": [None],
-    },
-    "user_prompt_submit": {
-        "claude_event": "UserPromptSubmit",
-        "matchers": [None],
-    },
-    "session_start": {
-        "claude_event": "SessionStart",
-        "matchers": [None],
-    },
-    "session_end": {
-        "claude_event": "SessionEnd",
-        "matchers": [None],
-    },
-    "pre_compact": {
-        "claude_event": "PreCompact",
-        "matchers": [None],
-    },
-    "permission_request": {
-        "claude_event": "PermissionRequest",
-        "matchers": [None],
-    },
-}
+from .events import EVENTS
+from .types import InstallStatus, Scope, StatusResult
 
 
 def get_user_settings_path() -> Path:
@@ -106,21 +64,28 @@ def get_runner_command(event: str) -> str:
     return str(runner_path)
 
 
-def install_hooks(level: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def install_hooks(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> dict[str, bool]:
     """
     Install captain-hook runners to Claude settings.
 
     Args:
-        level: 'user' or 'project'
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
         project_dir: Project directory for project-level installation
 
     Returns:
         Dict mapping event names to success status
     """
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
     # Ensure directories and runners exist
     config.ensure_dirs()
 
-    if level == "user":
+    if scope == Scope.USER:
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -132,9 +97,9 @@ def install_hooks(level: str = "user", project_dir: Path | None = None) -> dict[
 
     results = {}
 
-    for event, event_config in CLAUDE_EVENTS.items():
-        claude_event = event_config["claude_event"]
-        matchers = event_config["matchers"]
+    for event, event_def in EVENTS.items():
+        claude_event = event_def.claude_name
+        matchers = event_def.matchers
 
         if claude_event not in settings["hooks"]:
             settings["hooks"][claude_event] = []
@@ -166,18 +131,25 @@ def install_hooks(level: str = "user", project_dir: Path | None = None) -> dict[
     return results
 
 
-def uninstall_hooks(level: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def uninstall_hooks(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> dict[str, bool]:
     """
     Uninstall captain-hook from Claude settings.
 
     Args:
-        level: 'user' or 'project'
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
         project_dir: Project directory for project-level uninstallation
 
     Returns:
         Dict mapping event names to success status
     """
-    if level == "user":
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
+    if scope == Scope.USER:
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -189,8 +161,8 @@ def uninstall_hooks(level: str = "user", project_dir: Path | None = None) -> dic
 
     results = {}
 
-    for event, event_config in CLAUDE_EVENTS.items():
-        claude_event = event_config["claude_event"]
+    for event, event_def in EVENTS.items():
+        claude_event = event_def.claude_name
 
         if claude_event not in settings["hooks"]:
             continue
@@ -218,12 +190,12 @@ def uninstall_hooks(level: str = "user", project_dir: Path | None = None) -> dic
     return results
 
 
-def get_status(project_dir: Path | None = None) -> dict[str, Any]:
+def get_status(project_dir: Path | None = None) -> StatusResult:
     """
     Get status of installed hooks.
 
     Returns:
-        Dict with 'user' and 'project' keys containing installation info
+        StatusResult with user and project installation info.
     """
     user_path = get_user_settings_path()
     project_path = get_project_settings_path(project_dir)
@@ -239,19 +211,15 @@ def get_status(project_dir: Path | None = None) -> dict[str, Any]:
                         return True
         return False
 
-    return {
-        "user": {
-            "path": str(user_path),
-            "installed": has_our_hooks(user_settings),
-        },
-        "project": {
-            "path": str(project_path),
-            "installed": has_our_hooks(project_settings),
-        },
-    }
+    return StatusResult(
+        user=InstallStatus(path=str(user_path), installed=has_our_hooks(user_settings)),
+        project=InstallStatus(path=str(project_path), installed=has_our_hooks(project_settings)),
+    )
 
 
-def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def sync_prompt_hooks(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> dict[str, bool]:
     """
     Sync native prompt hooks to Claude settings.
 
@@ -259,13 +227,18 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
     as type: "prompt" hooks in Claude settings.
 
     Args:
-        level: 'user' or 'project'
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
         project_dir: Project directory for project-level
 
     Returns:
         Dict mapping hook names to success status
     """
-    if level == "user":
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
+    if scope == Scope.USER:
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -280,7 +253,9 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
 
     # Get enabled hooks from config
     cfg = (
-        config.load_config() if level == "user" else (config.load_project_config(project_dir) or {})
+        config.load_config()
+        if scope == Scope.USER
+        else (config.load_project_config(project_dir) or {})
     )
     enabled_by_event = cfg.get("enabled", {})
 
@@ -304,8 +279,8 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
     settings["hooks"] = {k: v for k, v in settings["hooks"].items() if v}
 
     # Now add enabled prompt hooks
-    for event, event_config in CLAUDE_EVENTS.items():
-        claude_event = event_config["claude_event"]
+    for event, event_def in EVENTS.items():
+        claude_event = event_def.claude_name
         enabled_hooks = enabled_by_event.get(event, [])
         event_hooks = all_hooks.get(event, [])
 

@@ -1,10 +1,13 @@
 """Auto-discovery scanner for hook scripts."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import config
+from .types import HookType
 
 # Security: Package name validation pattern
 # Allows alphanumeric, hyphens, underscores, dots, and @ for scoped npm packages
@@ -12,6 +15,9 @@ VALID_PACKAGE_NAME = re.compile(r"^[@a-zA-Z0-9._-]+$")
 
 # Security: Max length for env var values
 MAX_ENV_VALUE_LENGTH = 1000
+
+# Max lines to scan for metadata comments at start of hook files
+METADATA_SCAN_LINES = 20
 
 
 def validate_package_name(name: str) -> bool:
@@ -57,23 +63,28 @@ class HookInfo:
     description: str
     deps: list[str]
     env_vars: dict[str, str]  # VAR_NAME -> default_value
-    hook_type: str  # "command", "stdout", or "prompt"
+    hook_type: HookType
     extension: str
 
     @property
     def is_stdout(self) -> bool:
         """Check if this is a stdout hook (content output)."""
-        return self.hook_type == "stdout"
+        return self.hook_type == HookType.STDOUT
 
     @property
     def is_native_prompt(self) -> bool:
         """Check if this is a native Claude prompt hook."""
-        return self.hook_type == "prompt"
+        return self.hook_type == HookType.PROMPT
+
+    @property
+    def is_command(self) -> bool:
+        """Check if this is a command hook (executable script)."""
+        return self.hook_type == HookType.COMMAND
 
     @property
     def interpreter(self) -> str | None:
         """Get the interpreter for this hook."""
-        if self.hook_type != "command":
+        if self.hook_type != HookType.COMMAND:
             return None
         return INTERPRETERS.get(self.extension)
 
@@ -100,7 +111,7 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
         content = path.read_text()
         lines = content.split("\n")
 
-        for line in lines[:20]:  # Check first 20 lines for metadata
+        for line in lines[:METADATA_SCAN_LINES]:
             # Description pattern
             desc_match = re.match(r"^[#/\-*\s]*Description:\s*(.+)$", line, re.IGNORECASE)
             if desc_match:
@@ -127,7 +138,9 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
                     full_var_name = prefix + var_name
                     env_vars[full_var_name] = default_value
 
-    except Exception:
+    except (OSError, UnicodeDecodeError):
+        # Skip metadata parsing if file can't be read or decoded
+        # This is non-critical - hook still works without metadata
         pass
 
     return description, deps, env_vars
@@ -166,16 +179,16 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
             # Determine hook type based on filename pattern
             if STDOUT_PATTERN in filename:
                 # e.g., reminder.stdout.md → stdout hook (cat content)
-                hook_type = "stdout"
+                hook_type = HookType.STDOUT
                 # Get the base name without .stdout.ext
                 name = filename.split(STDOUT_PATTERN)[0]
             elif filename.endswith(PROMPT_SUFFIX):
                 # e.g., completion-check.prompt.json → native Claude prompt hook
-                hook_type = "prompt"
+                hook_type = HookType.PROMPT
                 name = filename[: -len(PROMPT_SUFFIX)]
             elif ext in INTERPRETERS:
                 # Regular command hook
-                hook_type = "command"
+                hook_type = HookType.COMMAND
                 name = path.stem
             else:
                 continue  # Unsupported file type
