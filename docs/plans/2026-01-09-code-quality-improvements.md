@@ -510,6 +510,56 @@ def generate_hooks_doc() -> str:
 
 ---
 
+## Issue #14: Dead Code - Unused Functions
+
+**Current state:** Several functions are defined but never called.
+
+### config.py - 4 unused functions
+
+```python
+def is_debug_enabled() -> bool:        # Never called
+def is_hook_enabled(...) -> bool:      # Never called
+def get_env_var(...) -> str:           # Never called
+def set_env_var(...) -> None:          # Never called
+```
+
+### scanner.py - 1 unused function
+
+```python
+def get_hook_by_name(event: str, name: str) -> HookInfo | None:  # Never called
+```
+
+### generator.py - 1 unused function
+
+```python
+def _make_executable(path: Path) -> None:  # Never called (atomic write handles this)
+```
+
+### hook_manager.py - 3 unused methods
+
+```python
+def find_hook_with_event(self, name: str) -> tuple[str, HookInfo] | None:  # Never called
+def get_all_enabled(self) -> dict[str, list[str]]:                          # Never called
+def get_changes_summary(self, original, current) -> dict:                   # Never called
+```
+
+### interactive.py - 1 unused import
+
+```python
+from .events import EVENT_INFO, EVENTS, get_event_display
+#                   ^^^^^^^^^^  - imported but never used (only get_event_display is used)
+```
+
+**Solution:** Either remove these functions or document them as public API for external use.
+
+- **Remove:** `_make_executable` (redundant), unused imports
+- **Keep if public API:** `is_hook_enabled`, `get_env_var`, `set_env_var`, `get_hook_by_name` (useful for scripts/plugins)
+- **Decide:** HookManager helper methods - were they planned for future use?
+
+**Files affected:** `config.py`, `scanner.py`, `generator.py`, `hook_manager.py`, `interactive.py`
+
+---
+
 ## Implementation Priority
 
 | Priority | Issue | Impact | Effort |
@@ -518,12 +568,13 @@ def generate_hooks_doc() -> str:
 | 2 | #1 Unify Events | DRY, single source of truth | Medium |
 | 3 | #3 HookType Enum | Type safety | Low |
 | 4 | #4 Key helpers | DRY, readability | Low |
-| 5 | #6 Config passing | Performance, consistency | Low |
-| 6 | #8 Lazy templates | Performance | Low |
-| 7 | #9 Exception handling | Debuggability | Low |
-| 8 | #10 Typed results | Type safety, IDE support | Medium |
-| 9 | #11 Global console | Testability | Low |
-| 10 | #12 Magic numbers | Configurability, DRY | Low |
-| 11 | #13 HOOKS_DOC duplication | DRY, maintainability | Medium |
-| 12 | #7 CheckboxItem | Readability, testability | Medium |
-| 13 | #5 Long methods | Testability, maintainability | High |
+| 5 | #14 Dead code | Cleanliness | Low |
+| 6 | #6 Config passing | Performance, consistency | Low |
+| 7 | #8 Lazy templates | Performance | Low |
+| 8 | #9 Exception handling | Debuggability | Low |
+| 9 | #10 Typed results | Type safety, IDE support | Medium |
+| 10 | #11 Global console | Testability | Low |
+| 11 | #12 Magic numbers | Configurability, DRY | Low |
+| 12 | #13 HOOKS_DOC duplication | DRY, maintainability | Medium |
+| 13 | #7 CheckboxItem | Readability, testability | Medium |
+| 14 | #5 Long methods | Testability, maintainability | High |
