@@ -334,16 +334,6 @@ def generate_all_runners(
     return runners
 
 
-def _make_executable(path: Path) -> None:
-    """Make a file executable."""
-    try:
-        current = path.stat().st_mode
-        path.chmod(current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    except (OSError, PermissionError):
-        # On Windows or read-only systems, this may fail
-        pass
-
-
 def get_runner_path(event: str) -> Path:
     """Get the path to a global runner."""
     return config.get_runners_dir() / f"{event}.sh"
