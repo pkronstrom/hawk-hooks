@@ -1131,6 +1131,89 @@ def install_deps():
     console.print()
 
 
+def interactive_delete_hook() -> bool:
+    """Interactive hook deletion."""
+    console.clear()
+
+    hooks = scanner.scan_hooks()
+    all_hooks = []
+    for event in EVENTS:
+        for hook in hooks.get(event, []):
+            all_hooks.append((event, hook))
+
+    if not all_hooks:
+        console.print("[yellow]No hooks found.[/yellow]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        while True:
+            key = readchar.readkey()
+            if is_enter(key):
+                break
+        return False
+
+    items = []
+    for event, hook in all_hooks:
+        label = f"{event}/{hook.name}"
+        if hook.description:
+            label = f"{label} - {hook.description}"
+        items.append(Item.action(label, value=(event, hook)))
+
+    items.append(Item.separator("─────────"))
+    items.append(Item.action("Cancel", value="cancel"))
+
+    menu = InteractiveList(title="Delete hook:", items=items, console=console)
+    result = menu.show()
+
+    if result.get("action") == "cancel" or not result.get("action"):
+        return False
+
+    event, hook = result["action"]
+
+    confirm = questionary.confirm(
+        f"Delete {hook.path.name}?",
+        default=False,
+        style=custom_style,
+    ).ask()
+
+    if not confirm:
+        return False
+
+    # Disable the hook first if enabled
+    manager = HookManager(scope=Scope.USER)
+    manager.disable_hook(event, hook.name)
+
+    # Delete the file
+    hook.path.unlink()
+    console.print(f"[green]✓[/green] Deleted {hook.path}")
+    console.print()
+    console.print("[dim]Press Enter to continue...[/dim]")
+
+    while True:
+        key = readchar.readkey()
+        if is_enter(key):
+            break
+
+    return False
+
+
+def interactive_open_dir() -> None:
+    """Open hooks directory in system file manager."""
+    hooks_dir = config.get_hooks_dir()
+
+    if not hooks_dir.exists():
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    # macOS: use 'open', Linux: use 'xdg-open', Windows: use 'explorer'
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(hooks_dir)], check=False)
+    elif sys.platform == "win32":
+        subprocess.run(["explorer", str(hooks_dir)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(hooks_dir)], check=False)
+
+    console.print(f"[green]✓[/green] Opened {hooks_dir}")
+    console.print()
+
+
 def run_wizard():
     """Run the first-time setup wizard."""
     console.clear()
@@ -1267,12 +1350,14 @@ def interactive_menu():
             items=[
                 Item.action("Status       Show hooks + enabled state", value="status"),
                 Item.action("Toggle       Enable/disable hooks + regenerate", value="toggle"),
-                Item.action("Add hook    Create or link a new hook", value="add"),
+                Item.action("Add hook     Create or link a new hook", value="add"),
+                Item.action("Delete hook  Remove a hook file", value="delete"),
                 Item.action("Config       Debug mode, notifications", value="config"),
                 Item.separator("─────────"),
                 Item.action("Install      Register hooks in Claude settings", value="install"),
                 Item.action("Uninstall    Remove hooks from Claude settings", value="uninstall"),
                 Item.action("Install-deps Install Python dependencies", value="deps"),
+                Item.action("Open dir     Open hooks directory in Finder", value="opendir"),
                 Item.separator("─────────"),
                 Item.action("Exit", value="exit"),
             ],
@@ -1288,18 +1373,18 @@ def interactive_menu():
         if choice == "status":
             show_status()
         elif choice == "toggle":
-            if interactive_toggle():
-                break
+            interactive_toggle()
         elif choice == "add":
-            if interactive_add_hook():
-                break
+            interactive_add_hook()
+        elif choice == "delete":
+            interactive_delete_hook()
         elif choice == "config":
             interactive_config()
         elif choice == "install":
-            if interactive_install():
-                break
+            interactive_install()
         elif choice == "uninstall":
-            if interactive_uninstall():
-                break
+            interactive_uninstall()
         elif choice == "deps":
             install_deps()
+        elif choice == "opendir":
+            interactive_open_dir()
