@@ -106,12 +106,12 @@ def get_runner_command(event: str) -> str:
     return str(runner_path)
 
 
-def install_hooks(level: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def install_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
     """
     Install captain-hook runners to Claude settings.
 
     Args:
-        level: 'user' or 'project'
+        scope: 'user' or 'project'
         project_dir: Project directory for project-level installation
 
     Returns:
@@ -120,7 +120,7 @@ def install_hooks(level: str = "user", project_dir: Path | None = None) -> dict[
     # Ensure directories and runners exist
     config.ensure_dirs()
 
-    if level == "user":
+    if scope == "user":
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -166,18 +166,18 @@ def install_hooks(level: str = "user", project_dir: Path | None = None) -> dict[
     return results
 
 
-def uninstall_hooks(level: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def uninstall_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
     """
     Uninstall captain-hook from Claude settings.
 
     Args:
-        level: 'user' or 'project'
+        scope: 'user' or 'project'
         project_dir: Project directory for project-level uninstallation
 
     Returns:
         Dict mapping event names to success status
     """
-    if level == "user":
+    if scope == "user":
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -251,7 +251,7 @@ def get_status(project_dir: Path | None = None) -> dict[str, Any]:
     }
 
 
-def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def sync_prompt_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
     """
     Sync native prompt hooks to Claude settings.
 
@@ -259,13 +259,13 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
     as type: "prompt" hooks in Claude settings.
 
     Args:
-        level: 'user' or 'project'
+        scope: 'user' or 'project'
         project_dir: Project directory for project-level
 
     Returns:
         Dict mapping hook names to success status
     """
-    if level == "user":
+    if scope == "user":
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -280,7 +280,7 @@ def sync_prompt_hooks(level: str = "user", project_dir: Path | None = None) -> d
 
     # Get enabled hooks from config
     cfg = (
-        config.load_config() if level == "user" else (config.load_project_config(project_dir) or {})
+        config.load_config() if scope == "user" else (config.load_project_config(project_dir) or {})
     )
     enabled_by_event = cfg.get("enabled", {})
 

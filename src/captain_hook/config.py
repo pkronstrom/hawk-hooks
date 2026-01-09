@@ -5,19 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-# Supported events (Claude Code hook types)
-EVENTS = [
-    "pre_tool_use",
-    "post_tool_use",
-    "notification",
-    "stop",
-    "subagent_stop",
-    "user_prompt_submit",
-    "session_start",
-    "session_end",
-    "pre_compact",
-    "permission_request",
-]
+from .events import EVENTS
 
 # Default config
 DEFAULT_CONFIG: dict[str, Any] = {

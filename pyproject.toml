@@ -39,7 +39,7 @@ dev = [
 captain-hook = "captain_hook.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/captain_hook"]
+packages = ["src/captain_hook", "src/rich_menu"]
 
 [tool.ruff]
 line-length = 100
