@@ -1,10 +1,13 @@
 """Install/uninstall hooks to Claude Code settings."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any
 
 from . import config, scanner
+from .types import Scope
 
 # Claude event mapping - all 9 events registered upfront
 # This ensures toggling hooks works without restarting Claude Code
@@ -106,21 +109,28 @@ def get_runner_command(event: str) -> str:
     return str(runner_path)
 
 
-def install_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def install_hooks(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> dict[str, bool]:
     """
     Install captain-hook runners to Claude settings.
 
     Args:
-        scope: 'user' or 'project'
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
         project_dir: Project directory for project-level installation
 
     Returns:
         Dict mapping event names to success status
     """
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
     # Ensure directories and runners exist
     config.ensure_dirs()
 
-    if scope == "user":
+    if scope == Scope.USER:
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -166,18 +176,25 @@ def install_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[
     return results
 
 
-def uninstall_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def uninstall_hooks(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> dict[str, bool]:
     """
     Uninstall captain-hook from Claude settings.
 
     Args:
-        scope: 'user' or 'project'
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
         project_dir: Project directory for project-level uninstallation
 
     Returns:
         Dict mapping event names to success status
     """
-    if scope == "user":
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
+    if scope == Scope.USER:
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -251,7 +268,9 @@ def get_status(project_dir: Path | None = None) -> dict[str, Any]:
     }
 
 
-def sync_prompt_hooks(scope: str = "user", project_dir: Path | None = None) -> dict[str, bool]:
+def sync_prompt_hooks(
+    scope: Scope | str = Scope.USER, project_dir: Path | None = None
+) -> dict[str, bool]:
     """
     Sync native prompt hooks to Claude settings.
 
@@ -259,13 +278,18 @@ def sync_prompt_hooks(scope: str = "user", project_dir: Path | None = None) -> d
     as type: "prompt" hooks in Claude settings.
 
     Args:
-        scope: 'user' or 'project'
+        scope: USER for global settings, PROJECT for project-specific.
+               Accepts Scope enum or string ("user", "global", "project").
         project_dir: Project directory for project-level
 
     Returns:
         Dict mapping hook names to success status
     """
-    if scope == "user":
+    # Normalize string to Scope enum (handles legacy "global" -> USER mapping)
+    if isinstance(scope, str):
+        scope = Scope.from_string(scope)
+
+    if scope == Scope.USER:
         settings_path = get_user_settings_path()
     else:
         settings_path = get_project_settings_path(project_dir)
@@ -280,7 +304,9 @@ def sync_prompt_hooks(scope: str = "user", project_dir: Path | None = None) -> d
 
     # Get enabled hooks from config
     cfg = (
-        config.load_config() if scope == "user" else (config.load_project_config(project_dir) or {})
+        config.load_config()
+        if scope == Scope.USER
+        else (config.load_project_config(project_dir) or {})
     )
     enabled_by_event = cfg.get("enabled", {})
 

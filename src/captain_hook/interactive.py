@@ -1,5 +1,7 @@
 """Interactive UI components for captain-hook CLI."""
 
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
@@ -15,9 +17,10 @@ from rich.console import Console as RichConsole
 from rich.panel import Panel
 
 from . import __version__, config, generator, installer, scanner, templates
-from .events import EVENT_INFO, EVENTS, get_event_display
+from .events import EVENTS, get_event_display
 from .hook_manager import HookManager
 from .rich_menu import InteractiveList, Item
+from .types import Scope
 
 console = Console()
 
@@ -883,7 +886,7 @@ def _prompt_enable_hook(event: str, hook_name: str):
         console.print("[dim]Hook created but not enabled. Use Toggle to enable later.[/dim]")
         return
 
-    manager = HookManager(scope="global")
+    manager = HookManager(scope=Scope.USER)
     manager.enable_hook(event, hook_name)
 
     console.print()
@@ -1123,8 +1126,9 @@ def run_wizard():
 
     if has_hooks:
         console.print("[bold]Configure hooks:[/bold]")
+        # Map install scope to toggle scope: "user" -> "global" (for display), "project" -> "project"
         toggle_scope = "global" if scope == "user" else "project"
-        interactive_toggle(skip_scope=True, scope=toggle_scope)
+        interactive_toggle(skip_scope=True, scope=toggle_scope)  # Uses string for UI display
 
     if has_hooks:
         venv_dir = config.get_venv_dir()
