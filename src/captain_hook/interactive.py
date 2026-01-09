@@ -490,13 +490,13 @@ def _make_delete_handler(marked_for_deletion: set):
         key = (event, hook.name)
 
         if key in marked_for_deletion:
-            # Unmark - remove strikethrough from label
+            # Unmark
             marked_for_deletion.discard(key)
-            item.label = item.label.replace("[strike red]", "").replace("[/strike red]", "")
+            item.marked_for_deletion = False
         else:
-            # Mark for deletion - add strikethrough
+            # Mark for deletion
             marked_for_deletion.add(key)
-            item.label = f"[strike red]{item.label}[/strike red]"
+            item.marked_for_deletion = True
 
         return False  # Don't exit menu
 
@@ -508,8 +508,8 @@ def _apply_toggle_changes(
 ) -> None:
     """Apply hook toggle changes and display result."""
     enabled_by_event: dict[str, list[str]] = {event: [] for event in EVENTS}
-    for event, hook_name in selected:
-        enabled_by_event[event].append(hook_name)
+    for event, hook in selected:
+        enabled_by_event[event].append(hook.name)
 
     manager = HookManager(scope=scope, project_dir=Path.cwd() if scope == "project" else None)
 
@@ -824,9 +824,15 @@ def interactive_add_hook() -> bool:
     console.print("[bold]Add Hook[/bold]")
     console.print("─" * 50)
 
+    event_items = []
+    for e in EVENTS:
+        display_name, description = get_event_display(e)
+        label = f"{display_name:<20} {description}" if description else display_name
+        event_items.append(Item.action(label, value=e))
+
     menu = InteractiveList(
         title="Select event:",
-        items=[Item.action(e, value=e) for e in EVENTS],
+        items=event_items,
         console=console,
     )
     result = menu.show()

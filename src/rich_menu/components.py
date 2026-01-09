@@ -74,11 +74,13 @@ class CheckboxItem(MenuItem):
         checked: Whether the checkbox is checked.
         value: Optional value to return (defaults to key).
         original_checked: Original state for tracking changes.
+        marked_for_deletion: Whether item is marked for deletion (red strikethrough).
     """
 
     checked: bool = False
     value: Any = None
     original_checked: bool = None
+    marked_for_deletion: bool = False
 
     def __post_init__(self):
         if self.value is None:
@@ -101,6 +103,8 @@ class CheckboxItem(MenuItem):
     def _style_name(self, name: str, theme: Theme) -> str:
         """Style the name part based on checked state."""
         change = self._get_change_indicator(theme)
+        if self.marked_for_deletion:
+            return f"[strike red]{name}[/strike red]"
         if self.checked:
             return f"[{theme.checked_color}]{name}[/{theme.checked_color}]{change}"
         return f"[{theme.dim_color}]{name}[/{theme.dim_color}]{change}"
