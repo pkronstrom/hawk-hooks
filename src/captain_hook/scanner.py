@@ -135,7 +135,9 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
                     full_var_name = prefix + var_name
                     env_vars[full_var_name] = default_value
 
-    except Exception:
+    except (OSError, UnicodeDecodeError):
+        # Skip metadata parsing if file can't be read or decoded
+        # This is non-critical - hook still works without metadata
         pass
 
     return description, deps, env_vars
