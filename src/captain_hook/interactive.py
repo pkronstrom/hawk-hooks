@@ -68,6 +68,12 @@ class _ConsoleProxy:
     def __getattr__(self, name: str):
         return getattr(_get_console(), name)
 
+    def __enter__(self):
+        return _get_console().__enter__()
+
+    def __exit__(self, *args):
+        return _get_console().__exit__(*args)
+
 
 # Module-level console that can be swapped via set_console()
 console = _ConsoleProxy()
