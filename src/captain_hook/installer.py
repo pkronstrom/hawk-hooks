@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config, scanner
+from .events import EVENTS
 from .types import InstallStatus, Scope, StatusResult
 
 
