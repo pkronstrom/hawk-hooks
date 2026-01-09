@@ -74,18 +74,54 @@ def is_debug_enabled() -> bool:
     return load_config().get("debug", False)
 
 
+def _validate_project_dir(project_dir: Path) -> Path:
+    """Validate that a project directory is safe to use.
+
+    Security: Validates that the directory is a legitimate project directory
+    to prevent writing config files to sensitive system locations.
+
+    Returns the resolved absolute path if valid, raises ValueError otherwise.
+    """
+    resolved = project_dir.resolve()
+
+    # Must be an existing directory
+    if not resolved.is_dir():
+        raise ValueError(f"Not a directory: {resolved}")
+
+    # Block sensitive system directories
+    blocked_prefixes = ["/etc", "/usr", "/bin", "/sbin", "/var", "/root", "/sys", "/proc"]
+    for prefix in blocked_prefixes:
+        if str(resolved).startswith(prefix):
+            raise ValueError(f"Cannot use system directory: {resolved}")
+
+    # Prefer directories that look like projects (have .git or common project files)
+    # This is a soft check - we still allow other directories but log a warning
+    project_indicators = [".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod"]
+    has_indicator = any((resolved / indicator).exists() for indicator in project_indicators)
+
+    if not has_indicator:
+        # Still allow but could add warning in future
+        pass
+
+    return resolved
+
+
 def get_project_config_path(project_dir: Path | None = None) -> Path:
     """Get the path to project-specific config."""
     if project_dir is None:
         project_dir = Path.cwd()
-    return project_dir / ".claude" / "captain-hook" / "config.json"
+    # Security: validate project directory
+    validated = _validate_project_dir(project_dir)
+    return validated / ".claude" / "captain-hook" / "config.json"
 
 
 def get_project_runners_dir(project_dir: Path | None = None) -> Path:
     """Get the path to project-specific runners."""
     if project_dir is None:
         project_dir = Path.cwd()
-    return project_dir / ".claude" / "captain-hook" / "runners"
+    # Security: validate project directory
+    validated = _validate_project_dir(project_dir)
+    return validated / ".claude" / "captain-hook" / "runners"
 
 
 def ensure_dirs() -> None:

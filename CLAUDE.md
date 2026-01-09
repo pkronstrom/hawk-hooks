@@ -10,7 +10,8 @@ src/captain_hook/
 ├── scanner.py     # Auto-discovery of hook scripts
 ├── generator.py   # Generates bash runners for command/stdout hooks
 ├── installer.py   # Registers hooks in Claude settings + syncs prompt hooks
-└── cli.py         # Interactive CLI with questionary + rich
+├── cli.py         # Interactive CLI with Rich
+└── rich_menu.py   # Custom Rich-based interactive menu system
 ```
 
 ## Hook Types

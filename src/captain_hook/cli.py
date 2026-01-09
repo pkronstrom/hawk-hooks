@@ -711,7 +711,7 @@ def _detect_package_manager() -> str | None:
 
 
 def _get_install_command(pkg_manager: str, packages: set[str]) -> str:
-    """Get install command for package manager."""
+    """Get install command for package manager (display only)."""
     pkg_list = " ".join(sorted(packages))
     commands = {
         "brew": f"brew install {pkg_list}",
@@ -722,6 +722,23 @@ def _get_install_command(pkg_manager: str, packages: set[str]) -> str:
         "apk": f"sudo apk add {pkg_list}",
     }
     return commands.get(pkg_manager, f"# Install: {pkg_list}")
+
+
+def _get_install_command_list(pkg_manager: str, packages: set[str]) -> list[str]:
+    """Get install command as a list for subprocess (shell=False).
+
+    Security: This avoids shell injection by using a list instead of a string.
+    """
+    pkg_list = sorted(packages)
+    commands: dict[str, list[str]] = {
+        "brew": ["brew", "install", *pkg_list],
+        "apt": ["sudo", "apt-get", "install", "-y", *pkg_list],
+        "dnf": ["sudo", "dnf", "install", "-y", *pkg_list],
+        "yum": ["sudo", "yum", "install", "-y", *pkg_list],
+        "pacman": ["sudo", "pacman", "-S", "--noconfirm", *pkg_list],
+        "apk": ["sudo", "apk", "add", *pkg_list],
+    }
+    return commands.get(pkg_manager, [])
 
 
 def install_deps():
@@ -781,9 +798,10 @@ def install_deps():
         if shell_tools:
             pkg_manager = _detect_package_manager()
             if pkg_manager:
-                install_cmd = _get_install_command(pkg_manager, shell_tools)
+                install_cmd_display = _get_install_command(pkg_manager, shell_tools)
+                install_cmd_list = _get_install_command_list(pkg_manager, shell_tools)
                 console.print(f"[bold]Shell tools needed:[/bold] {', '.join(sorted(shell_tools))}")
-                console.print(f"[dim]Command: {install_cmd}[/dim]")
+                console.print(f"[dim]Command: {install_cmd_display}[/dim]")
                 console.print()
 
                 install_shell = questionary.confirm(
@@ -793,13 +811,14 @@ def install_deps():
                 ).ask()
                 console.print()
 
-                if install_shell:
+                if install_shell and install_cmd_list:
                     try:
-                        subprocess.run(install_cmd, shell=True, check=True, timeout=300)
+                        # Security: use shell=False with list to prevent command injection
+                        subprocess.run(install_cmd_list, check=True, timeout=300)
                         console.print("  [green]✓[/green] Shell tools installed")
                     except subprocess.CalledProcessError as e:
                         console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
-                        console.print(f"  [dim]Run manually: {install_cmd}[/dim]")
+                        console.print(f"  [dim]Run manually: {install_cmd_display}[/dim]")
                     except subprocess.TimeoutExpired:
                         console.print("  [red]✗[/red] Installation timed out")
             else:
@@ -809,9 +828,10 @@ def install_deps():
         # Node deps
         if node_deps:
             console.print()
-            npm_cmd = f"npm install -g {' '.join(sorted(node_deps))}"
+            npm_cmd_display = f"npm install -g {' '.join(sorted(node_deps))}"
+            npm_cmd_list = ["npm", "install", "-g", *sorted(node_deps)]
             console.print(f"[bold]Node packages needed:[/bold] {', '.join(sorted(node_deps))}")
-            console.print(f"[dim]Command: {npm_cmd}[/dim]")
+            console.print(f"[dim]Command: {npm_cmd_display}[/dim]")
             console.print()
 
             if shutil.which("npm"):
@@ -824,7 +844,8 @@ def install_deps():
 
                 if install_node:
                     try:
-                        subprocess.run(npm_cmd, shell=True, check=True, timeout=300)
+                        # Security: use shell=False with list to prevent command injection
+                        subprocess.run(npm_cmd_list, check=True, timeout=300)
                         console.print("  [green]✓[/green] Node packages installed")
                     except subprocess.CalledProcessError as e:
                         console.print(f"  [red]✗[/red] Installation failed (exit {e.returncode})")
