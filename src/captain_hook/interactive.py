@@ -441,7 +441,17 @@ def _handle_edit_hook(menu, item) -> bool:
 
     event, hook = item.value
     editor = os.environ.get("EDITOR", "nano")
+
+    # Stop the live display while editor is open
+    if menu._live:
+        menu._live.stop()
+
     subprocess.run([editor, str(hook.path)], check=False)
+
+    # Restart the live display
+    if menu._live:
+        menu._live.start()
+
     return False  # Don't exit menu
 
 
