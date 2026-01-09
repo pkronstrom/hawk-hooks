@@ -4,7 +4,37 @@ This module provides shared type definitions (enums, dataclasses) used across
 the codebase. These are designed to replace magic strings with type-safe constants.
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass
 from enum import Enum, auto
+
+
+# Result dataclasses for typed returns
+@dataclass
+class InstallStatus:
+    """Installation status for a scope (user or project).
+
+    Attributes:
+        path: Path to the settings file.
+        installed: Whether captain-hook is installed at this scope.
+    """
+
+    path: str
+    installed: bool
+
+
+@dataclass
+class StatusResult:
+    """Result of get_status() - installation status for all scopes.
+
+    Attributes:
+        user: Status of user-level (~/.claude/settings.json) installation.
+        project: Status of project-level (.claude/settings.json) installation.
+    """
+
+    user: InstallStatus
+    project: InstallStatus
 
 
 class HookType(Enum):
