@@ -1,10 +1,13 @@
 """Auto-discovery scanner for hook scripts."""
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import config
+from .types import HookType
 
 # Security: Package name validation pattern
 # Allows alphanumeric, hyphens, underscores, dots, and @ for scoped npm packages
@@ -57,23 +60,28 @@ class HookInfo:
     description: str
     deps: list[str]
     env_vars: dict[str, str]  # VAR_NAME -> default_value
-    hook_type: str  # "command", "stdout", or "prompt"
+    hook_type: HookType
     extension: str
 
     @property
     def is_stdout(self) -> bool:
         """Check if this is a stdout hook (content output)."""
-        return self.hook_type == "stdout"
+        return self.hook_type == HookType.STDOUT
 
     @property
     def is_native_prompt(self) -> bool:
         """Check if this is a native Claude prompt hook."""
-        return self.hook_type == "prompt"
+        return self.hook_type == HookType.PROMPT
+
+    @property
+    def is_command(self) -> bool:
+        """Check if this is a command hook (executable script)."""
+        return self.hook_type == HookType.COMMAND
 
     @property
     def interpreter(self) -> str | None:
         """Get the interpreter for this hook."""
-        if self.hook_type != "command":
+        if self.hook_type != HookType.COMMAND:
             return None
         return INTERPRETERS.get(self.extension)
 
@@ -166,16 +174,16 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
             # Determine hook type based on filename pattern
             if STDOUT_PATTERN in filename:
                 # e.g., reminder.stdout.md → stdout hook (cat content)
-                hook_type = "stdout"
+                hook_type = HookType.STDOUT
                 # Get the base name without .stdout.ext
                 name = filename.split(STDOUT_PATTERN)[0]
             elif filename.endswith(PROMPT_SUFFIX):
                 # e.g., completion-check.prompt.json → native Claude prompt hook
-                hook_type = "prompt"
+                hook_type = HookType.PROMPT
                 name = filename[: -len(PROMPT_SUFFIX)]
             elif ext in INTERPRETERS:
                 # Regular command hook
-                hook_type = "command"
+                hook_type = HookType.COMMAND
                 name = path.stem
             else:
                 continue  # Unsupported file type

@@ -4,7 +4,55 @@ This module provides shared type definitions (enums, dataclasses) used across
 the codebase. These are designed to replace magic strings with type-safe constants.
 """
 
-from enum import Enum
+from enum import Enum, auto
+
+
+class HookType(Enum):
+    """Type of hook based on file pattern.
+
+    COMMAND: Executable scripts (.py, .sh, .js, .ts)
+        - Receives JSON input on stdin
+        - Can block/modify operations
+        - Exit code non-zero = block
+
+    STDOUT: Content output files (.stdout.md, .stdout.txt)
+        - Content is cat'd to stdout
+        - Used for context injection
+        - No execution, just output
+
+    PROMPT: Native Claude prompt hooks (.prompt.json)
+        - Registered directly in Claude settings
+        - Evaluated by Haiku (LLM-based decision)
+        - JSON structure with "prompt" field
+    """
+
+    COMMAND = auto()
+    STDOUT = auto()
+    PROMPT = auto()
+
+    @classmethod
+    def from_string(cls, value: str) -> "HookType":
+        """Create HookType from string value.
+
+        Args:
+            value: "command", "stdout", or "prompt"
+
+        Returns:
+            The corresponding HookType enum value.
+
+        Raises:
+            ValueError: If value is not recognized.
+        """
+        mapping = {
+            "command": cls.COMMAND,
+            "stdout": cls.STDOUT,
+            "prompt": cls.PROMPT,
+        }
+        if value.lower() not in mapping:
+            raise ValueError(
+                f"Invalid hook type: {value!r}. Must be one of: command, stdout, prompt"
+            )
+        return mapping[value.lower()]
 
 
 class Scope(str, Enum):
