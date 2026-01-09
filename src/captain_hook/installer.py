@@ -9,52 +9,6 @@ from typing import Any
 from . import config, scanner
 from .types import Scope
 
-# Claude event mapping - all 9 events registered upfront
-# This ensures toggling hooks works without restarting Claude Code
-# (runner script content is re-read each time, but settings.json is cached at session start)
-CLAUDE_EVENTS = {
-    "pre_tool_use": {
-        "claude_event": "PreToolUse",
-        "matchers": ["Edit|Write|MultiEdit", "Bash"],
-    },
-    "post_tool_use": {
-        "claude_event": "PostToolUse",
-        "matchers": ["Edit|Write|MultiEdit"],
-    },
-    "stop": {
-        "claude_event": "Stop",
-        "matchers": [None],
-    },
-    "subagent_stop": {
-        "claude_event": "SubagentStop",
-        "matchers": [None],
-    },
-    "notification": {
-        "claude_event": "Notification",
-        "matchers": [None],
-    },
-    "user_prompt_submit": {
-        "claude_event": "UserPromptSubmit",
-        "matchers": [None],
-    },
-    "session_start": {
-        "claude_event": "SessionStart",
-        "matchers": [None],
-    },
-    "session_end": {
-        "claude_event": "SessionEnd",
-        "matchers": [None],
-    },
-    "pre_compact": {
-        "claude_event": "PreCompact",
-        "matchers": [None],
-    },
-    "permission_request": {
-        "claude_event": "PermissionRequest",
-        "matchers": [None],
-    },
-}
-
 
 def get_user_settings_path() -> Path:
     """Get path to user-level Claude settings."""
@@ -142,9 +96,9 @@ def install_hooks(
 
     results = {}
 
-    for event, event_config in CLAUDE_EVENTS.items():
-        claude_event = event_config["claude_event"]
-        matchers = event_config["matchers"]
+    for event, event_def in EVENTS.items():
+        claude_event = event_def.claude_name
+        matchers = event_def.matchers
 
         if claude_event not in settings["hooks"]:
             settings["hooks"][claude_event] = []
@@ -206,8 +160,8 @@ def uninstall_hooks(
 
     results = {}
 
-    for event, event_config in CLAUDE_EVENTS.items():
-        claude_event = event_config["claude_event"]
+    for event, event_def in EVENTS.items():
+        claude_event = event_def.claude_name
 
         if claude_event not in settings["hooks"]:
             continue
@@ -330,8 +284,8 @@ def sync_prompt_hooks(
     settings["hooks"] = {k: v for k, v in settings["hooks"].items() if v}
 
     # Now add enabled prompt hooks
-    for event, event_config in CLAUDE_EVENTS.items():
-        claude_event = event_config["claude_event"]
+    for event, event_def in EVENTS.items():
+        claude_event = event_def.claude_name
         enabled_hooks = enabled_by_event.get(event, [])
         event_hooks = all_hooks.get(event, [])
 
