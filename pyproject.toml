@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "captain-hook"
-version = "0.2.0"
+version = "0.4.0"
 description = "A modular Claude Code hooks manager"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
-    { name = "bembu" }
+    { name = "Peter Kronström", email = "peter.kronstrom@gmail.com" }
 ]
 keywords = ["claude", "hooks", "cli", "automation"]
 classifiers = [
