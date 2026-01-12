@@ -76,20 +76,45 @@ def parse_frontmatter(content: str) -> tuple[PromptFrontmatter | None, str]:
     if not data:
         return None, body
 
-    # Validate required fields
+    # Validate type - must be a dict
+    if not isinstance(data, dict):
+        raise ValueError(f"Frontmatter must be a YAML mapping, got {type(data).__name__}")
+
+    # Validate required fields exist and have correct types
     if "name" not in data:
         raise ValueError("Missing required field: name")
+    if not isinstance(data["name"], str):
+        raise ValueError(f"Field 'name' must be a string, got {type(data['name']).__name__}")
+
     if "description" not in data:
         raise ValueError("Missing required field: description")
+    if not isinstance(data["description"], str):
+        raise ValueError(
+            f"Field 'description' must be a string, got {type(data['description']).__name__}"
+        )
+
     if "tools" not in data:
         raise ValueError("Missing required field: tools")
 
-    # Parse tools
+    # Parse and validate tools
     tools = data["tools"]
     if tools == "all":
         tools = ALL_TOOLS.copy()
     elif isinstance(tools, str):
         tools = [tools]
+    elif not isinstance(tools, list):
+        raise ValueError(
+            f"Field 'tools' must be a string, list, or 'all', got {type(tools).__name__}"
+        )
+
+    # Warn on unknown tools (but don't reject - allow extension)
+    unknown = set(tools) - set(ALL_TOOLS)
+    if unknown:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            f"Unknown tools in frontmatter: {unknown}. Known: {ALL_TOOLS}"
+        )
 
     # Parse hooks
     hooks = []

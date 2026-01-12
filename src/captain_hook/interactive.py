@@ -389,10 +389,10 @@ def _build_toggle_items(
 ) -> list:
     """Build menu items for hook toggle selection."""
     items = []
-    for event in EVENTS:
+    events_with_hooks = [e for e in EVENTS if hooks.get(e)]
+
+    for idx, event in enumerate(events_with_hooks):
         event_hooks = hooks.get(event, [])
-        if not event_hooks:
-            continue
 
         event_display, event_desc = get_event_display(event)
         if event_desc:
@@ -428,6 +428,10 @@ def _build_toggle_items(
                     value=(event, hook),  # Store hook object for key handlers
                 )
             )
+
+        # Add spacing between event blocks (except after the last one)
+        if idx < len(events_with_hooks) - 1:
+            items.append(Item.separator(""))
 
     return items
 
@@ -1213,9 +1217,143 @@ def _prompt_enable_hook(event: str, hook_name: str):
 # Commands and Agents menu handlers
 
 
+def _make_prompt_handlers(prompts_list: list, item_type: str, delete_callback):
+    """Create key handlers for prompts/agents menus.
+
+    Args:
+        prompts_list: List of PromptInfo objects (will be looked up by name from item.value)
+        item_type: "command" or "agent" for display purposes
+        delete_callback: Function to call to delete a prompt (takes name, returns True if deleted)
+    """
+    prompts_by_name = {p.name: p for p in prompts_list}
+
+    def _handle_edit(menu, item) -> bool:
+        """Open prompt file in editor."""
+        from rich_menu.components import ActionItem
+
+        if not isinstance(item, ActionItem) or item.value in (
+            "back",
+            "toggle_all_on",
+            "toggle_all_off",
+        ):
+            return False
+
+        prompt = prompts_by_name.get(item.value)
+        if not prompt:
+            return False
+
+        editor = os.environ.get("EDITOR", "nano")
+
+        if menu._live:
+            menu._live.stop()
+
+        subprocess.run([editor, str(prompt.path)], check=False)
+
+        if menu._live:
+            menu.console.clear()
+            menu._live.start()
+
+        return False
+
+    def _handle_show(menu, item) -> bool:
+        """Show prompt file in system file manager."""
+        from rich_menu.components import ActionItem
+
+        if not isinstance(item, ActionItem) or item.value in (
+            "back",
+            "toggle_all_on",
+            "toggle_all_off",
+        ):
+            return False
+
+        prompt = prompts_by_name.get(item.value)
+        if not prompt:
+            return False
+
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-R", str(prompt.path)], check=False)
+        elif sys.platform == "win32":
+            subprocess.run(["explorer", "/select,", str(prompt.path)], check=False)
+        else:
+            subprocess.run(["xdg-open", str(prompt.path.parent)], check=False)
+
+        return False
+
+    def _handle_delete(menu, item) -> bool:
+        """Delete prompt with confirmation."""
+        from rich_menu.components import ActionItem
+
+        if not isinstance(item, ActionItem) or item.value in (
+            "back",
+            "toggle_all_on",
+            "toggle_all_off",
+        ):
+            return False
+
+        name = item.value
+        prompt = prompts_by_name.get(name)
+        if not prompt:
+            return False
+
+        if menu._live:
+            menu._live.stop()
+
+        menu.console.print()
+        confirm = questionary.confirm(
+            f"Delete {item_type} '{name}'?",
+            default=False,
+            style=custom_style,
+        ).ask()
+
+        if confirm:
+            delete_callback(name, prompt)
+            if menu._live:
+                menu.console.clear()
+                menu._live.start()
+            return True  # Exit to refresh list
+
+        if menu._live:
+            menu.console.clear()
+            menu._live.start()
+
+        return False
+
+    def _handle_add(menu, item) -> bool:
+        """Add a new prompt/agent."""
+        if menu._live:
+            menu._live.stop()
+
+        menu.console.clear()
+        if item_type == "command":
+            _add_command()
+        else:
+            _add_agent()
+
+        if menu._live:
+            menu.console.clear()
+            menu._live.start()
+
+        return True  # Exit menu to refresh list
+
+    return {
+        "e": _handle_edit,
+        "s": _handle_show,
+        "d": _handle_delete,
+        "a": _handle_add,
+    }
+
+
 def _handle_commands_menu() -> None:
     """Handle the Commands submenu."""
-    from . import prompt_scanner
+    from . import prompt_scanner, sync
+
+    def delete_command(name: str, prompt) -> None:
+        """Delete a command."""
+        if config.is_prompt_enabled(name):
+            config.set_prompt_enabled(name, False, False)
+            sync.unsync_prompt(prompt)
+        prompt.path.unlink()
+        console.print(f"[red]Deleted {name}[/red]")
 
     prompts = prompt_scanner.scan_prompts()
     if not prompts:
@@ -1232,8 +1370,11 @@ def _handle_commands_menu() -> None:
         console.clear()
         # Build choices
         items = []
+        enabled_count = 0
         for p in prompts:
             enabled = config.is_prompt_enabled(p.name)
+            if enabled:
+                enabled_count += 1
             status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
             hook_status = ""
             if p.has_hooks:
@@ -1242,12 +1383,23 @@ def _handle_commands_menu() -> None:
             items.append(Item.action(f"{status} {p.name}{hook_status}", value=p.name))
 
         items.append(Item.separator("─────────"))
+        # Toggle all option - show appropriate action based on current state
+        all_enabled = enabled_count == len(prompts)
+        if all_enabled:
+            items.append(Item.action("[yellow]Toggle All OFF[/yellow]", value="toggle_all_off"))
+        else:
+            items.append(Item.action("[green]Toggle All ON[/green]", value="toggle_all_on"))
         items.append(Item.action("Back", value="back"))
 
+        key_handlers = _make_prompt_handlers(prompts, "command", delete_command)
+        footer = "↑↓ navigate • Enter toggle • e edit • s show • d delete • a add • Esc back"
+
         menu = InteractiveList(
-            title="Commands (toggle to enable/disable)",
+            title=f"Commands ({enabled_count}/{len(prompts)} enabled)",
             items=items,
             console=console,
+            key_handlers=key_handlers,
+            footer=footer,
         )
         result = menu.show()
         selected = result.get("action")
@@ -1255,15 +1407,36 @@ def _handle_commands_menu() -> None:
         if selected == "back" or selected is None:
             return
 
-        # Toggle the selected prompt
-        _toggle_prompt(selected)
+        if selected == "toggle_all_on":
+            for p in prompts:
+                if not config.is_prompt_enabled(p.name):
+                    config.set_prompt_enabled(p.name, True, config.is_prompt_hook_enabled(p.name))
+                    sync.sync_prompt(p)
+            console.print(f"[green]Enabled all {len(prompts)} commands[/green]")
+        elif selected == "toggle_all_off":
+            for p in prompts:
+                if config.is_prompt_enabled(p.name):
+                    config.set_prompt_enabled(p.name, False, config.is_prompt_hook_enabled(p.name))
+                    sync.unsync_prompt(p)
+            console.print(f"[yellow]Disabled all {len(prompts)} commands[/yellow]")
+        else:
+            # Toggle the selected prompt
+            _toggle_prompt(selected)
         # Refresh the list
         prompts = prompt_scanner.scan_prompts()
 
 
 def _handle_agents_menu() -> None:
     """Handle the Agents submenu."""
-    from . import prompt_scanner
+    from . import prompt_scanner, sync
+
+    def delete_agent(name: str, agent) -> None:
+        """Delete an agent."""
+        if config.is_agent_enabled(name):
+            config.set_agent_enabled(name, False, False)
+            sync.unsync_prompt(agent)
+        agent.path.unlink()
+        console.print(f"[red]Deleted {name}[/red]")
 
     agents = prompt_scanner.scan_agents()
     if not agents:
@@ -1280,8 +1453,11 @@ def _handle_agents_menu() -> None:
         console.clear()
         # Build choices
         items = []
+        enabled_count = 0
         for a in agents:
             enabled = config.is_agent_enabled(a.name)
+            if enabled:
+                enabled_count += 1
             status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
             hook_status = ""
             if a.has_hooks:
@@ -1290,12 +1466,23 @@ def _handle_agents_menu() -> None:
             items.append(Item.action(f"{status} {a.name}{hook_status}", value=a.name))
 
         items.append(Item.separator("─────────"))
+        # Toggle all option - show appropriate action based on current state
+        all_enabled = enabled_count == len(agents)
+        if all_enabled:
+            items.append(Item.action("[yellow]Toggle All OFF[/yellow]", value="toggle_all_off"))
+        else:
+            items.append(Item.action("[green]Toggle All ON[/green]", value="toggle_all_on"))
         items.append(Item.action("Back", value="back"))
 
+        key_handlers = _make_prompt_handlers(agents, "agent", delete_agent)
+        footer = "↑↓ navigate • Enter toggle • e edit • s show • d delete • a add • Esc back"
+
         menu = InteractiveList(
-            title="Agents (toggle to enable/disable)",
+            title=f"Agents ({enabled_count}/{len(agents)} enabled)",
             items=items,
             console=console,
+            key_handlers=key_handlers,
+            footer=footer,
         )
         result = menu.show()
         selected = result.get("action")
@@ -1303,8 +1490,21 @@ def _handle_agents_menu() -> None:
         if selected == "back" or selected is None:
             return
 
-        # Toggle the selected agent
-        _toggle_agent(selected)
+        if selected == "toggle_all_on":
+            for a in agents:
+                if not config.is_agent_enabled(a.name):
+                    config.set_agent_enabled(a.name, True, config.is_agent_hook_enabled(a.name))
+                    sync.sync_prompt(a)
+            console.print(f"[green]Enabled all {len(agents)} agents[/green]")
+        elif selected == "toggle_all_off":
+            for a in agents:
+                if config.is_agent_enabled(a.name):
+                    config.set_agent_enabled(a.name, False, config.is_agent_hook_enabled(a.name))
+                    sync.unsync_prompt(a)
+            console.print(f"[yellow]Disabled all {len(agents)} agents[/yellow]")
+        else:
+            # Toggle the selected agent
+            _toggle_agent(selected)
         # Refresh the list
         agents = prompt_scanner.scan_agents()
 

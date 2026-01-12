@@ -6,11 +6,14 @@ with valid frontmatter.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from . import config
 from .frontmatter import parse_frontmatter
 from .types import PromptInfo, PromptType
+
+logger = logging.getLogger(__name__)
 
 
 def scan_prompts(prompts_dir: Path | None = None) -> list[PromptInfo]:
@@ -89,8 +92,9 @@ def _scan_directory(directory: Path, prompt_type: PromptType) -> list[PromptInfo
                     prompt_type=prompt_type,
                 )
             )
-        except (ValueError, OSError, UnicodeDecodeError):
-            # Invalid file, skip silently
+        except (ValueError, OSError, UnicodeDecodeError) as e:
+            # Log at debug level - visible when debug mode enabled
+            logger.debug(f"Skipping {path}: {e}")
             continue
 
     return results

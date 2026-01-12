@@ -162,20 +162,22 @@ def config_exists() -> bool:
 
 def load_config() -> dict[str, Any]:
     """Load the global configuration file."""
+    import copy
+
     config_path = get_config_path()
 
     try:
         with open(config_path) as f:
             config = json.load(f)
         if not isinstance(config, dict):
-            return DEFAULT_CONFIG.copy()
+            return copy.deepcopy(DEFAULT_CONFIG)
         # Merge with defaults to ensure all keys exist
-        return _deep_merge(DEFAULT_CONFIG.copy(), config)
+        return _deep_merge(copy.deepcopy(DEFAULT_CONFIG), config)
     except FileNotFoundError:
-        return DEFAULT_CONFIG.copy()
+        return copy.deepcopy(DEFAULT_CONFIG)
     except (json.JSONDecodeError, OSError):
         # Corrupted or unreadable config - return defaults
-        return DEFAULT_CONFIG.copy()
+        return copy.deepcopy(DEFAULT_CONFIG)
 
 
 def save_config(config: dict[str, Any]) -> None:
@@ -354,7 +356,9 @@ def get_all_env_config() -> dict[str, str]:
 
 def get_default_destinations() -> dict[str, dict[str, str]]:
     """Get default destination paths."""
-    return DEFAULT_CONFIG["destinations"].copy()
+    import copy
+
+    return copy.deepcopy(DEFAULT_CONFIG["destinations"])
 
 
 def get_destination(tool: str, item_type: str) -> str:

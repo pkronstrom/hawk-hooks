@@ -23,12 +23,18 @@ def create_symlink(source: Path, dest: Path) -> None:
     Args:
         source: Source file path.
         dest: Destination symlink path.
+
+    Raises:
+        ValueError: If destination is a directory (not a symlink to one).
     """
     # Ensure parent directory exists
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     # Remove existing file/symlink
     if dest.exists() or dest.is_symlink():
+        if dest.is_dir() and not dest.is_symlink():
+            # Safety: don't delete actual directories
+            raise ValueError(f"Destination is a directory, not a file: {dest}")
         dest.unlink()
 
     dest.symlink_to(source.resolve())
@@ -41,7 +47,15 @@ def remove_symlink(path: Path) -> None:
         path: Path to remove.
     """
     if path.exists() or path.is_symlink():
+        if path.is_dir() and not path.is_symlink():
+            # Safety: don't delete actual directories
+            return
         path.unlink()
+
+
+def _escape_toml_basic_string(s: str) -> str:
+    """Escape a string for TOML basic string (double-quoted)."""
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
 
 
 def generate_gemini_toml(prompt_info: "PromptInfo") -> str:
@@ -59,16 +73,21 @@ def generate_gemini_toml(prompt_info: "PromptInfo") -> str:
     content = prompt_info.path.read_text()
     _, body = parse_frontmatter(content)
 
-    # Escape content for TOML multiline string
-    body = body.strip()
+    # Escape name/description for TOML basic strings
+    name = _escape_toml_basic_string(prompt_info.name)
+    desc = _escape_toml_basic_string(prompt_info.description)
 
-    toml_content = f'''name = "{prompt_info.name}"
-description = "{prompt_info.description}"
+    # For body, use TOML multiline literal string (''') which preserves content as-is
+    # Only need to handle the case where body contains '''
+    body = body.strip().replace("'''", "'''\"'''\"'''")
 
-prompt = """
+    toml_content = f"""name = "{name}"
+description = "{desc}"
+
+prompt = '''
 {body}
-"""
 '''
+"""
     return toml_content
 
 
