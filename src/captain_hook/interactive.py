@@ -1123,6 +1123,151 @@ def _prompt_enable_hook(event: str, hook_name: str):
     console.print()
 
 
+# Commands and Agents menu handlers
+
+
+def _handle_commands_menu() -> None:
+    """Handle the Commands submenu."""
+    from . import prompt_scanner
+
+    prompts = prompt_scanner.scan_prompts()
+    if not prompts:
+        console.print("[yellow]No commands found in prompts directory.[/yellow]")
+        console.print(f"[dim]Add .md files to: {config.get_prompts_dir()}[/dim]")
+        console.print()
+        console.print("[dim]Press Enter to continue...[/dim]")
+        while True:
+            if is_enter(readchar.readkey()):
+                break
+        return
+
+    while True:
+        console.clear()
+        # Build choices
+        items = []
+        for p in prompts:
+            enabled = config.is_prompt_enabled(p.name)
+            status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
+            hook_status = ""
+            if p.has_hooks:
+                hook_enabled = config.is_prompt_hook_enabled(p.name)
+                hook_status = " [cyan](hook)[/cyan]" if hook_enabled else " [dim](hook off)[/dim]"
+            items.append(Item.action(f"{status} {p.name}{hook_status}", value=p.name))
+
+        items.append(Item.separator("─────────"))
+        items.append(Item.action("Back", value="back"))
+
+        menu = InteractiveList(
+            title="Commands (toggle to enable/disable)",
+            items=items,
+            console=console,
+        )
+        result = menu.show()
+        selected = result.get("action")
+
+        if selected == "back" or selected is None:
+            return
+
+        # Toggle the selected prompt
+        _toggle_prompt(selected)
+        # Refresh the list
+        prompts = prompt_scanner.scan_prompts()
+
+
+def _handle_agents_menu() -> None:
+    """Handle the Agents submenu."""
+    from . import prompt_scanner
+
+    agents = prompt_scanner.scan_agents()
+    if not agents:
+        console.print("[yellow]No agents found in agents directory.[/yellow]")
+        console.print(f"[dim]Add .md files to: {config.get_agents_dir()}[/dim]")
+        console.print()
+        console.print("[dim]Press Enter to continue...[/dim]")
+        while True:
+            if is_enter(readchar.readkey()):
+                break
+        return
+
+    while True:
+        console.clear()
+        # Build choices
+        items = []
+        for a in agents:
+            enabled = config.is_agent_enabled(a.name)
+            status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
+            hook_status = ""
+            if a.has_hooks:
+                hook_enabled = config.is_agent_hook_enabled(a.name)
+                hook_status = " [cyan](hook)[/cyan]" if hook_enabled else " [dim](hook off)[/dim]"
+            items.append(Item.action(f"{status} {a.name}{hook_status}", value=a.name))
+
+        items.append(Item.separator("─────────"))
+        items.append(Item.action("Back", value="back"))
+
+        menu = InteractiveList(
+            title="Agents (toggle to enable/disable)",
+            items=items,
+            console=console,
+        )
+        result = menu.show()
+        selected = result.get("action")
+
+        if selected == "back" or selected is None:
+            return
+
+        # Toggle the selected agent
+        _toggle_agent(selected)
+        # Refresh the list
+        agents = prompt_scanner.scan_agents()
+
+
+def _toggle_prompt(name: str) -> None:
+    """Toggle a prompt's enabled state."""
+    from . import prompt_scanner, sync
+
+    prompt = prompt_scanner.get_prompt_by_name(name)
+    if not prompt:
+        return
+
+    current = config.is_prompt_enabled(name)
+    new_state = not current
+
+    # Update config
+    hook_enabled = config.is_prompt_hook_enabled(name)
+    config.set_prompt_enabled(name, new_state, hook_enabled)
+
+    # Sync/unsync
+    if new_state:
+        sync.sync_prompt(prompt)
+        console.print(f"[green]Enabled {name}[/green]")
+    else:
+        sync.unsync_prompt(prompt)
+        console.print(f"[yellow]Disabled {name}[/yellow]")
+
+
+def _toggle_agent(name: str) -> None:
+    """Toggle an agent's enabled state."""
+    from . import prompt_scanner, sync
+
+    agent = prompt_scanner.get_prompt_by_name(name)
+    if not agent:
+        return
+
+    current = config.is_agent_enabled(name)
+    new_state = not current
+
+    hook_enabled = config.is_agent_hook_enabled(name)
+    config.set_agent_enabled(name, new_state, hook_enabled)
+
+    if new_state:
+        sync.sync_prompt(agent)
+        console.print(f"[green]Enabled {name}[/green]")
+    else:
+        sync.unsync_prompt(agent)
+        console.print(f"[yellow]Disabled {name}[/yellow]")
+
+
 def _detect_package_manager() -> str | None:
     """Detect available package manager."""
     managers = [
@@ -1432,10 +1577,12 @@ def interactive_menu():
             title="What would you like to do?",
             items=[
                 Item.action("Status       Show hooks + enabled state", value="status"),
-                Item.action("Toggle       Enable/disable/edit/delete hooks", value="toggle"),
-                Item.action("Add hook     Create or link a new hook", value="add"),
-                Item.action("Config       Debug mode, notifications", value="config"),
+                Item.action("Hooks        Enable/disable/edit/delete hooks", value="toggle"),
+                Item.action("Commands     Manage slash commands", value="commands"),
+                Item.action("Agents       Manage AI agents", value="agents"),
+                Item.action("Add...       Create new hook/command/agent", value="add"),
                 Item.separator("─────────"),
+                Item.action("Config       Debug mode, notifications", value="config"),
                 Item.action("Install      Register hooks in Claude settings", value="install"),
                 Item.action("Uninstall    Remove hooks from Claude settings", value="uninstall"),
                 Item.action("Install-deps Install Python dependencies", value="deps"),
@@ -1455,6 +1602,10 @@ def interactive_menu():
             show_status()
         elif choice == "toggle":
             interactive_toggle()
+        elif choice == "commands":
+            _handle_commands_menu()
+        elif choice == "agents":
+            _handle_agents_menu()
         elif choice == "add":
             interactive_add_hook()
         elif choice == "config":
