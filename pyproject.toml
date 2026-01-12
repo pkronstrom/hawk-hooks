@@ -42,6 +42,9 @@ captain-hook = "captain_hook.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/captain_hook", "src/rich_menu"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"examples" = "captain_hook/examples"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

@@ -171,7 +171,7 @@ def run_wizard():
         console.print("[dim]No hooks found yet.[/dim]")
         console.print()
 
-        examples_dir = Path(__file__).parent.parent.parent / "examples" / "hooks"
+        examples_dir = Path(__file__).parent.parent / "examples" / "hooks"
         if examples_dir.exists():
             copy_examples = questionary.confirm(
                 "Copy example hooks to config directory?",
@@ -196,6 +196,50 @@ def run_wizard():
         else:
             console.print(f"[dim]Add scripts to: {config.get_hooks_dir()}/{{event}}/[/dim]")
             console.print()
+
+    # Copy example agents if agents directory is empty
+    agents_dir = config.get_agents_dir()
+    has_agents = any(agents_dir.iterdir()) if agents_dir.exists() else False
+
+    if not has_agents:
+        examples_agents_dir = Path(__file__).parent.parent / "examples" / "agents"
+        if examples_agents_dir.exists() and any(examples_agents_dir.iterdir()):
+            copy_agents = questionary.confirm(
+                "Copy example agents to config directory?",
+                default=True,
+                style=custom_style,
+            ).ask()
+            console.print()
+
+            if copy_agents:
+                agents_dir.mkdir(parents=True, exist_ok=True)
+                for agent_file in examples_agents_dir.iterdir():
+                    if agent_file.is_file() and agent_file.suffix == ".md":
+                        shutil.copy(agent_file, agents_dir / agent_file.name)
+                        console.print(f"  [green]✓[/green] Copied agent: {agent_file.name}")
+                console.print()
+
+    # Copy example prompts if prompts directory is empty
+    prompts_dir = config.get_prompts_dir()
+    has_prompts = any(prompts_dir.iterdir()) if prompts_dir.exists() else False
+
+    if not has_prompts:
+        examples_prompts_dir = Path(__file__).parent.parent / "examples" / "prompts"
+        if examples_prompts_dir.exists() and any(examples_prompts_dir.iterdir()):
+            copy_prompts = questionary.confirm(
+                "Copy example prompts/commands to config directory?",
+                default=True,
+                style=custom_style,
+            ).ask()
+            console.print()
+
+            if copy_prompts:
+                prompts_dir.mkdir(parents=True, exist_ok=True)
+                for prompt_file in examples_prompts_dir.iterdir():
+                    if prompt_file.is_file() and prompt_file.suffix == ".md":
+                        shutil.copy(prompt_file, prompts_dir / prompt_file.name)
+                        console.print(f"  [green]✓[/green] Copied prompt: {prompt_file.name}")
+                console.print()
 
     if has_hooks:
         console.print("[bold]Configure hooks:[/bold]")
