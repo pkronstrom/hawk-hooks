@@ -16,8 +16,6 @@ from rich_menu import InteractiveList, Item
 from .. import config, installer, scanner
 from ..events import EVENTS
 from .core import console, custom_style
-from .deps import install_deps
-from .hooks import interactive_toggle
 
 
 def interactive_install() -> bool:
@@ -241,24 +239,6 @@ def run_wizard():
                         console.print(f"  [green]✓[/green] Copied prompt: {prompt_file.name}")
                 console.print()
 
-    if has_hooks:
-        console.print("[bold]Configure hooks:[/bold]")
-        # Map install scope to toggle scope: "user" -> "global" (for display), "project" -> "project"
-        toggle_scope = "global" if scope == "user" else "project"
-        interactive_toggle(skip_scope=True, scope=toggle_scope)  # Uses string for UI display
-
-    if has_hooks:
-        venv_dir = config.get_venv_dir()
-        install_py_deps = questionary.confirm(
-            f"Install Python dependencies? ({venv_dir})",
-            default=True,
-            style=custom_style,
-        ).ask()
-        console.print()
-
-        if install_py_deps:
-            install_deps()
-
     cfg = config.load_config()
     config.save_config(cfg)
 
@@ -268,7 +248,7 @@ def run_wizard():
             "[bold green]You're all set![/bold green]\n\n"
             f"[dim]Config:[/dim] {config.get_config_path()}\n"
             f"[dim]Hooks:[/dim]  {config.get_hooks_dir()}\n\n"
-            "[dim]Run[/dim] [cyan]captain-hook[/cyan] [dim]to manage hooks[/dim]\n"
+            "[dim]Run[/dim] [cyan]captain-hook[/cyan] [dim]to enable hooks/prompts/agents[/dim]\n"
             "[dim]Run[/dim] [cyan]captain-hook status[/cyan] [dim]to verify[/dim]",
             border_style="green",
         )
