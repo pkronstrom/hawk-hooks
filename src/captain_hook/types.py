@@ -126,3 +126,72 @@ class Scope(str, Enum):
             return cls(value)
         except ValueError:
             raise ValueError(f"Invalid scope: {value!r}. Must be 'user', 'global', or 'project'.")
+
+
+class PromptType(str, Enum):
+    """Type of prompt file.
+
+    COMMAND: Slash command (prompts/ directory)
+    AGENT: Agent/persona (agents/ directory)
+    """
+
+    COMMAND = "command"
+    AGENT = "agent"
+
+    @classmethod
+    def from_string(cls, value: str) -> "PromptType":
+        """Create PromptType from string.
+
+        Args:
+            value: "command" or "agent"
+
+        Returns:
+            The corresponding PromptType enum value.
+
+        Raises:
+            ValueError: If value is not recognized.
+        """
+        try:
+            return cls(value)
+        except ValueError:
+            raise ValueError(f"Invalid prompt type: {value!r}. Must be 'command' or 'agent'.")
+
+
+@dataclass
+class PromptInfo:
+    """Information about a discovered prompt/agent.
+
+    Attributes:
+        path: Path to the source file.
+        frontmatter: Parsed frontmatter data.
+        prompt_type: Whether this is a command or agent.
+    """
+
+    path: "Path"
+    frontmatter: "PromptFrontmatter"
+    prompt_type: PromptType
+
+    @property
+    def name(self) -> str:
+        """Get the prompt name from frontmatter."""
+        return self.frontmatter.name
+
+    @property
+    def description(self) -> str:
+        """Get the description from frontmatter."""
+        return self.frontmatter.description
+
+    @property
+    def tools(self) -> list[str]:
+        """Get target tools from frontmatter."""
+        return self.frontmatter.tools
+
+    @property
+    def has_hooks(self) -> bool:
+        """Check if this prompt has hook registrations."""
+        return self.frontmatter.has_hooks
+
+    @property
+    def hooks(self) -> list:
+        """Get hook configurations."""
+        return self.frontmatter.hooks

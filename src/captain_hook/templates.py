@@ -87,6 +87,54 @@ PROMPT_TEMPLATE = """{
 }
 """
 
+# Command prompt template (for prompts/ directory)
+COMMAND_PROMPT_TEMPLATE = """---
+name: {name}
+description: {description}
+tools: [claude]
+---
+
+# {name}
+
+Your command content here...
+"""
+
+# Agent template (for agents/ directory)
+AGENT_TEMPLATE = """---
+name: {name}
+description: {description}
+tools: [claude]
+hooks:
+  - session_start
+---
+
+You are {name}, an AI assistant specialized in...
+
+## Your Role
+
+Describe the agent's role here.
+
+## Guidelines
+
+- Guideline 1
+- Guideline 2
+"""
+
+# Command with hooks template
+COMMAND_HOOK_TEMPLATE = """---
+name: {name}
+description: {description}
+tools: [claude]
+hooks:
+  - event: pre_tool
+    matchers: [Bash]
+---
+
+# {name}
+
+This command also runs as a hook on pre_tool events.
+"""
+
 # Documentation file header (static content)
 _HOOKS_DOC_HEADER = """# Captain-Hook Reference
 
