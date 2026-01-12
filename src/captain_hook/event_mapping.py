@@ -61,6 +61,13 @@ TOOL_SPECIFIC_EVENTS: dict[str, list[str]] = {
 _REVERSE_MAPPING: dict[str, str] = {}
 for canonical, tools in CANONICAL_EVENTS.items():
     for tool, specific in tools.items():
+        if specific in _REVERSE_MAPPING and _REVERSE_MAPPING[specific] != canonical:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Event mapping collision: '{specific}' maps to both "
+                f"'{_REVERSE_MAPPING[specific]}' and '{canonical}'"
+            )
         _REVERSE_MAPPING[specific] = canonical
 
 

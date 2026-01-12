@@ -24,6 +24,34 @@ from .events import EVENTS, get_event_display
 from .hook_manager import HookManager
 from .types import Scope
 
+
+def _run_command(cmd: list[str], timeout: int = 300, description: str = "") -> tuple[bool, str]:
+    """Run a command with error handling.
+
+    Args:
+        cmd: Command and arguments as a list.
+        timeout: Timeout in seconds (default 300).
+        description: Human-readable description for error messages.
+
+    Returns:
+        Tuple of (success, output_or_error_message).
+    """
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() if result.stderr else ""
+            if not error_msg:
+                error_msg = f"Command failed with exit code {result.returncode}"
+            return False, error_msg
+        return True, result.stdout
+    except subprocess.TimeoutExpired:
+        return False, f"Command timed out after {timeout}s"
+    except FileNotFoundError:
+        return False, f"Command not found: {cmd[0]}"
+    except Exception as e:
+        return False, str(e)
+
+
 # Console management for testability
 # Tests can call set_console() to inject a mock console
 _console_instance: Console | None = None
@@ -901,25 +929,36 @@ def interactive_add_hook() -> bool:
     return False
 
 
-def _add_command() -> bool:
-    """Add a new command from template."""
+def _add_item(item_type_name: str, template: str, dir_fn: Callable[[], Path]) -> bool:
+    """Add a new item from template.
+
+    Args:
+        item_type_name: "Command" or "Agent" for display.
+        template: Template string with {name} and {description} placeholders.
+        dir_fn: Function to get the directory path.
+
+    Returns:
+        True if item was created, False otherwise.
+    """
     console.clear()
     console.print()
-    console.print("[bold]Add Command[/bold]")
+    console.print(f"[bold]Add {item_type_name}[/bold]")
     console.print("─" * 50)
 
-    name = questionary.text("Command name:", style=custom_style).ask()
+    name = questionary.text(f"{item_type_name} name:", style=custom_style).ask()
     if not name:
         return False
 
-    description = questionary.text("Description:", style=custom_style).ask() or f"{name} command"
+    description = (
+        questionary.text("Description:", style=custom_style).ask()
+        or f"{name} {item_type_name.lower()}"
+    )
 
-    # Create file
-    content = templates.COMMAND_PROMPT_TEMPLATE.format(name=name, description=description)
-    path = config.get_prompts_dir() / f"{name}.md"
+    content = template.format(name=name, description=description)
+    path = dir_fn() / f"{name}.md"
 
     if path.exists():
-        console.print(f"[red]Command {name} already exists![/red]")
+        console.print(f"[red]{item_type_name} {name} already exists![/red]")
         console.print("[dim]Press Enter to continue...[/dim]")
         input()
         return False
@@ -931,37 +970,16 @@ def _add_command() -> bool:
 
     _open_in_editor(path)
     return True
+
+
+def _add_command() -> bool:
+    """Add a new command from template."""
+    return _add_item("Command", templates.COMMAND_PROMPT_TEMPLATE, config.get_prompts_dir)
 
 
 def _add_agent() -> bool:
     """Add a new agent from template."""
-    console.clear()
-    console.print()
-    console.print("[bold]Add Agent[/bold]")
-    console.print("─" * 50)
-
-    name = questionary.text("Agent name:", style=custom_style).ask()
-    if not name:
-        return False
-
-    description = questionary.text("Description:", style=custom_style).ask() or f"{name} agent"
-
-    content = templates.AGENT_TEMPLATE.format(name=name, description=description)
-    path = config.get_agents_dir() / f"{name}.md"
-
-    if path.exists():
-        console.print(f"[red]Agent {name} already exists![/red]")
-        console.print("[dim]Press Enter to continue...[/dim]")
-        input()
-        return False
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
-    console.print(f"[green]Created {path}[/green]")
-    console.print("[dim]Edit the file to customize, then toggle to enable.[/dim]")
-
-    _open_in_editor(path)
-    return True
+    return _add_item("Agent", templates.AGENT_TEMPLATE, config.get_agents_dir)
 
 
 def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
@@ -1216,6 +1234,111 @@ def _prompt_enable_hook(event: str, hook_name: str):
 
 # Commands and Agents menu handlers
 
+from typing import Callable
+
+
+def _handle_items_menu(
+    item_type_name: str,
+    scanner_fn: Callable,
+    is_enabled_fn: Callable[[str], bool],
+    set_enabled_fn: Callable[[str, bool, bool], None],
+    is_hook_enabled_fn: Callable[[str], bool],
+    dir_fn: Callable[[], Path],
+    toggle_fn: Callable[[str], None],
+) -> None:
+    """Generic handler for commands/agents menu.
+
+    Args:
+        item_type_name: "command" or "agent" for display.
+        scanner_fn: Function to scan for items.
+        is_enabled_fn: Function to check if item is enabled.
+        set_enabled_fn: Function to set item enabled state.
+        is_hook_enabled_fn: Function to check if item's hook is enabled.
+        dir_fn: Function to get directory path.
+        toggle_fn: Function to toggle an item.
+    """
+    from . import sync
+
+    def delete_item(name: str, item) -> None:
+        """Delete an item."""
+        if is_enabled_fn(name):
+            set_enabled_fn(name, False, False)
+            sync.unsync_prompt(item)
+        item.path.unlink()
+        console.print(f"[red]Deleted {name}[/red]")
+
+    items_list = scanner_fn()
+    if not items_list:
+        console.print(f"[yellow]No {item_type_name}s found in directory.[/yellow]")
+        console.print(f"[dim]Add .md files to: {dir_fn()}[/dim]")
+        console.print()
+        console.print("[dim]Press Enter to continue...[/dim]")
+        while True:
+            if is_enter(readchar.readkey()):
+                break
+        return
+
+    while True:
+        console.clear()
+        # Build choices
+        menu_items = []
+        enabled_count = 0
+        for item in items_list:
+            enabled = is_enabled_fn(item.name)
+            if enabled:
+                enabled_count += 1
+            status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
+            hook_status = ""
+            if item.has_hooks:
+                hook_enabled = is_hook_enabled_fn(item.name)
+                hook_status = " [cyan](hook)[/cyan]" if hook_enabled else " [dim](hook off)[/dim]"
+            menu_items.append(Item.action(f"{status} {item.name}{hook_status}", value=item.name))
+
+        menu_items.append(Item.separator("─────────"))
+        # Toggle all option - show appropriate action based on current state
+        all_enabled = enabled_count == len(items_list)
+        if all_enabled:
+            menu_items.append(
+                Item.action("[yellow]Toggle All OFF[/yellow]", value="toggle_all_off")
+            )
+        else:
+            menu_items.append(Item.action("[green]Toggle All ON[/green]", value="toggle_all_on"))
+        menu_items.append(Item.action("Back", value="back"))
+
+        key_handlers = _make_prompt_handlers(items_list, item_type_name, delete_item)
+        footer = "↑↓ navigate • Enter toggle • e edit • s show • d delete • a add • Esc back"
+
+        menu = InteractiveList(
+            title=f"{item_type_name.capitalize()}s ({enabled_count}/{len(items_list)} enabled)",
+            items=menu_items,
+            console=console,
+            key_handlers=key_handlers,
+            footer=footer,
+        )
+        result = menu.show()
+        selected = result.get("action")
+
+        if selected == "back" or selected is None:
+            return
+
+        if selected == "toggle_all_on":
+            for item in items_list:
+                if not is_enabled_fn(item.name):
+                    set_enabled_fn(item.name, True, is_hook_enabled_fn(item.name))
+                    sync.sync_prompt(item)
+            console.print(f"[green]Enabled all {len(items_list)} {item_type_name}s[/green]")
+        elif selected == "toggle_all_off":
+            for item in items_list:
+                if is_enabled_fn(item.name):
+                    set_enabled_fn(item.name, False, is_hook_enabled_fn(item.name))
+                    sync.unsync_prompt(item)
+            console.print(f"[yellow]Disabled all {len(items_list)} {item_type_name}s[/yellow]")
+        else:
+            # Toggle the selected item
+            toggle_fn(selected)
+        # Refresh the list
+        items_list = scanner_fn()
+
 
 def _make_prompt_handlers(prompts_list: list, item_type: str, delete_callback):
     """Create key handlers for prompts/agents menus.
@@ -1345,214 +1468,86 @@ def _make_prompt_handlers(prompts_list: list, item_type: str, delete_callback):
 
 def _handle_commands_menu() -> None:
     """Handle the Commands submenu."""
-    from . import prompt_scanner, sync
+    from . import prompt_scanner
 
-    def delete_command(name: str, prompt) -> None:
-        """Delete a command."""
-        if config.is_prompt_enabled(name):
-            config.set_prompt_enabled(name, False, False)
-            sync.unsync_prompt(prompt)
-        prompt.path.unlink()
-        console.print(f"[red]Deleted {name}[/red]")
-
-    prompts = prompt_scanner.scan_prompts()
-    if not prompts:
-        console.print("[yellow]No commands found in prompts directory.[/yellow]")
-        console.print(f"[dim]Add .md files to: {config.get_prompts_dir()}[/dim]")
-        console.print()
-        console.print("[dim]Press Enter to continue...[/dim]")
-        while True:
-            if is_enter(readchar.readkey()):
-                break
-        return
-
-    while True:
-        console.clear()
-        # Build choices
-        items = []
-        enabled_count = 0
-        for p in prompts:
-            enabled = config.is_prompt_enabled(p.name)
-            if enabled:
-                enabled_count += 1
-            status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
-            hook_status = ""
-            if p.has_hooks:
-                hook_enabled = config.is_prompt_hook_enabled(p.name)
-                hook_status = " [cyan](hook)[/cyan]" if hook_enabled else " [dim](hook off)[/dim]"
-            items.append(Item.action(f"{status} {p.name}{hook_status}", value=p.name))
-
-        items.append(Item.separator("─────────"))
-        # Toggle all option - show appropriate action based on current state
-        all_enabled = enabled_count == len(prompts)
-        if all_enabled:
-            items.append(Item.action("[yellow]Toggle All OFF[/yellow]", value="toggle_all_off"))
-        else:
-            items.append(Item.action("[green]Toggle All ON[/green]", value="toggle_all_on"))
-        items.append(Item.action("Back", value="back"))
-
-        key_handlers = _make_prompt_handlers(prompts, "command", delete_command)
-        footer = "↑↓ navigate • Enter toggle • e edit • s show • d delete • a add • Esc back"
-
-        menu = InteractiveList(
-            title=f"Commands ({enabled_count}/{len(prompts)} enabled)",
-            items=items,
-            console=console,
-            key_handlers=key_handlers,
-            footer=footer,
-        )
-        result = menu.show()
-        selected = result.get("action")
-
-        if selected == "back" or selected is None:
-            return
-
-        if selected == "toggle_all_on":
-            for p in prompts:
-                if not config.is_prompt_enabled(p.name):
-                    config.set_prompt_enabled(p.name, True, config.is_prompt_hook_enabled(p.name))
-                    sync.sync_prompt(p)
-            console.print(f"[green]Enabled all {len(prompts)} commands[/green]")
-        elif selected == "toggle_all_off":
-            for p in prompts:
-                if config.is_prompt_enabled(p.name):
-                    config.set_prompt_enabled(p.name, False, config.is_prompt_hook_enabled(p.name))
-                    sync.unsync_prompt(p)
-            console.print(f"[yellow]Disabled all {len(prompts)} commands[/yellow]")
-        else:
-            # Toggle the selected prompt
-            _toggle_prompt(selected)
-        # Refresh the list
-        prompts = prompt_scanner.scan_prompts()
+    _handle_items_menu(
+        item_type_name="command",
+        scanner_fn=prompt_scanner.scan_prompts,
+        is_enabled_fn=config.is_prompt_enabled,
+        set_enabled_fn=config.set_prompt_enabled,
+        is_hook_enabled_fn=config.is_prompt_hook_enabled,
+        dir_fn=config.get_prompts_dir,
+        toggle_fn=_toggle_prompt,
+    )
 
 
 def _handle_agents_menu() -> None:
     """Handle the Agents submenu."""
+    from . import prompt_scanner
+
+    _handle_items_menu(
+        item_type_name="agent",
+        scanner_fn=prompt_scanner.scan_agents,
+        is_enabled_fn=config.is_agent_enabled,
+        set_enabled_fn=config.set_agent_enabled,
+        is_hook_enabled_fn=config.is_agent_hook_enabled,
+        dir_fn=config.get_agents_dir,
+        toggle_fn=_toggle_agent,
+    )
+
+
+def _toggle_item(
+    name: str,
+    is_enabled_fn: Callable[[str], bool],
+    set_enabled_fn: Callable[[str, bool, bool], None],
+    is_hook_enabled_fn: Callable[[str], bool],
+) -> None:
+    """Toggle an item's enabled state.
+
+    Args:
+        name: Item name.
+        is_enabled_fn: Function to check if item is enabled.
+        set_enabled_fn: Function to set item enabled state.
+        is_hook_enabled_fn: Function to check if item's hook is enabled.
+    """
     from . import prompt_scanner, sync
 
-    def delete_agent(name: str, agent) -> None:
-        """Delete an agent."""
-        if config.is_agent_enabled(name):
-            config.set_agent_enabled(name, False, False)
-            sync.unsync_prompt(agent)
-        agent.path.unlink()
-        console.print(f"[red]Deleted {name}[/red]")
-
-    agents = prompt_scanner.scan_agents()
-    if not agents:
-        console.print("[yellow]No agents found in agents directory.[/yellow]")
-        console.print(f"[dim]Add .md files to: {config.get_agents_dir()}[/dim]")
-        console.print()
-        console.print("[dim]Press Enter to continue...[/dim]")
-        while True:
-            if is_enter(readchar.readkey()):
-                break
+    item = prompt_scanner.get_prompt_by_name(name)
+    if not item:
         return
 
-    while True:
-        console.clear()
-        # Build choices
-        items = []
-        enabled_count = 0
-        for a in agents:
-            enabled = config.is_agent_enabled(a.name)
-            if enabled:
-                enabled_count += 1
-            status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
-            hook_status = ""
-            if a.has_hooks:
-                hook_enabled = config.is_agent_hook_enabled(a.name)
-                hook_status = " [cyan](hook)[/cyan]" if hook_enabled else " [dim](hook off)[/dim]"
-            items.append(Item.action(f"{status} {a.name}{hook_status}", value=a.name))
+    current = is_enabled_fn(name)
+    new_state = not current
 
-        items.append(Item.separator("─────────"))
-        # Toggle all option - show appropriate action based on current state
-        all_enabled = enabled_count == len(agents)
-        if all_enabled:
-            items.append(Item.action("[yellow]Toggle All OFF[/yellow]", value="toggle_all_off"))
-        else:
-            items.append(Item.action("[green]Toggle All ON[/green]", value="toggle_all_on"))
-        items.append(Item.action("Back", value="back"))
+    hook_enabled = is_hook_enabled_fn(name)
+    set_enabled_fn(name, new_state, hook_enabled)
 
-        key_handlers = _make_prompt_handlers(agents, "agent", delete_agent)
-        footer = "↑↓ navigate • Enter toggle • e edit • s show • d delete • a add • Esc back"
-
-        menu = InteractiveList(
-            title=f"Agents ({enabled_count}/{len(agents)} enabled)",
-            items=items,
-            console=console,
-            key_handlers=key_handlers,
-            footer=footer,
-        )
-        result = menu.show()
-        selected = result.get("action")
-
-        if selected == "back" or selected is None:
-            return
-
-        if selected == "toggle_all_on":
-            for a in agents:
-                if not config.is_agent_enabled(a.name):
-                    config.set_agent_enabled(a.name, True, config.is_agent_hook_enabled(a.name))
-                    sync.sync_prompt(a)
-            console.print(f"[green]Enabled all {len(agents)} agents[/green]")
-        elif selected == "toggle_all_off":
-            for a in agents:
-                if config.is_agent_enabled(a.name):
-                    config.set_agent_enabled(a.name, False, config.is_agent_hook_enabled(a.name))
-                    sync.unsync_prompt(a)
-            console.print(f"[yellow]Disabled all {len(agents)} agents[/yellow]")
-        else:
-            # Toggle the selected agent
-            _toggle_agent(selected)
-        # Refresh the list
-        agents = prompt_scanner.scan_agents()
+    if new_state:
+        sync.sync_prompt(item)
+        console.print(f"[green]Enabled {name}[/green]")
+    else:
+        sync.unsync_prompt(item)
+        console.print(f"[yellow]Disabled {name}[/yellow]")
 
 
 def _toggle_prompt(name: str) -> None:
     """Toggle a prompt's enabled state."""
-    from . import prompt_scanner, sync
-
-    prompt = prompt_scanner.get_prompt_by_name(name)
-    if not prompt:
-        return
-
-    current = config.is_prompt_enabled(name)
-    new_state = not current
-
-    # Update config
-    hook_enabled = config.is_prompt_hook_enabled(name)
-    config.set_prompt_enabled(name, new_state, hook_enabled)
-
-    # Sync/unsync
-    if new_state:
-        sync.sync_prompt(prompt)
-        console.print(f"[green]Enabled {name}[/green]")
-    else:
-        sync.unsync_prompt(prompt)
-        console.print(f"[yellow]Disabled {name}[/yellow]")
+    _toggle_item(
+        name,
+        config.is_prompt_enabled,
+        config.set_prompt_enabled,
+        config.is_prompt_hook_enabled,
+    )
 
 
 def _toggle_agent(name: str) -> None:
     """Toggle an agent's enabled state."""
-    from . import prompt_scanner, sync
-
-    agent = prompt_scanner.get_prompt_by_name(name)
-    if not agent:
-        return
-
-    current = config.is_agent_enabled(name)
-    new_state = not current
-
-    hook_enabled = config.is_agent_hook_enabled(name)
-    config.set_agent_enabled(name, new_state, hook_enabled)
-
-    if new_state:
-        sync.sync_prompt(agent)
-        console.print(f"[green]Enabled {name}[/green]")
-    else:
-        sync.unsync_prompt(agent)
-        console.print(f"[yellow]Disabled {name}[/yellow]")
+    _toggle_item(
+        name,
+        config.is_agent_enabled,
+        config.set_agent_enabled,
+        config.is_agent_hook_enabled,
+    )
 
 
 def _auto_sync_prompts() -> None:
@@ -1646,38 +1641,60 @@ def _get_install_command_list(pkg_manager: str, packages: set[str]) -> list[str]
     return commands.get(pkg_manager, [])
 
 
-def _ensure_venv(venv_dir: Path) -> None:
-    """Create venv if it doesn't exist."""
-    if not venv_dir.exists():
-        console.print(f"  Creating venv at {venv_dir}...")
-        subprocess.run(
-            [sys.executable, "-m", "venv", str(venv_dir)],
-            check=True,
-            timeout=120,
-        )
-        console.print("  [green]✓[/green] Venv created")
+def _ensure_venv(venv_dir: Path) -> bool:
+    """Create venv if it doesn't exist.
+
+    Returns:
+        True if venv is ready, False if creation failed.
+    """
+    if venv_dir.exists():
+        return True
+
+    console.print(f"  Creating venv at {venv_dir}...")
+    success, error = _run_command(
+        [sys.executable, "-m", "venv", str(venv_dir)],
+        timeout=120,
+        description="Create venv",
+    )
+    if not success:
+        console.print(f"  [red]✗[/red] Failed to create venv: {error}")
+        return False
+
+    console.print("  [green]✓[/green] Venv created")
+    return True
 
 
-def _install_python_deps(venv_python: Path) -> None:
-    """Install Python dependencies into venv."""
+def _install_python_deps(venv_python: Path) -> bool:
+    """Install Python dependencies into venv.
+
+    Returns:
+        True if installation succeeded, False otherwise.
+    """
     python_deps = scanner.get_python_deps()
 
     if not python_deps:
         console.print("  [dim]No Python dependencies required[/dim]")
-        return
+        return True
 
     all_deps = set()
     for deps in python_deps.values():
         all_deps.update(deps)
 
-    if all_deps:
-        console.print(f"  Installing: {', '.join(sorted(all_deps))}")
-        subprocess.run(
-            [str(venv_python), "-m", "pip", "install", "--quiet"] + list(all_deps),
-            check=True,
-            timeout=300,
-        )
-        console.print("  [green]✓[/green] Python deps installed")
+    if not all_deps:
+        return True
+
+    console.print(f"  Installing: {', '.join(sorted(all_deps))}")
+    success, error = _run_command(
+        [str(venv_python), "-m", "pip", "install", "--quiet", *list(all_deps)],
+        timeout=300,
+        description="Install Python dependencies",
+    )
+    if not success:
+        console.print(f"  [red]✗[/red] Failed to install Python deps: {error}")
+        return False
+
+    console.print("  [green]✓[/green] Python deps installed")
+    return True
 
 
 def _install_shell_tools(shell_tools: set[str]) -> None:
@@ -1750,7 +1767,11 @@ def install_deps():
     console.print(f"[dim]Venv location: {venv_dir}[/dim]")
     console.print()
 
-    _ensure_venv(venv_dir)
+    if not _ensure_venv(venv_dir):
+        console.print("[red]Cannot continue without venv.[/red]")
+        console.print()
+        return
+
     _install_python_deps(venv_python)
 
     other_deps = scanner.get_non_python_deps()
