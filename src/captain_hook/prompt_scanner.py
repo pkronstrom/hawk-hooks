@@ -7,13 +7,38 @@ with valid frontmatter.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
+from time import time
 
 from . import config
 from .frontmatter import parse_frontmatter
 from .types import PromptInfo, PromptType
 
 logger = logging.getLogger(__name__)
+
+# Cache configuration
+_cache_timestamp: float = 0
+_CACHE_TTL: float = 5.0  # seconds
+
+
+def _get_cache_key() -> int:
+    """Return cache key that changes when cache should invalidate.
+
+    The cache is invalidated after _CACHE_TTL seconds.
+    """
+    global _cache_timestamp
+    now = time()
+    if now - _cache_timestamp > _CACHE_TTL:
+        _cache_timestamp = now
+    return int(_cache_timestamp)
+
+
+def invalidate_cache() -> None:
+    """Force cache invalidation on next call."""
+    global _cache_timestamp
+    _cache_timestamp = 0
+    _cached_scan_all.cache_clear()
 
 
 def scan_prompts(prompts_dir: Path | None = None) -> list[PromptInfo]:
@@ -55,6 +80,19 @@ def scan_all_prompts() -> list[PromptInfo]:
     prompts = scan_prompts()
     agents = scan_agents()
     return prompts + agents
+
+
+@lru_cache(maxsize=1)
+def _cached_scan_all(cache_key: int) -> tuple[PromptInfo, ...]:
+    """Cached scan with TTL-based invalidation.
+
+    Args:
+        cache_key: Cache key from _get_cache_key().
+
+    Returns:
+        Tuple of all prompts (tuple for hashability).
+    """
+    return tuple(scan_all_prompts())
 
 
 def _scan_directory(directory: Path, prompt_type: PromptType) -> list[PromptInfo]:
@@ -101,7 +139,9 @@ def _scan_directory(directory: Path, prompt_type: PromptType) -> list[PromptInfo
 
 
 def get_prompt_by_name(name: str, prompt_type: PromptType | None = None) -> PromptInfo | None:
-    """Get a specific prompt/agent by name.
+    """Get a specific prompt/agent by name (cached).
+
+    Uses TTL-based caching to avoid rescanning on every call.
 
     Args:
         name: Name to search for.
@@ -110,7 +150,7 @@ def get_prompt_by_name(name: str, prompt_type: PromptType | None = None) -> Prom
     Returns:
         PromptInfo if found, None otherwise.
     """
-    all_prompts = scan_all_prompts()
+    all_prompts = _cached_scan_all(_get_cache_key())
     for prompt in all_prompts:
         if prompt.name == name:
             if prompt_type is None or prompt.prompt_type == prompt_type:
@@ -119,9 +159,11 @@ def get_prompt_by_name(name: str, prompt_type: PromptType | None = None) -> Prom
 
 
 def get_prompts_with_hooks() -> list[PromptInfo]:
-    """Get all prompts/agents that have hook configurations.
+    """Get all prompts/agents that have hook configurations (cached).
+
+    Uses TTL-based caching to avoid rescanning on every call.
 
     Returns:
         List of PromptInfo with has_hooks=True.
     """
-    return [p for p in scan_all_prompts() if p.has_hooks]
+    return [p for p in _cached_scan_all(_get_cache_key()) if p.has_hooks]
