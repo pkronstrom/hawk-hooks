@@ -95,6 +95,15 @@ def install_hooks(
     if "hooks" not in settings:
         settings["hooks"] = {}
 
+    # Load config and scan hooks to get timeouts
+    cfg = (
+        config.load_config()
+        if scope == Scope.USER
+        else (config.load_project_config(project_dir) or {})
+    )
+    enabled_by_event = cfg.get("enabled", {})
+    all_hooks = scanner.scan_hooks()
+
     results = {}
 
     for event, event_def in EVENTS.items():
@@ -106,20 +115,37 @@ def install_hooks(
 
         runner_cmd = get_runner_command(event)
 
+        # Calculate max timeout from enabled hooks for this event
+        enabled_hook_names = enabled_by_event.get(event, [])
+        event_hooks = all_hooks.get(event, [])
+        max_timeout = None
+        for hook in event_hooks:
+            if hook.name in enabled_hook_names and hook.timeout is not None:
+                if max_timeout is None or hook.timeout > max_timeout:
+                    max_timeout = hook.timeout
+
         for matcher in matchers:
             # Check if we already have this hook
-            existing = False
+            existing_hook = None
             for hook_group in settings["hooks"][claude_event]:
                 if hook_group.get("matcher") == matcher:
                     for hook in hook_group.get("hooks", []):
                         if is_our_hook(hook):
-                            existing = True
+                            existing_hook = hook
                             break
-                if existing:
+                if existing_hook:
                     break
 
-            if not existing:
+            if existing_hook:
+                # Update timeout on existing hook if needed
+                if max_timeout is not None:
+                    existing_hook["timeout"] = max_timeout
+                elif "timeout" in existing_hook:
+                    del existing_hook["timeout"]
+            else:
                 hook_entry = {"type": "command", "command": runner_cmd}
+                if max_timeout is not None:
+                    hook_entry["timeout"] = max_timeout
                 new_group = {"hooks": [hook_entry]}
                 if matcher:
                     new_group["matcher"] = matcher

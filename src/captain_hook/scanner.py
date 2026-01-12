@@ -65,6 +65,7 @@ class HookInfo:
     env_vars: dict[str, str]  # VAR_NAME -> default_value
     hook_type: HookType
     extension: str
+    timeout: int | None = None  # Hook timeout in seconds
 
     @property
     def is_stdout(self) -> bool:
@@ -89,13 +90,16 @@ class HookInfo:
         return INTERPRETERS.get(self.extension)
 
 
-def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dict[str, str]]:
-    """Parse description, deps, and env vars from a hook file.
+def parse_hook_metadata(
+    path: Path, hook_name: str
+) -> tuple[str, list[str], dict[str, str], int | None]:
+    """Parse description, deps, env vars, and timeout from a hook file.
 
     Looks for:
     - # Description: ...
     - # Deps: dep1, dep2, ...
     - # Env: VAR_NAME=default_value
+    - # Timeout: <seconds>
 
     Env vars are namespaced by hook name:
     - Hook: notify.py, Env: DESKTOP=true -> NOTIFY_DESKTOP=true
@@ -103,6 +107,7 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
     description = ""
     deps: list[str] = []
     env_vars: dict[str, str] = {}
+    timeout: int | None = None
 
     # Convert hook name to env var prefix: my-cool-hook -> MY_COOL_HOOK_
     prefix = hook_name.upper().replace("-", "_").replace(".", "_") + "_"
@@ -138,12 +143,17 @@ def parse_hook_metadata(path: Path, hook_name: str) -> tuple[str, list[str], dic
                     full_var_name = prefix + var_name
                     env_vars[full_var_name] = default_value
 
+            # Timeout pattern: # Timeout: 3600
+            timeout_match = re.match(r"^[#/\-*\s]*Timeout:\s*(\d+)$", line, re.IGNORECASE)
+            if timeout_match:
+                timeout = int(timeout_match.group(1))
+
     except (OSError, UnicodeDecodeError):
         # Skip metadata parsing if file can't be read or decoded
         # This is non-critical - hook still works without metadata
         pass
 
-    return description, deps, env_vars
+    return description, deps, env_vars, timeout
 
 
 def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
@@ -194,7 +204,7 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
                 continue  # Unsupported file type
 
             # Parse metadata
-            description, deps, env_vars = parse_hook_metadata(path, name)
+            description, deps, env_vars, timeout = parse_hook_metadata(path, name)
 
             # Create hook info
             hook = HookInfo(
@@ -205,6 +215,7 @@ def scan_hooks(hooks_dir: Path | None = None) -> dict[str, list[HookInfo]]:
                 deps=deps,
                 env_vars=env_vars,
                 hook_type=hook_type,
+                timeout=timeout,
                 extension=ext,
             )
 
