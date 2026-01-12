@@ -1268,6 +1268,53 @@ def _toggle_agent(name: str) -> None:
         console.print(f"[yellow]Disabled {name}[/yellow]")
 
 
+def _auto_sync_prompts() -> None:
+    """Auto-sync: detect new/removed prompts, update config."""
+    from . import prompt_scanner
+    from .types import PromptType
+
+    # Scan all prompts
+    all_prompts = prompt_scanner.scan_all_prompts()
+    prompt_names = {p.name for p in all_prompts if p.prompt_type == PromptType.COMMAND}
+    agent_names = {p.name for p in all_prompts if p.prompt_type == PromptType.AGENT}
+
+    # Get current config
+    prompts_cfg = config.get_prompts_config()
+    agents_cfg = config.get_agents_config()
+
+    # Find new prompts (in files but not in config)
+    new_prompts = prompt_names - set(prompts_cfg.keys())
+    new_agents = agent_names - set(agents_cfg.keys())
+
+    # Find removed prompts (in config but not in files)
+    removed_prompts = set(prompts_cfg.keys()) - prompt_names
+    removed_agents = set(agents_cfg.keys()) - agent_names
+
+    # Add new (disabled by default)
+    for name in new_prompts:
+        config.set_prompt_enabled(name, False, False)
+        console.print(f"[dim]Found new command: {name}[/dim]")
+
+    for name in new_agents:
+        config.set_agent_enabled(name, False, False)
+        console.print(f"[dim]Found new agent: {name}[/dim]")
+
+    # Clean up removed
+    for name in removed_prompts:
+        cfg = config.load_config()
+        if "prompts" in cfg and name in cfg["prompts"]:
+            del cfg["prompts"][name]
+            config.save_config(cfg)
+        console.print(f"[dim]Removed command: {name}[/dim]")
+
+    for name in removed_agents:
+        cfg = config.load_config()
+        if "agents" in cfg and name in cfg["agents"]:
+            del cfg["agents"][name]
+            config.save_config(cfg)
+        console.print(f"[dim]Removed agent: {name}[/dim]")
+
+
 def _detect_package_manager() -> str | None:
     """Detect available package manager."""
     managers = [
@@ -1569,6 +1616,9 @@ def interactive_menu():
             return
 
     print_header()
+
+    # Auto-sync prompts/agents on startup
+    _auto_sync_prompts()
 
     while True:
         console.clear()
