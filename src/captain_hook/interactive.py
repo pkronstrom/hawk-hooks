@@ -818,7 +818,31 @@ def interactive_config():
 
 
 def interactive_add_hook() -> bool:
-    """Interactive hook creation wizard."""
+    """Interactive hook/command/agent creation wizard."""
+    console.clear()
+
+    # First ask what type of thing to add
+    menu = InteractiveList(
+        title="Add new:",
+        items=[
+            Item.action("Hook (script for events)", value="hook"),
+            Item.action("Command (slash command)", value="command"),
+            Item.action("Agent (AI persona)", value="agent"),
+        ],
+        console=console,
+    )
+    result = menu.show()
+    item_type = result.get("action")
+
+    if item_type is None:
+        return False
+
+    if item_type == "command":
+        return _add_command()
+    elif item_type == "agent":
+        return _add_agent()
+
+    # Continue with hook creation
     console.clear()
     console.print()
     console.print("[bold]Add Hook[/bold]")
@@ -871,6 +895,69 @@ def interactive_add_hook() -> bool:
     elif hook_type == "prompt":
         return _add_new_prompt(event, hooks_dir)
     return False
+
+
+def _add_command() -> bool:
+    """Add a new command from template."""
+    console.clear()
+    console.print()
+    console.print("[bold]Add Command[/bold]")
+    console.print("─" * 50)
+
+    name = questionary.text("Command name:", style=custom_style).ask()
+    if not name:
+        return False
+
+    description = questionary.text("Description:", style=custom_style).ask() or f"{name} command"
+
+    # Create file
+    content = templates.COMMAND_PROMPT_TEMPLATE.format(name=name, description=description)
+    path = config.get_prompts_dir() / f"{name}.md"
+
+    if path.exists():
+        console.print(f"[red]Command {name} already exists![/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
+        return False
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    console.print(f"[green]Created {path}[/green]")
+    console.print("[dim]Edit the file to customize, then toggle to enable.[/dim]")
+
+    _open_in_editor(path)
+    return True
+
+
+def _add_agent() -> bool:
+    """Add a new agent from template."""
+    console.clear()
+    console.print()
+    console.print("[bold]Add Agent[/bold]")
+    console.print("─" * 50)
+
+    name = questionary.text("Agent name:", style=custom_style).ask()
+    if not name:
+        return False
+
+    description = questionary.text("Description:", style=custom_style).ask() or f"{name} agent"
+
+    content = templates.AGENT_TEMPLATE.format(name=name, description=description)
+    path = config.get_agents_dir() / f"{name}.md"
+
+    if path.exists():
+        console.print(f"[red]Agent {name} already exists![/red]")
+        console.print("[dim]Press Enter to continue...[/dim]")
+        input()
+        return False
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    console.print(f"[green]Created {path}[/green]")
+    console.print("[dim]Edit the file to customize, then toggle to enable.[/dim]")
+
+    _open_in_editor(path)
+    return True
 
 
 def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
