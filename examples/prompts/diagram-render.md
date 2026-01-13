@@ -21,10 +21,11 @@ Look in `docs/diagrams/` for `.spec.json` files if just given a name.
 
 ### Step 2: Choose Format
 
-Ask: **Excalidraw or Mermaid?**
+Ask: **Excalidraw, Mermaid, or Kroki?**
 
 - **Excalidraw** - Visual canvas, drag-and-drop editing, exports to PNG/SVG
 - **Mermaid** - Text-based, version control friendly, renders in GitHub/docs
+- **Kroki** - Unified API supporting 27+ diagram types (Mermaid, PlantUML, C4, D2, GraphViz, etc.)
 
 ### Step 3: Generate Output
 
@@ -35,6 +36,7 @@ Based on format choice, generate the diagram using the embedded knowledge below.
 1. **Write the file:**
    - Excalidraw: `docs/diagrams/<name>.excalidraw`
    - Mermaid: `docs/diagrams/<name>.mmd`
+   - Kroki: `docs/diagrams/<name>.{mmd|puml|d2}` (source format)
 
 2. **Show preview** if under 80 lines
 
@@ -43,11 +45,16 @@ Based on format choice, generate the diagram using the embedded knowledge below.
    cat docs/diagrams/<name>.excalidraw | pbcopy
    ```
 
-4. **Provide editor link:**
+4. **Provide editor/viewer link:**
    - Excalidraw: `https://excalidraw.com` (paste JSON or import file)
-   - Mermaid: Generate a direct link with embedded data (see Direct Links section)
+   - Mermaid: Generate a mermaid.live direct link (see Direct Links section)
+   - Kroki: Generate a kroki.io direct link (see Direct Links section)
 
-5. **Suggest libraries** (for Excalidraw)
+5. **For Kroki, also provide:**
+   - SVG URL: `https://kroki.io/{type}/svg/{encoded}`
+   - Markdown embed: `![Diagram](kroki-url)`
+
+6. **Suggest libraries** (for Excalidraw)
 
 ---
 
@@ -414,6 +421,128 @@ flowchart TB
 - **Consistent naming** across the diagram
 - **Avoid connections inside subgraphs** unless showing internal flow
 - **Use `direction` inside subgraphs** to control internal node arrangement
+
+---
+
+## Kroki Generation
+
+[Kroki](https://kroki.io) is a unified diagram API supporting 27+ diagram types with instant URL generation.
+
+### Supported Diagram Types
+
+| Type | Kroki ID | Best For |
+|------|----------|----------|
+| Mermaid | `mermaid` | Flowcharts, sequence, ER diagrams |
+| PlantUML | `plantuml` | UML, activity, state diagrams |
+| C4 PlantUML | `c4plantuml` | C4 architecture diagrams |
+| Structurizr | `structurizr` | C4 with Structurizr DSL |
+| D2 | `d2` | Modern architecture diagrams |
+| GraphViz | `graphviz` | Graph layouts, dependency trees |
+| Excalidraw | `excalidraw` | Whiteboard-style diagrams |
+| Ditaa | `ditaa` | ASCII art to diagrams |
+| ERD | `erd` | Entity-relationship diagrams |
+| BPMN | `bpmn` | Business process modeling |
+
+### Output Formats
+
+| Format | Extension | Notes |
+|--------|-----------|-------|
+| `svg` | .svg | Best quality, scalable (default) |
+| `png` | .png | Raster, good for embedding |
+| `pdf` | .pdf | Print-ready (limited support) |
+
+### URL Format
+
+```
+https://kroki.io/{type}/{format}/{encoded-diagram}
+```
+
+Examples:
+- `https://kroki.io/mermaid/svg/{encoded}`
+- `https://kroki.io/c4plantuml/png/{encoded}`
+- `https://kroki.io/d2/svg/{encoded}`
+
+### Encoding Algorithm
+
+1. Compress diagram source with deflate (level 9)
+2. Encode to URL-safe base64 (`+` → `-`, `/` → `_`)
+
+**Python:**
+```python
+import base64, zlib
+
+def kroki_encode(diagram: str) -> str:
+    compressed = zlib.compress(diagram.encode('utf-8'), 9)
+    return base64.urlsafe_b64encode(compressed).decode('ascii')
+
+def kroki_url(diagram: str, dtype: str = "mermaid", fmt: str = "svg") -> str:
+    return f"https://kroki.io/{dtype}/{fmt}/{kroki_encode(diagram)}"
+```
+
+**Bash:**
+```bash
+cat diagram.mmd | python3 -c "
+import sys,base64,zlib
+d=sys.stdin.read().encode('utf-8')
+print(base64.urlsafe_b64encode(zlib.compress(d,9)).decode())
+" | xargs -I {} echo "https://kroki.io/mermaid/svg/{}"
+```
+
+### C4 with PlantUML
+
+For C4 architecture diagrams, use `c4plantuml`:
+
+```plantuml
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+Person(user, "User", "A customer")
+System(api, "API", "Main application")
+System_Ext(stripe, "Stripe", "Payment provider")
+
+Rel(user, api, "Uses")
+Rel(api, stripe, "Processes payments")
+@enduml
+```
+
+### D2 (Modern Alternative)
+
+D2 is a modern diagram language with cleaner syntax:
+
+```d2
+direction: right
+
+user: User {
+  shape: person
+}
+
+api: API Gateway {
+  shape: rectangle
+  style.fill: "#a5d8ff"
+}
+
+db: Database {
+  shape: cylinder
+  style.fill: "#ffc9c9"
+}
+
+user -> api: HTTPS
+api -> db: SQL
+```
+
+### Kroki vs Mermaid.live
+
+| Feature | Kroki | Mermaid.live |
+|---------|-------|--------------|
+| Diagram types | 27+ | Mermaid only |
+| Direct image URL | ✅ `/svg/` returns image | ❌ Editor only |
+| Embed in markdown | ✅ `![](kroki-url)` | ❌ |
+| Self-hostable | ✅ Docker | ❌ |
+| Edit diagram | ❌ View only | ✅ Full editor |
+
+**Use Kroki when:** You need direct image URLs, multiple diagram types, or markdown embedding.
+
+**Use Mermaid.live when:** You want an interactive editor for Mermaid diagrams.
 
 ---
 
