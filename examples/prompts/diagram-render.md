@@ -45,7 +45,7 @@ Based on format choice, generate the diagram using the embedded knowledge below.
 
 4. **Provide editor link:**
    - Excalidraw: `https://excalidraw.com` (paste JSON or import file)
-   - Mermaid: `https://mermaid.live` (paste code to preview)
+   - Mermaid: Generate a direct link with embedded data (see Direct Links section)
 
 5. **Suggest libraries** (for Excalidraw)
 
@@ -72,6 +72,9 @@ Based on format choice, generate the diagram using the embedded knowledge below.
 ### Element Types
 
 **Rectangle (service, db, queue, cache):**
+
+> ⚠️ **CRITICAL**: Include ALL properties shown below. Missing properties cause rendering failures.
+
 ```json
 {
   "id": "unique-id",
@@ -80,14 +83,35 @@ Based on format choice, generate the diagram using the embedded knowledge below.
   "y": 100,
   "width": 160,
   "height": 80,
+  "angle": 0,
   "strokeColor": "#1e1e1e",
   "backgroundColor": "#a5d8ff",
   "fillStyle": "solid",
   "strokeWidth": 2,
-  "roundness": { "type": 3 },
-  "boundElements": [{ "id": "arrow-id", "type": "arrow" }]
+  "roughness": 0,
+  "opacity": 100,
+  "seed": 123456,
+  "version": 1,
+  "versionNonce": 123456789,
+  "isDeleted": false,
+  "groupIds": [],
+  "frameId": null,
+  "roundness": null,
+  "boundElements": [
+    { "id": "text-id", "type": "text" },
+    { "id": "arrow-id", "type": "arrow" }
+  ],
+  "updated": 1700000000000,
+  "link": null,
+  "locked": false
 }
 ```
+
+**Styling options:**
+- `"roundness": null` → Sharp corners (professional)
+- `"roundness": { "type": 3 }` → Rounded corners (sketchy)
+- `"roughness": 0` → Clean lines (professional)
+- `"roughness": 1` → Hand-drawn look
 
 **Ellipse (actor):**
 ```json
@@ -122,22 +146,57 @@ Based on format choice, generate the diagram using the embedded knowledge below.
 ```
 
 **Text (labels):**
+
+> ⚠️ **CRITICAL**: For text inside shapes, BOTH the container and text must reference each other:
+> - Container needs: `"boundElements": [{ "id": "text-id", "type": "text" }]`
+> - Text needs: `"containerId": "parent-shape-id"`
+
 ```json
 {
   "id": "text-id",
   "type": "text",
   "x": 120,
   "y": 130,
+  "width": 140,
+  "height": 25,
+  "angle": 0,
   "text": "Label Text",
   "fontSize": 16,
-  "fontFamily": 1,
+  "fontFamily": 2,
   "textAlign": "center",
   "verticalAlign": "middle",
-  "containerId": "parent-shape-id"
+  "strokeColor": "#1e1e1e",
+  "backgroundColor": "transparent",
+  "fillStyle": "solid",
+  "strokeWidth": 2,
+  "roughness": 0,
+  "opacity": 100,
+  "seed": 234567,
+  "version": 1,
+  "versionNonce": 234567890,
+  "isDeleted": false,
+  "groupIds": [],
+  "frameId": null,
+  "roundness": null,
+  "boundElements": [],
+  "updated": 1700000000000,
+  "link": null,
+  "locked": false,
+  "containerId": "parent-shape-id",
+  "originalText": "Label Text",
+  "autoResize": true,
+  "lineHeight": 1.25
 }
 ```
 
+**Font options:**
+- `"fontFamily": 2` → Helvetica (professional, recommended)
+- `"fontFamily": 1` → Virgil (hand-drawn, sketchy)
+
 **Arrow (edges):**
+
+> ⚠️ **CRITICAL**: Arrows must be bound to shapes. The target shapes must also list the arrow in their `boundElements` array.
+
 ```json
 {
   "id": "arrow-id",
@@ -146,8 +205,24 @@ Based on format choice, generate the diagram using the embedded knowledge below.
   "y": 140,
   "width": 100,
   "height": 0,
+  "angle": 0,
   "strokeColor": "#1e1e1e",
+  "backgroundColor": "transparent",
+  "fillStyle": "solid",
   "strokeWidth": 2,
+  "roughness": 0,
+  "opacity": 100,
+  "seed": 345678,
+  "version": 1,
+  "versionNonce": 345678901,
+  "isDeleted": false,
+  "groupIds": [],
+  "frameId": null,
+  "roundness": { "type": 2 },
+  "boundElements": [],
+  "updated": 1700000000000,
+  "link": null,
+  "locked": false,
   "points": [[0, 0], [100, 0]],
   "startBinding": { "elementId": "source-id", "focus": 0, "gap": 8 },
   "endBinding": { "elementId": "target-id", "focus": 0, "gap": 8 },
@@ -156,6 +231,12 @@ Based on format choice, generate the diagram using the embedded knowledge below.
   "elbowed": true
 }
 ```
+
+**Arrow binding checklist:**
+1. Arrow has `startBinding.elementId` pointing to source shape
+2. Arrow has `endBinding.elementId` pointing to target shape
+3. Source shape has `{ "id": "arrow-id", "type": "arrow" }` in its `boundElements`
+4. Target shape has `{ "id": "arrow-id", "type": "arrow" }` in its `boundElements`
 
 **Frame (groups/views):**
 ```json
@@ -284,12 +365,55 @@ C4Context
 - `Container(id, label, tech, desc)`
 - `Rel(from, to, label)`
 
+### Subgraph Layout Control
+
+> ⚠️ **CRITICAL**: Connections inside subgraphs can unexpectedly expand them. Use these techniques for predictable layouts.
+
+**Direction inside subgraphs:**
+```mermaid
+flowchart TB
+    subgraph ship["Ship Network"]
+        direction TB
+        gateway{{"Internet Gateway"}}
+        gateway -->|"LAN 1"| ipc
+        ipc["Industrial PC"]
+    end
+```
+- Use `direction TB` or `direction LR` inside subgraphs to control internal layout
+- This is independent of the main flowchart direction
+
+**Invisible subgraphs for horizontal grouping:**
+```mermaid
+flowchart TB
+    subgraph rem["REM System"]
+        direction TB
+        switch{{"Ethernet Switch"}}
+        switch --> fva1 & chillers & rinks
+        subgraph rem_row1[" "]
+            direction LR
+            fva1["Control Unit"]
+            chillers["Chillers"]
+            rinks["Ice Rinks"]
+        end
+    end
+
+    style rem_row1 fill:none,stroke:none
+```
+- Create invisible nested subgraphs to force horizontal alignment
+- Style with `fill:none,stroke:none` to hide the container
+
+**Connection placement:**
+- Place main inter-group connections OUTSIDE subgraphs to prevent expansion
+- Only place connections INSIDE subgraphs for internal flows
+
 ### Best Practices
 
 - **Use subgraphs** for logical groupings
 - **Keep labels short** (1-3 words)
-- **Direction matters**: LR for wide diagrams, TB for tall ones
+- **Direction matters**: TB for architecture diagrams (cloud→device→subsystems), LR for process flows
 - **Consistent naming** across the diagram
+- **Avoid connections inside subgraphs** unless showing internal flow
+- **Use `direction` inside subgraphs** to control internal node arrangement
 
 ---
 
@@ -347,3 +471,97 @@ https://excalidraw.com
 
 Recommended: Import the C4 library for professional shapes.
 ```
+
+---
+
+## Common Pitfalls
+
+### Excalidraw
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Text not showing inside shapes | Missing bidirectional binding | Container needs `boundElements` with text ID; text needs `containerId` |
+| Arrows floating/not connected | Missing binding on target shapes | Both source and target shapes need the arrow in their `boundElements` |
+| Elements not rendering | Missing required properties | Include ALL properties: `angle`, `seed`, `opacity`, `roughness`, `groupIds`, `frameId`, `version`, `versionNonce`, `isDeleted`, `updated`, `link`, `locked` |
+| Sketchy/unprofessional look | Default hand-drawn settings | Use `fontFamily: 2` (Helvetica), `roughness: 0`, `roundness: null` |
+| Font inconsistency | Mixed fontFamily values | Set `fontFamily: 2` on ALL text elements |
+
+### Mermaid
+
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Subgraph unexpectedly large | Connections inside expand the box | Move inter-group connections outside subgraphs |
+| Asymmetric layout | No direction control | Add `direction TB` or `direction LR` inside subgraphs |
+| Nodes not aligned horizontally | Default vertical stacking | Use invisible nested subgraph with `direction LR` and `style fill:none,stroke:none` |
+| Wrong flow direction | Incorrect main direction | Use `flowchart TB` for architecture (top-down), `flowchart LR` for processes |
+
+### General
+
+- **Always validate output**: Open in Excalidraw.com or Mermaid.live to verify rendering
+- **Test text visibility**: Ensure all labels are readable and positioned correctly
+- **Check arrow connectivity**: Verify arrows attach to shapes, not floating in space
+
+---
+
+## Direct Links (URL Embedding)
+
+### Mermaid.live Direct Links
+
+Generate shareable URLs with diagram data embedded directly in the link.
+
+**URL formats:**
+- Edit mode: `https://mermaid.live/edit#pako:<compressed>`
+- View mode: `https://mermaid.live/view#pako:<compressed>`
+
+**Python generation:**
+```python
+import base64, json, zlib
+
+def mermaid_live_url(code: str, mode: str = "edit") -> str:
+    """Generate a mermaid.live URL with embedded diagram."""
+    payload = {"code": code, "mermaid": {"theme": "default"}}
+    compress = zlib.compressobj(9, zlib.DEFLATED, 15, 8, zlib.Z_DEFAULT_STRATEGY)
+    compressed = compress.compress(json.dumps(payload).encode()) + compress.flush()
+    b64 = base64.b64encode(compressed).decode("ascii")
+    encoded = b64.replace("+", "-").replace("/", "_")
+    return f"https://mermaid.live/{mode}#pako:{encoded}"
+```
+
+**Bash one-liner (requires python3):**
+```bash
+cat diagram.mmd | python3 -c "
+import sys,base64,json,zlib
+code=sys.stdin.read()
+payload=json.dumps({'code':code,'mermaid':{'theme':'default'}})
+c=zlib.compressobj(9,zlib.DEFLATED,15,8,zlib.Z_DEFAULT_STRATEGY)
+d=c.compress(payload.encode())+c.flush()
+e=base64.b64encode(d).decode().replace('+','-').replace('/','_')
+print(f'https://mermaid.live/edit#pako:{e}')
+"
+```
+
+### Kroki (Alternative - Multiple Diagram Types)
+
+[Kroki](https://kroki.io) provides a unified API for multiple diagram types.
+
+**URL format:**
+```
+https://kroki.io/{type}/{format}/{encoded}
+```
+
+**Supported types:** mermaid, graphviz, plantuml, c4plantuml, ditaa, and more
+
+**Bash encoding:**
+```bash
+cat diagram.mmd | python3 -c "
+import sys,base64,zlib
+print(base64.urlsafe_b64encode(zlib.compress(sys.stdin.read().encode(),9)).decode())
+" | xargs -I {} echo "https://kroki.io/mermaid/svg/{}"
+```
+
+### Excalidraw
+
+Excalidraw doesn't support direct URL embedding like Mermaid. Options:
+1. **Manual**: Open excalidraw.com → Import file or paste JSON
+2. **Collaborative**: Use excalidraw.com sharing (creates hosted link with encryption)
+3. **Self-hosted**: Deploy your own instance with the `@excalidraw/excalidraw` package
