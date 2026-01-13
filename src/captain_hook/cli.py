@@ -130,6 +130,88 @@ def cmd_deps(args):
     install_deps()
 
 
+def cmd_sync_examples(args):
+    """CLI: Sync examples from package to config directory."""
+    import shutil
+    from pathlib import Path
+
+    # Try installed location first (package/examples), then editable location (project root)
+    examples_base = Path(__file__).parent / "examples"
+    if not examples_base.exists():
+        # Editable install: go from src/captain_hook/ to project root
+        examples_base = Path(__file__).parent.parent.parent / "examples"
+
+    copied = 0
+    skipped = 0
+
+    if not examples_base.exists():
+        print("Error: Examples directory not found")
+        print(f"Searched: {Path(__file__).parent / 'examples'}")
+        print(f"      and: {Path(__file__).parent.parent.parent / 'examples'}")
+        return
+
+    # Sync hooks
+    hooks_examples = examples_base / "hooks"
+    if hooks_examples.exists():
+        hooks_dir = config.get_hooks_dir()
+        for event in EVENTS:
+            src_event = hooks_examples / event
+            dst_event = hooks_dir / event
+            if src_event.exists():
+                dst_event.mkdir(parents=True, exist_ok=True)
+                for hook_file in src_event.iterdir():
+                    if hook_file.is_file():
+                        dst_file = dst_event / hook_file.name
+                        if dst_file.exists() and not args.force:
+                            if args.verbose:
+                                print(f"  - Skip (exists): hooks/{event}/{hook_file.name}")
+                            skipped += 1
+                        else:
+                            shutil.copy(hook_file, dst_file)
+                            print(f"  ✓ hooks/{event}/{hook_file.name}")
+                            copied += 1
+
+    # Sync agents
+    agents_examples = examples_base / "agents"
+    if agents_examples.exists():
+        agents_dir = config.get_agents_dir()
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        for agent_file in agents_examples.iterdir():
+            if agent_file.is_file() and agent_file.suffix == ".md":
+                dst_file = agents_dir / agent_file.name
+                if dst_file.exists() and not args.force:
+                    if args.verbose:
+                        print(f"  - Skip (exists): agents/{agent_file.name}")
+                    skipped += 1
+                else:
+                    shutil.copy(agent_file, dst_file)
+                    print(f"  ✓ agents/{agent_file.name}")
+                    copied += 1
+
+    # Sync prompts
+    prompts_examples = examples_base / "prompts"
+    if prompts_examples.exists():
+        prompts_dir = config.get_prompts_dir()
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        for prompt_file in prompts_examples.iterdir():
+            if prompt_file.is_file() and prompt_file.suffix == ".md":
+                dst_file = prompts_dir / prompt_file.name
+                if dst_file.exists() and not args.force:
+                    if args.verbose:
+                        print(f"  - Skip (exists): prompts/{prompt_file.name}")
+                    skipped += 1
+                else:
+                    shutil.copy(prompt_file, dst_file)
+                    print(f"  ✓ prompts/{prompt_file.name}")
+                    copied += 1
+
+    print()
+    if copied > 0:
+        print(f"Copied {copied} file(s).")
+    if skipped > 0:
+        print(f"Skipped {skipped} existing file(s). Use --force to overwrite.")
+
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -205,6 +287,24 @@ def main():
         help="Show only disabled hooks",
     )
     list_parser.set_defaults(func=cmd_list)
+
+    # Sync-examples command
+    sync_parser = subparsers.add_parser(
+        "sync-examples", help="Copy new examples to config directory"
+    )
+    sync_parser.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Overwrite existing files",
+    )
+    sync_parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show skipped files",
+    )
+    sync_parser.set_defaults(func=cmd_sync_examples)
 
     args = parser.parse_args()
 
