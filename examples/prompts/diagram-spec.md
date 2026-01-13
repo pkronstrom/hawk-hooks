@@ -1,6 +1,7 @@
 ---
 name: diagram-spec
 description: Interactively design a technical diagram specification through brainstorming
+tools: [claude, gemini, codex]
 ---
 
 # Diagram Spec

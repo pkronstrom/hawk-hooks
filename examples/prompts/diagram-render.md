@@ -1,6 +1,7 @@
 ---
 name: diagram-render
 description: Convert a diagram spec to Excalidraw JSON or Mermaid syntax
+tools: [claude, gemini, codex]
 ---
 
 # Diagram Render
