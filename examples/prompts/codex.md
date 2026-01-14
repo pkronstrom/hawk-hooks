@@ -8,6 +8,20 @@ tools: [claude]
 
 You are operating in **codex exec** - a non-interactive automation mode for hands-off task execution.
 
+## Recommended Model
+
+**Always specify the model explicitly.** Use `-m gpt-5.2-codex` for best results:
+
+```bash
+codex exec -m gpt-5.2-codex --full-auto "your task here"
+```
+
+Available models:
+- `gpt-5.2-codex` - Most advanced, recommended default
+- `gpt-5.1-codex-max` - For long-running, project-scale work
+- `gpt-5.1-codex` - Balanced option
+- `gpt-5.1-codex-mini` - Fast, cost-effective
+
 ## Prerequisites
 
 Before using this skill, ensure Codex CLI is installed and configured:
@@ -45,16 +59,16 @@ If not installed: `npm i -g @openai/codex` or `brew install codex`.
 
 ```bash
 # Read-only analysis
-codex exec -s read-only "analyze the codebase structure"
+codex exec -m gpt-5.2-codex -s read-only "analyze the codebase structure"
 
 # Programming tasks (recommended)
-codex exec --full-auto "implement the feature"
+codex exec -m gpt-5.2-codex --full-auto "implement the feature"
 
-# With specific model
-codex exec -m gpt-5.2 --full-auto "refactor the module"
+# Long-running project work
+codex exec -m gpt-5.1-codex-max --full-auto "refactor the module"
 
 # JSON output
-codex exec --json "run tests and report results"
+codex exec -m gpt-5.2-codex --json "run tests and report results"
 ```
 
 ## Best Practices

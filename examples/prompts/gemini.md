@@ -8,6 +8,22 @@ tools: [claude]
 
 You are operating in **gemini exec** - a non-interactive automation mode for hands-off task execution.
 
+## Recommended Model
+
+**Always specify the model explicitly.** Use `-m gemini-3-flash-preview` for best results:
+
+```bash
+gemini exec -m gemini-3-flash-preview --full-auto "your task here"
+```
+
+Available models:
+- `gemini-3-flash-preview` - Best for agentic coding, recommended default (requires preview features)
+- `gemini-3-pro-preview` - State-of-the-art reasoning (requires preview features)
+- `gemini-2.5-pro` - Stable, capable fallback
+- `gemini-2.5-flash` - Fast, cost-effective fallback
+
+**Note:** For Gemini 3 models, enable preview features via `/settings` in Gemini CLI.
+
 ## Prerequisites
 
 Before using this skill, ensure Gemini CLI is installed and configured:
@@ -50,16 +66,16 @@ Before using this skill, ensure Gemini CLI is installed and configured:
 
 ```bash
 # Read-only analysis
-gemini exec -s read-only "analyze the codebase structure"
+gemini exec -m gemini-3-flash-preview -s read-only "analyze the codebase structure"
 
 # Programming tasks (recommended)
-gemini exec --full-auto "implement the feature"
+gemini exec -m gemini-3-flash-preview --full-auto "implement the feature"
 
-# With specific model
-gemini exec -m gemini-1.5-pro --full-auto "refactor the module"
+# Complex reasoning tasks
+gemini exec -m gemini-3-pro-preview --full-auto "refactor the module"
 
 # JSON output
-gemini exec --json "run tests and report results"
+gemini exec -m gemini-3-flash-preview --json "run tests and report results"
 ```
 
 ## Best Practices
