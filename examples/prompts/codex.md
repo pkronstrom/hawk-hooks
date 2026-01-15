@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Leverage OpenAI Codex/GPT models for autonomous code implementation via Codex CLI
+description: Leverage OpenAI GPT models for autonomous code implementation via Codex CLI. Use when the user asks to invoke/call/run Codex, use codex CLI or codex exec, mention gpt-5/gpt-5.1/gpt-5.2 for implementation, or delegate coding tasks to Codex. Default model is gpt-5.2-codex (smartest). Other models are gpt-5.1-codex-max (large refactors), gpt-5.1-codex (routine), gpt-5.1-codex-mini (quick).
 tools: [claude]
 ---
 
@@ -10,17 +10,49 @@ You are operating in **codex exec** - a non-interactive automation mode for hand
 
 ## Recommended Model
 
-**Always specify the model explicitly.** Use `-m gpt-5.2-codex` for best results:
+**Default: `gpt-5.2-codex`** - The smartest available model. When in doubt, use this.
 
 ```bash
 codex exec -m gpt-5.2-codex --full-auto "your task here"
 ```
 
-Available models:
-- `gpt-5.2-codex` - Most advanced, recommended default
-- `gpt-5.1-codex-max` - For long-running, project-scale work
-- `gpt-5.1-codex` - Balanced option
-- `gpt-5.1-codex-mini` - Fast, cost-effective
+## Model Selection Guide
+
+| Model | Best For | Trade-offs |
+|-------|----------|------------|
+| `gpt-5.2-codex` | General coding, complex logic, debugging | Highest capability, moderate cost |
+| `gpt-5.1-codex-max` | Large refactors, multi-file changes, project-scale work | Extended context, higher cost, slower |
+| `gpt-5.1-codex` | Routine tasks, simple features, quick fixes | Balanced speed/capability |
+| `gpt-5.1-codex-mini` | Simple edits, formatting, repetitive tasks | Fast and cheap, less reasoning depth |
+
+**When in doubt, use `gpt-5.2-codex`.** It handles the widest range of tasks well.
+
+### When to use each model
+
+**gpt-5.2-codex** (default - use this)
+- Complex feature implementation
+- Debugging tricky issues
+- Code requiring careful reasoning
+- When quality matters more than speed
+- Any task where you're unsure which model to pick
+
+**gpt-5.1-codex-max**
+- Refactoring entire modules
+- Cross-file architectural changes
+- Tasks requiring extensive context
+- Long-running background tasks
+
+**gpt-5.1-codex**
+- Adding straightforward features
+- Fixing obvious bugs
+- Writing tests for existing code
+- General day-to-day coding
+
+**gpt-5.1-codex-mini**
+- Renaming variables/functions
+- Formatting or linting fixes
+- Adding simple boilerplate
+- Quick prototyping
 
 ## Prerequisites
 
@@ -69,6 +101,42 @@ codex exec -m gpt-5.1-codex-max --full-auto "refactor the module"
 
 # JSON output
 codex exec -m gpt-5.2-codex --json "run tests and report results"
+```
+
+## Prompting Codex
+
+Codex runs in isolation - it cannot see the parent conversation or context. Write self-contained prompts that include all necessary information.
+
+### Effective prompts include:
+
+1. **Clear objective**: What should be accomplished
+2. **File paths**: Specific files to read/modify (if known)
+3. **Constraints**: Technology stack, patterns to follow, things to avoid
+4. **Success criteria**: How to verify the task is complete
+
+### Examples
+
+```bash
+# Bad - too vague, missing context
+codex exec -m gpt-5.2-codex --full-auto "fix the bug"
+
+# Good - specific and self-contained
+codex exec -m gpt-5.2-codex --full-auto "In src/auth/login.ts, the validateToken function throws on expired tokens instead of returning false. Fix it to return false for expired tokens. Run the existing tests to verify."
+
+# Good - includes context and constraints
+codex exec -m gpt-5.2-codex --full-auto "Add a dark mode toggle to the settings page. Use the existing ThemeContext in src/contexts/. Follow the component patterns in src/components/settings/. The toggle should persist to localStorage."
+```
+
+### Piping context
+
+For complex tasks, pipe additional context via stdin:
+
+```bash
+# Pipe a file as context
+cat ARCHITECTURE.md | codex exec -m gpt-5.2-codex --full-auto "Following the architecture described, add a new UserPreferences service"
+
+# Pipe multiple files
+cat src/types.ts src/api/client.ts | codex exec -m gpt-5.2-codex --full-auto "Add a new API endpoint for user settings using the existing patterns"
 ```
 
 ## Best Practices
