@@ -1,6 +1,9 @@
 # hawk-hooks
 
-A modular Claude Code hooks manager.
+A modular Claude Code hooks manager. Part of the **dodo/owl/hawk** trio:
+- [dodo-tasks](https://github.com/pkronstrom/dodo-tasks) - Task tracking
+- [owl-afk](https://github.com/pkronstrom/owl-afk) - Background/away management
+- **hawk-hooks** - Event interception & orchestration
 
 ## Architecture
 
@@ -39,8 +42,8 @@ src/hawk_hooks/
 
 ## How It Works
 
-1. `hawk-hooks install` → registers bash runners in `~/.claude/settings.json`
-2. `hawk-hooks toggle` → enables/disables hooks, regenerates runners, syncs prompt hooks
+1. `hawk install` → registers bash runners in `~/.claude/settings.json`
+2. `hawk toggle` → enables/disables hooks, regenerates runners, syncs prompt hooks
 3. Claude triggers event → bash runner executes → chains enabled hooks
 4. Native prompt hooks are registered directly as `type: "prompt"` in Claude settings
 
@@ -48,11 +51,11 @@ src/hawk_hooks/
 
 ```bash
 pip install -e .
-hawk-hooks  # Run the CLI (or just `hawk`)
+hawk  # Run the CLI (or `hawk-hooks`)
 ```
 
 After modifying hook-related code:
-1. Run `hawk-hooks toggle` to regenerate runners
+1. Run `hawk toggle` to regenerate runners
 2. Test with a Claude Code session
 
 ## Adding New Hook Types

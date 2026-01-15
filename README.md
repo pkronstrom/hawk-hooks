@@ -2,6 +2,11 @@
 
 A modular Claude Code hooks manager with auto-discovery, multi-language support, and fast bash runners.
 
+Part of the **dodo/owl/hawk** trio:
+- [dodo-tasks](https://github.com/pkronstrom/dodo-tasks) - Task tracking
+- [owl-afk](https://github.com/pkronstrom/owl-afk) - Background/away management
+- **hawk-hooks** - Event interception & orchestration
+
 ## Features
 
 - **Auto-discovery**: Drop scripts in `~/.config/hawk-hooks/hooks/{event}/` and they appear automatically
@@ -50,7 +55,7 @@ hawk-hooks will automatically use uv for installing hook dependencies if availab
 ## Quick Start
 
 ```bash
-hawk-hooks  # First-time wizard (or just `hawk`)
+hawk  # First-time wizard (or `hawk-hooks`)
 ```
 
 The wizard will:
@@ -58,7 +63,7 @@ The wizard will:
 2. Let you enable/disable hooks
 3. Install Python dependencies for enabled hooks
 
-After setup, add hooks to `~/.config/hawk-hooks/hooks/{event}/` and run `hawk-hooks toggle` to enable them.
+After setup, add hooks to `~/.config/hawk-hooks/hooks/{event}/` and run `hawk toggle` to enable them.
 
 ## Creating Hooks
 
@@ -141,7 +146,7 @@ Global config: `~/.config/hawk-hooks/config.json`
 ### Project Overrides
 
 ```bash
-hawk-hooks toggle  # Choose "This project" scope
+hawk toggle  # Choose "This project" scope
 ```
 
 Choose "Personal" (added to `.git/info/exclude`) or "Shared" (committable).
@@ -152,7 +157,7 @@ Copy examples to your hooks directory:
 
 ```bash
 cp -r examples/hooks/* ~/.config/hawk-hooks/hooks/
-hawk-hooks toggle  # Enable the ones you want
+hawk toggle  # Enable the ones you want
 ```
 
 Available examples:
@@ -168,15 +173,15 @@ Available examples:
 ## CLI Reference
 
 ```bash
-hawk-hooks              # Interactive menu (wizard on first run)
-hawk-hooks status       # Show installation status
-hawk-hooks toggle       # Enable/disable hooks (interactive)
-hawk-hooks enable <hook> [<hook>...]   # Enable hooks by name
-hawk-hooks disable <hook> [<hook>...]  # Disable hooks by name
-hawk-hooks list [--enabled|--disabled] # List hooks (scriptable)
-hawk-hooks install      # Install to Claude settings
-hawk-hooks uninstall    # Remove from Claude settings
-hawk-hooks install-deps # Install Python dependencies
+hawk                    # Interactive menu (wizard on first run)
+hawk status             # Show installation status
+hawk toggle             # Enable/disable hooks (interactive)
+hawk enable <hook>      # Enable hooks by name
+hawk disable <hook>     # Disable hooks by name
+hawk list [--enabled]   # List hooks (scriptable)
+hawk install            # Install to Claude settings
+hawk uninstall          # Remove from Claude settings
+hawk install-deps       # Install Python dependencies
 ```
 
 Hook names can be short (`file-guard`) or explicit (`pre_tool_use/file-guard`).
