@@ -6,6 +6,7 @@ Handles the Commands and Agents submenus, toggle functions, and add functions.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,11 +15,10 @@ from typing import Callable
 import questionary
 import readchar
 
-from rich_menu import InteractiveList, Item
 from rich_menu.keys import is_enter
 
 from .. import config, templates
-from .core import _with_paused_live, console, custom_style
+from .core import console, custom_style
 
 
 def _add_item(item_type_name: str, template: str, dir_fn: Callable[[], Path]) -> bool:
@@ -76,7 +76,6 @@ def _add_agent() -> bool:
 
 def _open_in_editor(path: Path):
     """Offer to open file in editor."""
-    import shutil
 
     open_editor = questionary.confirm(
         "Open in editor?",
@@ -157,116 +156,6 @@ def _toggle_agent(name: str) -> None:
     )
 
 
-def _make_prompt_handlers(prompts_list: list, item_type: str, delete_callback):
-    """Create key handlers for prompts/agents menus.
-
-    Args:
-        prompts_list: List of PromptInfo objects (will be looked up by name from item.value)
-        item_type: "command" or "agent" for display purposes
-        delete_callback: Function to call to delete a prompt (takes name, returns True if deleted)
-    """
-    prompts_by_name = {p.name: p for p in prompts_list}
-
-    def _handle_edit(menu, item) -> bool:
-        """Open prompt file in editor."""
-        from rich_menu.components import ActionItem
-
-        if not isinstance(item, ActionItem) or item.value in (
-            "back",
-            "toggle_all_on",
-            "toggle_all_off",
-        ):
-            return False
-
-        prompt = prompts_by_name.get(item.value)
-        if not prompt:
-            return False
-
-        editor = os.environ.get("EDITOR", "nano")
-
-        def edit_action():
-            subprocess.run([editor, str(prompt.path)], check=False)
-
-        _with_paused_live(menu, edit_action)
-        return False
-
-    def _handle_show(menu, item) -> bool:
-        """Show prompt file in system file manager."""
-        from rich_menu.components import ActionItem
-
-        if not isinstance(item, ActionItem) or item.value in (
-            "back",
-            "toggle_all_on",
-            "toggle_all_off",
-        ):
-            return False
-
-        prompt = prompts_by_name.get(item.value)
-        if not prompt:
-            return False
-
-        if sys.platform == "darwin":
-            subprocess.run(["open", "-R", str(prompt.path)], check=False)
-        elif sys.platform == "win32":
-            subprocess.run(["explorer", "/select,", str(prompt.path)], check=False)
-        else:
-            subprocess.run(["xdg-open", str(prompt.path.parent)], check=False)
-
-        return False
-
-    def _handle_delete(menu, item) -> bool:
-        """Delete prompt with confirmation."""
-        from rich_menu.components import ActionItem
-
-        if not isinstance(item, ActionItem) or item.value in (
-            "back",
-            "toggle_all_on",
-            "toggle_all_off",
-        ):
-            return False
-
-        name = item.value
-        prompt = prompts_by_name.get(name)
-        if not prompt:
-            return False
-
-        def delete_action():
-            menu.console.print()
-            confirm = questionary.confirm(
-                f"Delete {item_type} '{name}'?",
-                default=False,
-                style=custom_style,
-            ).ask()
-
-            if confirm:
-                delete_callback(name, prompt)
-                return True
-            return False
-
-        result = _with_paused_live(menu, delete_action)
-        return result if result else False
-
-    def _handle_add(menu, item) -> bool:
-        """Add a new prompt/agent."""
-
-        def add_action():
-            menu.console.clear()
-            if item_type == "command":
-                _add_command()
-            else:
-                _add_agent()
-
-        _with_paused_live(menu, add_action)
-        return True  # Exit menu to refresh list
-
-    return {
-        "e": _handle_edit,
-        "s": _handle_show,
-        "d": _handle_delete,
-        "a": _handle_add,
-    }
-
-
 def _handle_items_menu(
     item_type_name: str,
     scanner_fn: Callable,
@@ -276,26 +165,10 @@ def _handle_items_menu(
     dir_fn: Callable[[], Path],
     toggle_fn: Callable[[str], None],
 ) -> None:
-    """Generic handler for commands/agents menu.
+    """Generic handler for commands/agents menu using Rich Live for flicker-free updates."""
+    from rich.text import Text
 
-    Args:
-        item_type_name: "command" or "agent" for display.
-        scanner_fn: Function to scan for items.
-        is_enabled_fn: Function to check if item is enabled.
-        set_enabled_fn: Function to set item enabled state.
-        is_hook_enabled_fn: Function to check if item's hook is enabled.
-        dir_fn: Function to get directory path.
-        toggle_fn: Function to toggle an item.
-    """
     from .. import sync
-
-    def delete_item(name: str, item) -> None:
-        """Delete an item."""
-        if is_enabled_fn(name):
-            set_enabled_fn(name, False, False)
-            sync.unsync_prompt(item)
-        item.path.unlink()
-        console.print(f"[red]Deleted {name}[/red]")
 
     items_list = scanner_fn()
     if not items_list:
@@ -308,66 +181,223 @@ def _handle_items_menu(
                 break
         return
 
-    while True:
-        console.clear()
-        # Build choices
-        menu_items = []
-        enabled_count = 0
-        for item in items_list:
+    prompts_by_name = {p.name: p for p in items_list}
+    cursor = 0
+    scroll_offset = 0
+
+    def get_enabled_count() -> int:
+        return sum(1 for item in items_list if is_enabled_fn(item.name))
+
+    def get_max_visible() -> int:
+        """Calculate max visible items based on terminal height, capped at reasonable max."""
+        try:
+            term_height = console.size.height
+        except Exception:
+            term_height = 24
+        # Reserve: title (1) + blank (1) + scroll indicators (2) + separator (1) + toggle_all (1) + blank (1) + legend (1) + buffer (2)
+        calculated = term_height - 10
+        # Cap at reasonable max (20 items), min 5
+        return max(5, min(20, calculated))
+
+    def build_display() -> Text:
+        """Build the display as Rich Text."""
+        nonlocal scroll_offset
+        enabled_count = get_enabled_count()
+        max_visible = get_max_visible()
+
+        # Adjust scroll offset to keep cursor visible
+        if cursor < scroll_offset:
+            scroll_offset = cursor
+        elif cursor >= scroll_offset + max_visible:
+            scroll_offset = cursor - max_visible + 1
+
+        # Handle toggle_all item (at index len(items_list))
+        toggle_all_idx = len(items_list)
+        if cursor == toggle_all_idx:
+            scroll_offset = max(0, len(items_list) - max_visible + 1)
+
+        lines = []
+
+        # Title
+        title = f"{item_type_name.capitalize()}s ({enabled_count}/{len(items_list)} enabled)"
+        lines.append(f"[bold]{title}[/bold]")
+        lines.append("")
+
+        # Scroll indicator - above (only show if scrolling)
+        hidden_above = scroll_offset
+        if hidden_above > 0:
+            lines.append(f"  [dim]↑ {hidden_above} more above[/dim]")
+
+        # Visible items
+        visible_end = min(scroll_offset + max_visible, len(items_list))
+        for i in range(scroll_offset, visible_end):
+            item = items_list[i]
+            marker = "[cyan]>[/cyan]" if i == cursor else " "
             enabled = is_enabled_fn(item.name)
-            if enabled:
-                enabled_count += 1
-            status = "[green]ON[/green]" if enabled else "[dim]OFF[/dim]"
+            check = "[bold blue]✓[/bold blue]" if enabled else " "
             hook_status = ""
             if item.has_hooks:
                 hook_enabled = is_hook_enabled_fn(item.name)
                 hook_status = " [cyan](hook)[/cyan]" if hook_enabled else " [dim](hook off)[/dim]"
-            menu_items.append(Item.action(f"{status} {item.name}{hook_status}", value=item.name))
 
-        menu_items.append(Item.separator("─────────"))
-        # Toggle all option - show appropriate action based on current state
-        all_enabled = enabled_count == len(items_list)
+            name_display = item.name if enabled else f"[dim]{item.name}[/dim]"
+            lines.append(f" {marker} {check} {name_display}{hook_status}")
+
+        # Scroll indicator - below (only show if more items)
+        hidden_below = len(items_list) - visible_end
+        if hidden_below > 0:
+            lines.append(f"  [dim]↓ {hidden_below} more below[/dim]")
+
+        # Separator and toggle all action
+        lines.append("  [dim]─────────[/dim]")
+
+        all_enabled = get_enabled_count() == len(items_list)
         if all_enabled:
-            menu_items.append(
-                Item.action("[yellow]Toggle All OFF[/yellow]", value="toggle_all_off")
-            )
+            marker = "[cyan]>[/cyan]" if cursor == toggle_all_idx else " "
+            lines.append(f" {marker} [yellow]Toggle All OFF[/yellow]")
         else:
-            menu_items.append(Item.action("[green]Toggle All ON[/green]", value="toggle_all_on"))
-        menu_items.append(Item.action("Back", value="back"))
+            marker = "[cyan]>[/cyan]" if cursor == toggle_all_idx else " "
+            lines.append(f" {marker} [green]Toggle All ON[/green]")
 
-        key_handlers = _make_prompt_handlers(items_list, item_type_name, delete_item)
-        footer = "↑↓ navigate • Enter toggle • e edit • s show • d delete • a add • Esc back"
-
-        menu = InteractiveList(
-            title=f"{item_type_name.capitalize()}s ({enabled_count}/{len(items_list)} enabled)",
-            items=menu_items,
-            console=console,
-            key_handlers=key_handlers,
-            footer=footer,
+        # Legend at bottom
+        lines.append("")
+        lines.append(
+            "[dim]↑↓/jk navigate · enter toggle · e edit · s show · d delete · a add · q back[/dim]"
         )
-        result = menu.show()
-        selected = result.get("action")
 
-        if selected == "back" or selected is None:
+        return Text.from_markup("\n".join(lines))
+
+    def delete_item(name: str) -> bool:
+        """Delete an item with confirmation."""
+        item = prompts_by_name.get(name)
+        if not item:
+            return False
+
+        confirm = questionary.confirm(
+            f"Delete {item_type_name} '{name}'?",
+            default=False,
+            style=custom_style,
+        ).ask()
+
+        if confirm:
+            if is_enabled_fn(name):
+                set_enabled_fn(name, False, False)
+                sync.unsync_prompt(item)
+            item.path.unlink()
+            return True
+        return False
+
+    def edit_item(name: str) -> None:
+        """Open item in editor."""
+        item = prompts_by_name.get(name)
+        if not item:
             return
+        editor = os.environ.get("EDITOR")
+        if not editor:
+            if shutil.which("nano"):
+                editor = "nano"
+            elif shutil.which("vi"):
+                editor = "vi"
+            else:
+                return
+        subprocess.run([editor, str(item.path)], check=False)
 
-        if selected == "toggle_all_on":
-            for item in items_list:
-                if not is_enabled_fn(item.name):
-                    set_enabled_fn(item.name, True, is_hook_enabled_fn(item.name))
-                    sync.sync_prompt(item)
-            console.print(f"[green]Enabled all {len(items_list)} {item_type_name}s[/green]")
-        elif selected == "toggle_all_off":
-            for item in items_list:
-                if is_enabled_fn(item.name):
-                    set_enabled_fn(item.name, False, is_hook_enabled_fn(item.name))
-                    sync.unsync_prompt(item)
-            console.print(f"[yellow]Disabled all {len(items_list)} {item_type_name}s[/yellow]")
+    def show_item(name: str) -> None:
+        """Show item in file manager."""
+        item = prompts_by_name.get(name)
+        if not item:
+            return
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-R", str(item.path)], check=False)
+        elif sys.platform == "win32":
+            subprocess.run(["explorer", "/select,", str(item.path)], check=False)
         else:
-            # Toggle the selected item
-            toggle_fn(selected)
-        # Refresh the list
-        items_list = scanner_fn()
+            subprocess.run(["xdg-open", str(item.path.parent)], check=False)
+
+    total_items = len(items_list) + 1  # items + toggle_all
+    action_triggered = None
+
+    from rich.live import Live
+
+    while True:  # Outer loop for re-entry after editor/add
+        console.clear()
+        display = build_display()
+
+        with Live(display, console=console, refresh_per_second=10) as live:
+            while True:
+                try:
+                    key = readchar.readkey()
+                except KeyboardInterrupt:
+                    return
+
+                if key in (readchar.key.UP, "k"):
+                    cursor = (cursor - 1) % total_items
+                elif key in (readchar.key.DOWN, "j", "\t"):
+                    cursor = (cursor + 1) % total_items
+                elif key == "q":
+                    return
+                elif key in (" ", "\r", "\n"):
+                    if cursor < len(items_list):
+                        # Toggle item
+                        item = items_list[cursor]
+                        toggle_fn(item.name)
+                    else:
+                        # Toggle all
+                        all_enabled = get_enabled_count() == len(items_list)
+                        if all_enabled:
+                            for item in items_list:
+                                if is_enabled_fn(item.name):
+                                    set_enabled_fn(item.name, False, is_hook_enabled_fn(item.name))
+                                    sync.unsync_prompt(item)
+                        else:
+                            for item in items_list:
+                                if not is_enabled_fn(item.name):
+                                    set_enabled_fn(item.name, True, is_hook_enabled_fn(item.name))
+                                    sync.sync_prompt(item)
+                elif key == "e" and cursor < len(items_list):
+                    action_triggered = ("edit", items_list[cursor].name)
+                    break
+                elif key == "s" and cursor < len(items_list):
+                    show_item(items_list[cursor].name)
+                elif key == "d" and cursor < len(items_list):
+                    action_triggered = ("delete", items_list[cursor].name)
+                    break
+                elif key == "a":
+                    action_triggered = ("add", None)
+                    break
+
+                # Update display
+                live.update(build_display())
+
+        # Handle actions that need to exit Live context
+        if action_triggered:
+            action, name = action_triggered
+            action_triggered = None
+
+            if action == "edit":
+                edit_item(name)
+            elif action == "delete":
+                if delete_item(name):
+                    # Refresh list
+                    items_list = scanner_fn()
+                    prompts_by_name.clear()
+                    prompts_by_name.update({p.name: p for p in items_list})
+                    total_items = len(items_list) + 1
+                    if cursor >= len(items_list):
+                        cursor = max(0, len(items_list) - 1)
+                    if not items_list:
+                        return
+            elif action == "add":
+                console.clear()
+                if item_type_name == "command":
+                    _add_command()
+                else:
+                    _add_agent()
+                # Refresh list
+                items_list = scanner_fn()
+                prompts_by_name.clear()
+                prompts_by_name.update({p.name: p for p in items_list})
+                total_items = len(items_list) + 1
 
 
 def _handle_commands_menu() -> None:

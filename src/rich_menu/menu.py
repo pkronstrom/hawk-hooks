@@ -338,7 +338,11 @@ class InteractiveList:
     def render(self) -> Panel:
         """Render the menu as a Rich Panel."""
         terminal_height = self.console.height
-        max_visible = max(self.theme.min_visible_items, terminal_height - self.theme.panel_padding)
+        calculated = terminal_height - self.theme.panel_padding
+        # Cap at reasonable bounds: min 5, max from theme (default 20)
+        max_visible = max(
+            self.theme.min_visible_items, min(self.theme.max_visible_items, calculated)
+        )
 
         self._update_window(max_visible)
 
@@ -380,12 +384,12 @@ class InteractiveList:
             footer = (
                 f"[{self.theme.dim_color}]{self.theme.scroll_up_icon}{self.theme.scroll_down_icon}/jk navigate "
                 f"• Space toggle • [{self.theme.warning_color}]{self.theme.change_icon}[/{self.theme.warning_color}] unsaved "
-                f"• Enter save • Esc/q cancel[/{self.theme.dim_color}]"
+                f"• Enter save • q back[/{self.theme.dim_color}]"
             )
         else:
             footer = (
                 f"[{self.theme.dim_color}]{self.theme.scroll_up_icon}{self.theme.scroll_down_icon}/jk navigate "
-                f"• Enter/Space select • Esc/q exit[/{self.theme.dim_color}]"
+                f"• Enter/Space select • q back[/{self.theme.dim_color}]"
             )
 
         return Panel(

@@ -26,6 +26,7 @@ from ..hook_manager import HookManager
 from ..types import Scope
 from .core import _paginate_output, _with_paused_live, console, custom_style
 from .prompts import _add_agent, _add_command
+from .ui import simple_menu  # noqa: E402
 
 
 def _render_install_status(temp_console: RichConsole, status) -> None:
@@ -325,38 +326,30 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     console.clear()
 
     if not skip_scope:
-        menu = InteractiveList(
-            title="Toggle scope:",
-            items=[
-                Item.action(f"Global        {config.get_config_path()}", value="global"),
-                Item.action("This project  .claude/captain-hook/", value="project"),
-            ],
-            console=console,
-        )
-        result = menu.show()
-        scope = result.get("action")
+        scope_options = [
+            f"Global        {config.get_config_path()}",
+            "This project  .claude/captain-hook/",
+        ]
+        scope_values = ["global", "project"]
 
-        if scope is None:
+        choice_idx = simple_menu.select(scope_options, title="Toggle scope:")
+        if choice_idx is None:
             return False
+        scope = scope_values[choice_idx]
 
     add_to_git_exclude = True
     if scope == "project":
         console.clear()
-        menu = InteractiveList(
-            title="Project config visibility:",
-            items=[
-                Item.action("Personal   (added to .git/info/exclude)", value="personal"),
-                Item.action("Shared     (committable, team can use)", value="shared"),
-            ],
-            console=console,
-        )
-        result = menu.show()
-        visibility = result.get("action")
+        visibility_options = [
+            "Personal   (added to .git/info/exclude)",
+            "Shared     (committable, team can use)",
+        ]
 
-        if visibility is None:
+        choice_idx = simple_menu.select(visibility_options, title="Project config visibility:")
+        if choice_idx is None:
             return False
 
-        add_to_git_exclude = visibility == "personal"
+        add_to_git_exclude = choice_idx == 0  # Personal
 
     hooks = scanner.scan_hooks()
 
@@ -390,7 +383,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
         "s": _handle_show_hook,
         "d": _make_delete_handler(marked_for_deletion),
     }
-    footer = "↑↓/jk navigate • Space toggle • e edit • s show • d delete • Enter save • Esc cancel"
+    footer = "↑↓/jk navigate • Space toggle • e edit • s show • d delete • Enter save • q back"
 
     menu = InteractiveList(
         title=f"Toggle hooks ({scope})",
@@ -484,20 +477,17 @@ def interactive_add_hook() -> bool:
     console.clear()
 
     # First ask what type of thing to add
-    menu = InteractiveList(
-        title="Add new:",
-        items=[
-            Item.action("Hook (script for events)", value="hook"),
-            Item.action("Command (slash command)", value="command"),
-            Item.action("Agent (AI persona)", value="agent"),
-        ],
-        console=console,
-    )
-    result = menu.show()
-    item_type = result.get("action")
+    type_options = [
+        "Hook (script for events)",
+        "Command (slash command)",
+        "Agent (AI persona)",
+    ]
+    type_values = ["hook", "command", "agent"]
 
-    if item_type is None:
+    choice_idx = simple_menu.select(type_options, title="Add new:")
+    if choice_idx is None:
         return False
+    item_type = type_values[choice_idx]
 
     if item_type == "command":
         return _add_command()
@@ -510,40 +500,31 @@ def interactive_add_hook() -> bool:
     console.print("[bold]Add Hook[/bold]")
     console.print("─" * 50)
 
-    event_items = []
+    event_options = []
     for e in EVENTS:
         display_name, description = get_event_display(e)
         label = f"{display_name:<20} {description}" if description else display_name
-        event_items.append(Item.action(label, value=e))
+        event_options.append(label)
 
-    menu = InteractiveList(
-        title="Select event:",
-        items=event_items,
-        console=console,
-    )
-    result = menu.show()
-    event = result.get("action")
-
-    if event is None:
+    choice_idx = simple_menu.select(event_options, title="Select event:")
+    if choice_idx is None:
         return False
+    event = EVENTS[choice_idx]
 
     console.clear()
-    menu = InteractiveList(
-        title="Hook type:",
-        items=[
-            Item.action("Link existing script (updates with original)", value="link"),
-            Item.action("Copy existing script (independent snapshot)", value="copy"),
-            Item.action("Create command script (.py/.sh/.js/.ts)", value="script"),
-            Item.action("Create stdout hook (.stdout.md)", value="stdout"),
-            Item.action("Create prompt hook (.prompt.json)", value="prompt"),
-        ],
-        console=console,
-    )
-    result = menu.show()
-    hook_type = result.get("action")
+    hook_type_options = [
+        "Link existing script (updates with original)",
+        "Copy existing script (independent snapshot)",
+        "Create command script (.py/.sh/.js/.ts)",
+        "Create stdout hook (.stdout.md)",
+        "Create prompt hook (.prompt.json)",
+    ]
+    hook_type_values = ["link", "copy", "script", "stdout", "prompt"]
 
-    if hook_type is None:
+    choice_idx = simple_menu.select(hook_type_options, title="Hook type:")
+    if choice_idx is None:
         return False
+    hook_type = hook_type_values[choice_idx]
 
     hooks_dir = config.get_hooks_dir() / event
     hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -619,21 +600,18 @@ def _add_existing_hook(event: str, hooks_dir: Path, copy: bool = False) -> bool:
 def _add_new_script(event: str, hooks_dir: Path) -> bool:
     """Create a new script from template."""
     console.clear()
-    menu = InteractiveList(
-        title="Script type:",
-        items=[
-            Item.action("Python (.py)", value=".py"),
-            Item.action("Shell (.sh)", value=".sh"),
-            Item.action("Node (.js)", value=".js"),
-            Item.action("TypeScript (.ts)", value=".ts"),
-        ],
-        console=console,
-    )
-    result = menu.show()
-    script_type = result.get("action")
+    script_options = [
+        "Python (.py)",
+        "Shell (.sh)",
+        "Node (.js)",
+        "TypeScript (.ts)",
+    ]
+    script_extensions = [".py", ".sh", ".js", ".ts"]
 
-    if script_type is None:
+    choice_idx = simple_menu.select(script_options, title="Script type:")
+    if choice_idx is None:
         return False
+    script_type = script_extensions[choice_idx]
 
     if script_type == ".ts":
         ts_runtime = templates.get_ts_runtime()

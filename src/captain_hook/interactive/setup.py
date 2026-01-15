@@ -11,29 +11,25 @@ from pathlib import Path
 import questionary
 from rich.panel import Panel
 
-from rich_menu import InteractiveList, Item
-
 from .. import config, installer, scanner
 from ..events import EVENTS
 from .core import console, custom_style
+from .ui import simple_menu
 
 
 def interactive_install() -> bool:
     """Interactive installation wizard. Returns True on success, False on cancel."""
     console.clear()
-    menu = InteractiveList(
-        title="Install captain-hook to:",
-        items=[
-            Item.action("User settings   ~/.claude/settings.json (all projects)", value="user"),
-            Item.action("Project settings  .claude/settings.json (this project)", value="project"),
-        ],
-        console=console,
-    )
-    result = menu.show()
-    scope = result.get("action")
+    install_options = [
+        "User settings   ~/.claude/settings.json (all projects)",
+        "Project settings  .claude/settings.json (this project)",
+    ]
+    scope_values = ["user", "project"]
 
-    if scope is None:
+    choice_idx = simple_menu.select(install_options, title="Install captain-hook to:")
+    if choice_idx is None:
         return False
+    scope = scope_values[choice_idx]
 
     console.print()
     console.print("[bold]Installing captain-hook...[/bold]")
@@ -56,20 +52,17 @@ def interactive_install() -> bool:
 def interactive_uninstall() -> bool:
     """Interactive uninstallation wizard. Returns True on success, False on cancel."""
     console.clear()
-    menu = InteractiveList(
-        title="Uninstall captain-hook from:",
-        items=[
-            Item.action("User settings   ~/.claude/settings.json", value="user"),
-            Item.action("Project settings  .claude/settings.json", value="project"),
-            Item.action("Both", value="both"),
-        ],
-        console=console,
-    )
-    result = menu.show()
-    scope = result.get("action")
+    uninstall_options = [
+        "User settings   ~/.claude/settings.json",
+        "Project settings  .claude/settings.json",
+        "Both",
+    ]
+    scope_values = ["user", "project", "both"]
 
-    if scope is None:
+    choice_idx = simple_menu.select(uninstall_options, title="Uninstall captain-hook from:")
+    if choice_idx is None:
         return False
+    scope = scope_values[choice_idx]
 
     confirm = questionary.confirm(
         f"Remove captain-hook from {scope} settings?",
@@ -141,19 +134,16 @@ def run_wizard():
 
     config.ensure_dirs()
 
-    menu = InteractiveList(
-        title="Install hooks to:",
-        items=[
-            Item.action("User settings   ~/.claude/settings.json (all projects)", value="user"),
-            Item.action("Project settings  .claude/settings.json (this project)", value="project"),
-        ],
-        console=console,
-    )
-    result = menu.show()
-    scope = result.get("action")
+    wizard_options = [
+        "User settings   ~/.claude/settings.json (all projects)",
+        "Project settings  .claude/settings.json (this project)",
+    ]
+    scope_values = ["user", "project"]
 
-    if scope is None:
+    choice_idx = simple_menu.select(wizard_options, title="Install hooks to:")
+    if choice_idx is None:
         return
+    scope = scope_values[choice_idx]
     console.print()
 
     results = installer.install_hooks(scope=scope)

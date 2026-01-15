@@ -30,6 +30,7 @@ class Theme:
 
         panel_width: Fixed width of the menu panel.
         min_visible_items: Minimum items to show before scrolling.
+        max_visible_items: Maximum items to show (caps tall terminals).
         panel_padding: Lines reserved for borders/title/footer.
     """
 
@@ -52,6 +53,7 @@ class Theme:
     # Layout
     panel_width: int = 100
     min_visible_items: int = 5
+    max_visible_items: int = 20
     panel_padding: int = 8
 
 

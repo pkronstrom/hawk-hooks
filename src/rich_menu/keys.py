@@ -20,8 +20,13 @@ def is_escape(key: str) -> bool:
 
 
 def is_exit(key: str) -> bool:
-    """Check if key is a quit/exit key (q or Escape)."""
-    return key.lower() == "q" or is_escape(key)
+    """Check if key is a quit/exit key (q only).
+
+    Note: Escape is intentionally NOT included here.
+    Escape is only used to cancel text editing mode.
+    Use q or Ctrl+C to exit menus (like dodo's pattern).
+    """
+    return key.lower() == "q"
 
 
 def is_up(key: str) -> bool:
