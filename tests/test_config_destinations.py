@@ -1,6 +1,6 @@
 """Tests for destination configuration."""
 
-from captain_hook import config
+from hawk_hooks import config
 
 
 class TestDestinations:

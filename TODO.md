@@ -380,5 +380,5 @@ if age_days > MAX_AGE_DAYS:
 
 - All hooks should be **non-blocking by default** (warn, don't prevent)
 - Add `# Env: HOOK_NAME_BLOCK=true` to enable blocking mode
-- Follow existing patterns in `~/.config/captain-hook/hooks/`
+- Follow existing patterns in `~/.config/hawk-hooks/hooks/`
 - Test manually with: `echo '{"tool_name": "...", "tool_input": {...}}' | python hook.py`

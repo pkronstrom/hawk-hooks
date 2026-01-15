@@ -2,7 +2,7 @@
 
 import pytest
 
-from captain_hook.types import PromptInfo, PromptType
+from hawk_hooks.types import PromptInfo, PromptType
 
 
 class TestPromptType:
@@ -29,7 +29,7 @@ class TestPromptInfo:
     def test_create_prompt_info(self):
         from pathlib import Path
 
-        from captain_hook.frontmatter import HookConfig, PromptFrontmatter
+        from hawk_hooks.frontmatter import HookConfig, PromptFrontmatter
 
         fm = PromptFrontmatter(
             name="test",

@@ -42,7 +42,7 @@ def set_console(new_console: Console | None) -> None:
     Example:
         from io import StringIO
         from rich.console import Console
-        from captain_hook.interactive import set_console
+        from hawk_hooks.interactive import set_console
 
         # Capture output in tests
         output = StringIO()
@@ -93,7 +93,7 @@ def print_header():
     """Print the application header."""
     console.print(
         Panel(
-            f"[bold cyan]captain-hook[/bold cyan] v{__version__}\n"
+            f"[bold cyan]hawk-hooks[/bold cyan] v{__version__}\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
             width=100,

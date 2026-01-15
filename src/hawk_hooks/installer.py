@@ -43,17 +43,17 @@ def save_claude_settings(path: Path, settings: dict[str, Any]) -> None:
 
 
 def is_our_hook(hook: dict[str, Any]) -> bool:
-    """Check if a hook was installed by captain-hook."""
+    """Check if a hook was installed by hawk-hooks."""
     # Check for command hooks (runners)
     command = hook.get("command", "")
-    if "captain-hook/runners/" in command:
+    if "hawk-hooks/runners/" in command:
         return True
     # Legacy: check for old dispatcher command
-    if command.startswith("captain-hook"):
+    if command.startswith("hawk-hooks"):
         return True
     # Check for native prompt hooks (marked with our prefix in prompt)
     prompt = hook.get("prompt", "")
-    if prompt.startswith("[captain-hook]"):
+    if prompt.startswith("[hawk-hooks]"):
         return True
     return False
 
@@ -68,7 +68,7 @@ def install_hooks(
     scope: Scope | str = Scope.USER, project_dir: Path | None = None
 ) -> dict[str, bool]:
     """
-    Install captain-hook runners to Claude settings.
+    Install hawk-hooks runners to Claude settings.
 
     Args:
         scope: USER for global settings, PROJECT for project-specific.
@@ -161,7 +161,7 @@ def uninstall_hooks(
     scope: Scope | str = Scope.USER, project_dir: Path | None = None
 ) -> dict[str, bool]:
     """
-    Uninstall captain-hook from Claude settings.
+    Uninstall hawk-hooks from Claude settings.
 
     Args:
         scope: USER for global settings, PROJECT for project-specific.
@@ -295,7 +295,7 @@ def sync_prompt_hooks(
                 h
                 for h in hook_group.get("hooks", [])
                 if not (
-                    h.get("type") == "prompt" and h.get("prompt", "").startswith("[captain-hook]")
+                    h.get("type") == "prompt" and h.get("prompt", "").startswith("[hawk-hooks]")
                 )
             ]
         # Remove empty hook groups
@@ -344,7 +344,7 @@ def sync_prompt_hooks(
 
             hook_entry = {
                 "type": "prompt",
-                "prompt": f"[captain-hook] {sanitized_prompt}",
+                "prompt": f"[hawk-hooks] {sanitized_prompt}",
             }
             if "timeout" in prompt_config:
                 hook_entry["timeout"] = prompt_config["timeout"]

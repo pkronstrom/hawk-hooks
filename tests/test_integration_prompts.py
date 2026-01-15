@@ -3,8 +3,8 @@
 
 import pytest
 
-from captain_hook import config, prompt_scanner, sync
-from captain_hook.types import PromptType
+from hawk_hooks import config, prompt_scanner, sync
+from hawk_hooks.types import PromptType
 
 
 @pytest.fixture

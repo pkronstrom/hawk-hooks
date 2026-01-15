@@ -1,7 +1,7 @@
-"""Interactive UI components for captain-hook CLI.
+"""Interactive UI components for hawk-hooks CLI.
 
 This module is a backwards-compatibility shim. All functionality has been
-moved to the captain_hook.interactive package.
+moved to the hawk_hooks.interactive package.
 """
 
 from __future__ import annotations

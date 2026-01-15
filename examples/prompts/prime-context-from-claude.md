@@ -28,7 +28,7 @@ Project paths are encoded with dashes (e.g., `/Users/foo/bar` -> `-Users-foo-bar
 ### Step 1: Ask What to Find
 
 Ask the user what context they want to load:
-- **Project name**: e.g., "captain-hook", "my-api"
+- **Project name**: e.g., "hawk-hooks", "my-api"
 - **Keywords**: e.g., "docker networking", "auth implementation"
 - **Recent activity**: e.g., "last session", "yesterday", "this morning"
 
@@ -58,7 +58,7 @@ If multiple sessions match, extract differentiating information:
 
 Present options:
 ```
-Found 3 sessions for "captain-hook":
+Found 3 sessions for "hawk-hooks":
 
 1. Jan 8, 22:25 - "Refactored hook dispatching, added parallel execution"
 2. Jan 9, 09:41 - "Fixed test failures in event handler module"

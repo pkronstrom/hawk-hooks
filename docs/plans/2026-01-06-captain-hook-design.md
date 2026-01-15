@@ -1,15 +1,15 @@
-# captain-hook Design Document
+# hawk-hooks Design Document
 
 **Date:** 2026-01-06
 **Status:** Approved
 
 ## Overview
 
-**captain-hook** is a modular Claude Code hooks manager that:
+**hawk-hooks** is a modular Claude Code hooks manager that:
 - Installs a single dispatcher to Claude's settings per event type
 - Routes events to enabled handlers based on config
 - Supports both command hooks (deterministic) and prompt hooks (LLM-evaluated)
-- Installable via `pipx install captain-hook`
+- Installable via `pipx install hawk-hooks`
 
 ## Architecture
 
@@ -17,8 +17,8 @@
 
 ```
 Claude event (PostToolUse, Stop, etc.)
-    → captain-hook dispatcher (lightweight, fast startup)
-    → reads ~/.config/captain-hook/config.yaml
+    → hawk-hooks dispatcher (lightweight, fast startup)
+    → reads ~/.config/hawk-hooks/config.yaml
     → lazy-imports only enabled handlers for that event
     → runs handlers in sequence
     → returns appropriate exit code / JSON response
@@ -27,9 +27,9 @@ Claude event (PostToolUse, Stop, etc.)
 ### Key Design Choices
 
 - One registration per event in Claude settings (clean)
-- Handler granularity controlled via captain-hook's own config
+- Handler granularity controlled via hawk-hooks's own config
 - Project-specific handler selection via CLI flags in Claude's settings
-- Prompts stored as editable `.md` files in `~/.config/captain-hook/prompts/`
+- Prompts stored as editable `.md` files in `~/.config/hawk-hooks/prompts/`
 
 ## Handlers
 
@@ -61,8 +61,8 @@ Claude event (PostToolUse, Stop, etc.)
 
 ### Location
 
-- `~/.config/captain-hook/config.yaml` - Main config
-- `~/.config/captain-hook/prompts/*.md` - Prompt templates
+- `~/.config/hawk-hooks/config.yaml` - Main config
+- `~/.config/hawk-hooks/prompts/*.md` - Prompt templates
 
 ### Config Format
 
@@ -117,19 +117,19 @@ notify:
 ## CLI Interface
 
 ```bash
-captain-hook                  # Interactive menu
-captain-hook status           # Show all hooks (user + project)
-captain-hook install          # Install to Claude settings
-captain-hook uninstall        # Remove from Claude settings
-captain-hook enable <handler> # Enable a handler
-captain-hook disable <handler># Disable a handler
-captain-hook list             # List available handlers
+hawk-hooks                  # Interactive menu
+hawk-hooks status           # Show all hooks (user + project)
+hawk-hooks install          # Install to Claude settings
+hawk-hooks uninstall        # Remove from Claude settings
+hawk-hooks enable <handler> # Enable a handler
+hawk-hooks disable <handler># Disable a handler
+hawk-hooks list             # List available handlers
 ```
 
 ### Interactive Menu
 
 ```
-captain-hook
+hawk-hooks
 
 [1] Status        - Show all registered hooks (user + project)
 [2] Install       - Add hooks to Claude config
@@ -144,13 +144,13 @@ Select option:
 ## Project Structure
 
 ```
-captain-hook/
+hawk-hooks/
 ├── pyproject.toml              # pipx installable
 ├── README.md
-├── src/captain_hook/
+├── src/hawk_hooks/
 │   ├── __init__.py
 │   ├── cli.py                  # Entry point, interactive menu
-│   ├── config.py               # Load/save ~/.config/captain-hook/
+│   ├── config.py               # Load/save ~/.config/hawk-hooks/
 │   ├── installer.py            # Read/write Claude settings.json
 │   ├── dispatcher.py           # Main hook entry, lazy-loads handlers
 │   │
@@ -185,7 +185,7 @@ captain-hook/
 
 ```bash
 # How Claude calls it (registered in settings.json):
-captain-hook --event post_tool_use --handlers python-lint,python-format
+hawk-hooks --event post_tool_use --handlers python-lint,python-format
 ```
 
 ### Claude settings.json After Install
@@ -195,23 +195,23 @@ captain-hook --event post_tool_use --handlers python-lint,python-format
   "hooks": {
     "PreToolUse": [{
       "matcher": "Edit|Write",
-      "hooks": [{"type": "command", "command": "captain-hook --event pre_tool_use"}]
+      "hooks": [{"type": "command", "command": "hawk-hooks --event pre_tool_use"}]
     }, {
       "matcher": "Bash",
-      "hooks": [{"type": "command", "command": "captain-hook --event pre_tool_use"}]
+      "hooks": [{"type": "command", "command": "hawk-hooks --event pre_tool_use"}]
     }],
     "PostToolUse": [{
       "matcher": "Edit|Write",
-      "hooks": [{"type": "command", "command": "captain-hook --event post_tool_use"}]
+      "hooks": [{"type": "command", "command": "hawk-hooks --event post_tool_use"}]
     }],
     "Stop": [{
-      "hooks": [{"type": "command", "command": "captain-hook --event stop"}]
+      "hooks": [{"type": "command", "command": "hawk-hooks --event stop"}]
     }],
     "Notification": [{
-      "hooks": [{"type": "command", "command": "captain-hook --event notification"}]
+      "hooks": [{"type": "command", "command": "hawk-hooks --event notification"}]
     }],
     "UserPromptSubmit": [{
-      "hooks": [{"type": "command", "command": "captain-hook --event user_prompt_submit"}]
+      "hooks": [{"type": "command", "command": "hawk-hooks --event user_prompt_submit"}]
     }]
   }
 }
@@ -219,18 +219,18 @@ captain-hook --event post_tool_use --handlers python-lint,python-format
 
 ### Hook Identification
 
-To identify hooks managed by captain-hook:
+To identify hooks managed by hawk-hooks:
 
 ```python
 def is_ours(hook):
     if hook.get("type") == "command":
-        return hook.get("command", "").startswith("captain-hook")
+        return hook.get("command", "").startswith("hawk-hooks")
     if hook.get("type") == "prompt":
-        return hook.get("prompt", "").startswith("[captain-hook:")
+        return hook.get("prompt", "").startswith("[hawk-hooks:")
     return False
 ```
 
-Prompt hooks include marker: `[captain-hook:completion-check] Your prompt here...`
+Prompt hooks include marker: `[hawk-hooks:completion-check] Your prompt here...`
 
 ## Default Patterns
 

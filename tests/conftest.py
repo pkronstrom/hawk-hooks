@@ -1,4 +1,4 @@
-"""Pytest fixtures for captain-hook tests."""
+"""Pytest fixtures for hawk-hooks tests."""
 
 import json
 import os
@@ -18,7 +18,7 @@ def temp_config_dir(tmp_path):
     - hooks/{event}/ directories
     - runners/ directory
     """
-    config_dir = tmp_path / "captain-hook"
+    config_dir = tmp_path / "hawk-hooks"
     config_dir.mkdir()
 
     # Create hooks directories for all events
@@ -69,17 +69,17 @@ def mock_config_paths(temp_config_dir, temp_claude_settings, monkeypatch):
     home_dir = temp_config_dir.parent
 
     # Patch config module functions
-    monkeypatch.setattr("captain_hook.config.get_config_dir", lambda: temp_config_dir)
-    monkeypatch.setattr("captain_hook.config.get_config_path", lambda: temp_config_dir / "config.json")
-    monkeypatch.setattr("captain_hook.config.get_hooks_dir", lambda: temp_config_dir / "hooks")
-    monkeypatch.setattr("captain_hook.config.get_runners_dir", lambda: temp_config_dir / "runners")
-    monkeypatch.setattr("captain_hook.config.get_venv_dir", lambda: temp_config_dir / ".venv")
-    monkeypatch.setattr("captain_hook.config.get_venv_python", lambda: temp_config_dir / ".venv" / "bin" / "python")
-    monkeypatch.setattr("captain_hook.config.get_docs_dir", lambda: temp_config_dir / "docs")
+    monkeypatch.setattr("hawk_hooks.config.get_config_dir", lambda: temp_config_dir)
+    monkeypatch.setattr("hawk_hooks.config.get_config_path", lambda: temp_config_dir / "config.json")
+    monkeypatch.setattr("hawk_hooks.config.get_hooks_dir", lambda: temp_config_dir / "hooks")
+    monkeypatch.setattr("hawk_hooks.config.get_runners_dir", lambda: temp_config_dir / "runners")
+    monkeypatch.setattr("hawk_hooks.config.get_venv_dir", lambda: temp_config_dir / ".venv")
+    monkeypatch.setattr("hawk_hooks.config.get_venv_python", lambda: temp_config_dir / ".venv" / "bin" / "python")
+    monkeypatch.setattr("hawk_hooks.config.get_docs_dir", lambda: temp_config_dir / "docs")
 
     # Patch installer paths
     monkeypatch.setattr(
-        "captain_hook.installer.get_user_settings_path",
+        "hawk_hooks.installer.get_user_settings_path",
         lambda: temp_claude_settings / "settings.json"
     )
 

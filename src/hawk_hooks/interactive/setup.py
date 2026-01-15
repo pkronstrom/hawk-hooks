@@ -26,13 +26,13 @@ def interactive_install() -> bool:
     ]
     scope_values = ["user", "project"]
 
-    choice_idx = simple_menu.select(install_options, title="Install captain-hook to:")
+    choice_idx = simple_menu.select(install_options, title="Install hawk-hooks to:")
     if choice_idx is None:
         return False
     scope = scope_values[choice_idx]
 
     console.print()
-    console.print("[bold]Installing captain-hook...[/bold]")
+    console.print("[bold]Installing hawk-hooks...[/bold]")
     console.print()
 
     results = installer.install_hooks(scope=scope)
@@ -59,13 +59,13 @@ def interactive_uninstall() -> bool:
     ]
     scope_values = ["user", "project", "both"]
 
-    choice_idx = simple_menu.select(uninstall_options, title="Uninstall captain-hook from:")
+    choice_idx = simple_menu.select(uninstall_options, title="Uninstall hawk-hooks from:")
     if choice_idx is None:
         return False
     scope = scope_values[choice_idx]
 
     confirm = questionary.confirm(
-        f"Remove captain-hook from {scope} settings?",
+        f"Remove hawk-hooks from {scope} settings?",
         default=False,
         style=custom_style,
     ).ask()
@@ -96,16 +96,16 @@ def interactive_uninstall() -> bool:
         ).ask():
             for project_path in projects:
                 project_dir = Path(project_path)
-                captain_hook_dir = project_dir / ".claude" / "captain-hook"
-                if captain_hook_dir.exists():
-                    shutil.rmtree(captain_hook_dir)
-                    console.print(f"  [green]✓[/green] Removed {captain_hook_dir}")
+                hawk_hooks_dir = project_dir / ".claude" / "hawk-hooks"
+                if hawk_hooks_dir.exists():
+                    shutil.rmtree(hawk_hooks_dir)
+                    console.print(f"  [green]✓[/green] Removed {hawk_hooks_dir}")
                 config.remove_tracked_project(project_path)
 
     console.print()
-    console.print("[dim]To fully remove captain-hook:[/dim]")
+    console.print("[dim]To fully remove hawk-hooks:[/dim]")
     console.print(f"  [cyan]rm -rf {config.get_config_dir()}[/cyan]  [dim](config + hooks)[/dim]")
-    console.print("  [cyan]pipx uninstall captain-hook[/cyan]  [dim](program)[/dim]")
+    console.print("  [cyan]pipx uninstall hawk-hooks[/cyan]  [dim](program)[/dim]")
     console.print()
     return True
 
@@ -115,7 +115,7 @@ def run_wizard():
     console.clear()
     console.print(
         Panel(
-            "[bold cyan]Welcome to captain-hook![/bold cyan]\n"
+            "[bold cyan]Welcome to hawk-hooks![/bold cyan]\n"
             "[dim]A modular Claude Code hooks manager[/dim]",
             border_style="cyan",
         )
@@ -123,7 +123,7 @@ def run_wizard():
     console.print()
 
     console.print("[bold]How it works:[/bold]")
-    console.print("  1. Hooks are scripts in [cyan]~/.config/captain-hook/hooks/{event}/[/cyan]")
+    console.print("  1. Hooks are scripts in [cyan]~/.config/hawk-hooks/hooks/{event}/[/cyan]")
     console.print("  2. Enable/disable hooks to control what runs")
     console.print("  3. Claude runs enabled hooks on matching events")
     console.print()
@@ -238,8 +238,8 @@ def run_wizard():
             "[bold green]You're all set![/bold green]\n\n"
             f"[dim]Config:[/dim] {config.get_config_path()}\n"
             f"[dim]Hooks:[/dim]  {config.get_hooks_dir()}\n\n"
-            "[dim]Run[/dim] [cyan]captain-hook[/cyan] [dim]to enable hooks/prompts/agents[/dim]\n"
-            "[dim]Run[/dim] [cyan]captain-hook status[/cyan] [dim]to verify[/dim]",
+            "[dim]Run[/dim] [cyan]hawk-hooks[/cyan] [dim]to enable hooks/prompts/agents[/dim]\n"
+            "[dim]Run[/dim] [cyan]hawk-hooks status[/cyan] [dim]to verify[/dim]",
             border_style="green",
         )
     )

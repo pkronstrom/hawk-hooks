@@ -1,6 +1,6 @@
 """Scanner for prompts and agents directories.
 
-Scans ~/.config/captain-hook/prompts/ and agents/ for markdown files
+Scans ~/.config/hawk-hooks/prompts/ and agents/ for markdown files
 with valid frontmatter.
 """
 

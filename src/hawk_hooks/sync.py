@@ -1,7 +1,7 @@
 """Symlink synchronization for prompts and agents.
 
 Handles:
-- Creating symlinks from captain-hook dirs to tool destinations
+- Creating symlinks from hawk-hooks dirs to tool destinations
 - Generating TOML wrappers for Gemini
 - Removing synced files on disable
 """

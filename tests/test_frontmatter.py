@@ -1,7 +1,7 @@
 """Tests for frontmatter parsing."""
 
 import pytest
-from captain_hook.frontmatter import PromptFrontmatter, parse_frontmatter
+from hawk_hooks.frontmatter import PromptFrontmatter, parse_frontmatter
 
 
 class TestParseFrontmatter:
@@ -91,7 +91,7 @@ class TestPromptFrontmatter:
         assert fm.has_hooks is False
 
     def test_has_hooks_with_hooks(self):
-        from captain_hook.frontmatter import HookConfig
+        from hawk_hooks.frontmatter import HookConfig
 
         fm = PromptFrontmatter(
             name="test",

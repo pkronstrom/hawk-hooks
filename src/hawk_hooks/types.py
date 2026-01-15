@@ -1,4 +1,4 @@
-"""Type definitions for captain-hook.
+"""Type definitions for hawk-hooks.
 
 This module provides shared type definitions (enums, dataclasses) used across
 the codebase. These are designed to replace magic strings with type-safe constants.
@@ -17,7 +17,7 @@ class InstallStatus:
 
     Attributes:
         path: Path to the settings file.
-        installed: Whether captain-hook is installed at this scope.
+        installed: Whether hawk-hooks is installed at this scope.
     """
 
     path: str
@@ -89,12 +89,12 @@ class Scope(str, Enum):
     """Configuration scope for hooks.
 
     USER (previously "global" or "user"):
-        - Config: ~/.config/captain-hook/config.json
+        - Config: ~/.config/hawk-hooks/config.json
         - Claude: ~/.claude/settings.json
         - Applies to all projects
 
     PROJECT:
-        - Config: .claude/captain-hook/config.json
+        - Config: .claude/hawk-hooks/config.json
         - Claude: .claude/settings.json
         - Applies only to current project
     """

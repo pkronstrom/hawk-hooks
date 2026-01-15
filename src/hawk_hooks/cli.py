@@ -1,4 +1,4 @@
-"""CLI interface for captain-hook."""
+"""CLI interface for hawk-hooks."""
 
 import argparse
 
@@ -114,9 +114,9 @@ def cmd_uninstall(args):
     """CLI: Uninstall hooks."""
     installer.uninstall_hooks(scope=args.scope)
     print("Hooks uninstalled.")
-    print("\nTo fully remove captain-hook:")
+    print("\nTo fully remove hawk-hooks:")
     print(f"  rm -rf {config.get_config_dir()}  # config + hooks")
-    print("  pipx uninstall captain-hook        # program")
+    print("  pipx uninstall hawk-hooks        # program")
 
 
 def cmd_toggle(args):
@@ -138,7 +138,7 @@ def cmd_sync_examples(args):
     # Try installed location first (package/examples), then editable location (project root)
     examples_base = Path(__file__).parent / "examples"
     if not examples_base.exists():
-        # Editable install: go from src/captain_hook/ to project root
+        # Editable install: go from src/hawk_hooks/ to project root
         examples_base = Path(__file__).parent.parent.parent / "examples"
 
     copied = 0
@@ -215,10 +215,10 @@ def cmd_sync_examples(args):
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="captain-hook: A modular Claude Code hooks manager",
+        description="hawk-hooks: A modular Claude Code hooks manager",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--version", action="version", version=f"captain-hook {__version__}")
+    parser.add_argument("--version", action="version", version=f"hawk-hooks {__version__}")
 
     subparsers = parser.add_subparsers(dest="command")
 

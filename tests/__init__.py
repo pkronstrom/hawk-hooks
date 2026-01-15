@@ -1,1 +1,1 @@
-"""Tests for captain-hook."""
+"""Tests for hawk-hooks."""

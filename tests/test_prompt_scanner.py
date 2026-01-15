@@ -2,9 +2,9 @@
 
 
 import pytest
-from captain_hook.prompt_scanner import scan_agents, scan_all_prompts, scan_prompts
+from hawk_hooks.prompt_scanner import scan_agents, scan_all_prompts, scan_prompts
 
-from captain_hook.types import PromptType
+from hawk_hooks.types import PromptType
 
 
 @pytest.fixture
@@ -102,7 +102,7 @@ class TestScanAll:
     """Test combined scanning."""
 
     def test_scan_all_returns_both(self, prompts_dir, agents_dir, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
 
         monkeypatch.setattr(config, "get_prompts_dir", lambda: prompts_dir)
         monkeypatch.setattr(config, "get_agents_dir", lambda: agents_dir)

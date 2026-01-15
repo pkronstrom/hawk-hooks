@@ -1,4 +1,4 @@
-"""Event constants for captain-hook.
+"""Event constants for hawk-hooks.
 
 This module provides the canonical list of supported Claude Code hook events
 and their metadata. Import from here to avoid duplication.

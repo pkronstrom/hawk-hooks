@@ -1,6 +1,6 @@
 # Code Quality Improvements
 
-Identified improvements to make captain-hook more Pythonic, DRY, and maintainable.
+Identified improvements to make hawk-hooks more Pythonic, DRY, and maintainable.
 
 ## Issue #1: Unify Event Definitions
 
@@ -68,8 +68,8 @@ installer.sync_prompt_hooks(scope="user")  # Different string!
 from enum import Enum
 
 class Scope(str, Enum):
-    USER = "user"       # ~/.config/captain-hook/ and ~/.claude/settings.json
-    PROJECT = "project" # .claude/captain-hook/ and .claude/settings.json
+    USER = "user"       # ~/.config/hawk-hooks/ and ~/.claude/settings.json
+    PROJECT = "project" # .claude/hawk-hooks/ and .claude/settings.json
 
     @property
     def is_global(self) -> bool:

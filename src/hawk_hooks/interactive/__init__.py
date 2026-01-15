@@ -1,4 +1,4 @@
-"""Interactive UI package for captain-hook CLI.
+"""Interactive UI package for hawk-hooks CLI.
 
 This package provides the interactive menu system and all UI components.
 """

@@ -123,7 +123,7 @@ def _render_enabled_hooks(
     temp_console.print()
 
     if has_project:
-        temp_console.print("[dim]Project overrides active: .claude/captain-hook/config.json[/dim]")
+        temp_console.print("[dim]Project overrides active: .claude/hawk-hooks/config.json[/dim]")
     else:
         temp_console.print("[dim]Using global config[/dim]")
 
@@ -328,7 +328,7 @@ def interactive_toggle(skip_scope: bool = False, scope: str | None = None) -> bo
     if not skip_scope:
         scope_options = [
             f"Global        {config.get_config_path()}",
-            "This project  .claude/captain-hook/",
+            "This project  .claude/hawk-hooks/",
         ]
         scope_values = ["global", "project"]
 

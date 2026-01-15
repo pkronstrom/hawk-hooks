@@ -1,4 +1,4 @@
-"""Script templates for captain-hook."""
+"""Script templates for hawk-hooks."""
 
 import shutil
 from pathlib import Path
@@ -15,7 +15,7 @@ import sys
 
 def main():
     data = json.load(sys.stdin)
-    # See: ~/.config/captain-hook/docs/hooks.md
+    # See: ~/.config/hawk-hooks/docs/hooks.md
     # Exit 0 = ok, Exit 2 = block, other = error
     sys.exit(0)
 
@@ -32,7 +32,7 @@ SHELL_TEMPLATE = """#!/usr/bin/env bash
 
 set -euo pipefail
 INPUT=$(cat)
-# See: ~/.config/captain-hook/docs/hooks.md
+# See: ~/.config/hawk-hooks/docs/hooks.md
 # Exit 0 = ok, Exit 2 = block, other = error
 exit 0
 """
@@ -44,7 +44,7 @@ NODE_TEMPLATE = """#!/usr/bin/env node
 // Env:
 
 const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 """
@@ -56,7 +56,7 @@ TS_BUN_TEMPLATE = """#!/usr/bin/env bun
 // Env:
 
 const data = await Bun.stdin.json();
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 """
@@ -69,7 +69,7 @@ TS_TSX_TEMPLATE = """#!/usr/bin/env -S npx tsx
 
 import * as fs from 'fs';
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 """

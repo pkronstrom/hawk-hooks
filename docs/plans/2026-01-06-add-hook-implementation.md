@@ -13,7 +13,7 @@
 ## Task 1: Add docs directory helper to config.py
 
 **Files:**
-- Modify: `src/captain_hook/config.py`
+- Modify: `src/hawk_hooks/config.py`
 
 **Step 1: Add get_docs_dir function**
 
@@ -36,7 +36,7 @@ Modify `ensure_dirs()` to also create docs directory. Add after line 93:
 **Step 3: Commit**
 
 ```bash
-git add src/captain_hook/config.py
+git add src/hawk_hooks/config.py
 git commit -m "feat(config): add docs directory helper"
 ```
 
@@ -45,12 +45,12 @@ git commit -m "feat(config): add docs directory helper"
 ## Task 2: Create templates.py module
 
 **Files:**
-- Create: `src/captain_hook/templates.py`
+- Create: `src/hawk_hooks/templates.py`
 
 **Step 1: Create templates module with all templates**
 
 ```python
-"""Script templates for captain-hook."""
+"""Script templates for hawk-hooks."""
 
 import shutil
 from pathlib import Path
@@ -67,7 +67,7 @@ import sys
 
 def main():
     data = json.load(sys.stdin)
-    # See: ~/.config/captain-hook/docs/hooks.md
+    # See: ~/.config/hawk-hooks/docs/hooks.md
     # Exit 0 = ok, Exit 2 = block, other = error
     sys.exit(0)
 
@@ -84,7 +84,7 @@ SHELL_TEMPLATE = '''#!/usr/bin/env bash
 
 set -euo pipefail
 INPUT=$(cat)
-# See: ~/.config/captain-hook/docs/hooks.md
+# See: ~/.config/hawk-hooks/docs/hooks.md
 # Exit 0 = ok, Exit 2 = block, other = error
 exit 0
 '''
@@ -96,7 +96,7 @@ NODE_TEMPLATE = '''#!/usr/bin/env node
 // Env:
 
 const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 '''
@@ -108,7 +108,7 @@ TS_BUN_TEMPLATE = '''#!/usr/bin/env bun
 // Env:
 
 const data = await Bun.stdin.json();
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 '''
@@ -121,7 +121,7 @@ TS_TSX_TEMPLATE = '''#!/usr/bin/env -S npx tsx
 
 import * as fs from 'fs';
 const data = JSON.parse(fs.readFileSync(0, 'utf8'));
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 '''
@@ -236,7 +236,7 @@ def ensure_docs(docs_dir: Path) -> Path:
 **Step 2: Commit**
 
 ```bash
-git add src/captain_hook/templates.py
+git add src/hawk_hooks/templates.py
 git commit -m "feat(templates): add script templates and docs"
 ```
 
@@ -245,7 +245,7 @@ git commit -m "feat(templates): add script templates and docs"
 ## Task 3: Add interactive_add_hook function to cli.py
 
 **Files:**
-- Modify: `src/captain_hook/cli.py`
+- Modify: `src/hawk_hooks/cli.py`
 
 **Step 1: Add import for templates module**
 
@@ -599,7 +599,7 @@ Add `import os` to the imports if not already present.
 **Step 4: Commit**
 
 ```bash
-git add src/captain_hook/cli.py
+git add src/hawk_hooks/cli.py
 git commit -m "feat(cli): add interactive_add_hook function"
 ```
 
@@ -608,7 +608,7 @@ git commit -m "feat(cli): add interactive_add_hook function"
 ## Task 4: Add "Add hook" to main menu
 
 **Files:**
-- Modify: `src/captain_hook/cli.py`
+- Modify: `src/hawk_hooks/cli.py`
 
 **Step 1: Update interactive_menu choices**
 
@@ -630,7 +630,7 @@ In the same function, add after the `elif choice == "toggle":` block:
 **Step 3: Commit**
 
 ```bash
-git add src/captain_hook/cli.py
+git add src/hawk_hooks/cli.py
 git commit -m "feat(cli): add 'Add hook' to main menu"
 ```
 
@@ -638,10 +638,10 @@ git commit -m "feat(cli): add 'Add hook' to main menu"
 
 ## Task 5: Test the feature manually
 
-**Step 1: Run captain-hook**
+**Step 1: Run hawk-hooks**
 
 ```bash
-captain-hook
+hawk-hooks
 ```
 
 **Step 2: Test each path**
@@ -654,7 +654,7 @@ captain-hook
 **Step 3: Verify docs file created**
 
 ```bash
-cat ~/.config/captain-hook/docs/hooks.md
+cat ~/.config/hawk-hooks/docs/hooks.md
 ```
 
 **Step 4: Verify hooks appear in Toggle menu**
@@ -665,7 +665,7 @@ cat ~/.config/captain-hook/docs/hooks.md
 
 **Step 1: Bump version**
 
-Edit `src/captain_hook/__init__.py`:
+Edit `src/hawk_hooks/__init__.py`:
 
 ```python
 __version__ = "0.4.0"

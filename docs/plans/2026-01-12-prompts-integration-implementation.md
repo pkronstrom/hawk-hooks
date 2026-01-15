@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add unified prompt/agent management to captain-hook with frontmatter-based multi-tool targeting and symlink syncing.
+**Goal:** Add unified prompt/agent management to hawk-hooks with frontmatter-based multi-tool targeting and symlink syncing.
 
 **Architecture:** New modules for frontmatter parsing (`frontmatter.py`), prompt/agent scanning (`prompt_scanner.py`), symlink syncing (`sync.py`), and event mapping (`event_mapping.py`). Updates to config, types, and interactive modules for new data structures and menus.
 
@@ -30,7 +30,7 @@ dependencies = [
 
 **Step 2: Install updated dependencies**
 
-Run: `~/.config/captain-hook/.venv/bin/pip install -e .`
+Run: `~/.config/hawk-hooks/.venv/bin/pip install -e .`
 Expected: Successfully installed pyyaml
 
 **Step 3: Commit**
@@ -45,7 +45,7 @@ git commit -m "chore: add pyyaml dependency for frontmatter parsing"
 ## Task 2: Create Event Mapping Module
 
 **Files:**
-- Create: `src/captain_hook/event_mapping.py`
+- Create: `src/hawk_hooks/event_mapping.py`
 - Create: `tests/test_event_mapping.py`
 
 **Step 1: Write the failing test**
@@ -55,7 +55,7 @@ git commit -m "chore: add pyyaml dependency for frontmatter parsing"
 """Tests for event mapping between tools."""
 
 import pytest
-from captain_hook.event_mapping import (
+from hawk_hooks.event_mapping import (
     CANONICAL_EVENTS,
     get_tool_event,
     get_canonical_event,
@@ -119,13 +119,13 @@ class TestReverseMapping:
 
 **Step 2: Run test to verify it fails**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_event_mapping.py -v`
-Expected: FAIL with "ModuleNotFoundError: No module named 'captain_hook.event_mapping'"
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_event_mapping.py -v`
+Expected: FAIL with "ModuleNotFoundError: No module named 'hawk_hooks.event_mapping'"
 
 **Step 3: Write minimal implementation**
 
 ```python
-# src/captain_hook/event_mapping.py
+# src/hawk_hooks/event_mapping.py
 """Canonical event mapping between AI coding tools.
 
 Maps canonical event names to tool-specific events:
@@ -262,13 +262,13 @@ def is_event_supported(event: str, tool: str) -> bool:
 
 **Step 4: Run test to verify it passes**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_event_mapping.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_event_mapping.py -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/event_mapping.py tests/test_event_mapping.py
+git add src/hawk_hooks/event_mapping.py tests/test_event_mapping.py
 git commit -m "feat: add event mapping module for multi-tool support"
 ```
 
@@ -277,7 +277,7 @@ git commit -m "feat: add event mapping module for multi-tool support"
 ## Task 3: Create Frontmatter Parser
 
 **Files:**
-- Create: `src/captain_hook/frontmatter.py`
+- Create: `src/hawk_hooks/frontmatter.py`
 - Create: `tests/test_frontmatter.py`
 
 **Step 1: Write the failing test**
@@ -287,7 +287,7 @@ git commit -m "feat: add event mapping module for multi-tool support"
 """Tests for frontmatter parsing."""
 
 import pytest
-from captain_hook.frontmatter import parse_frontmatter, PromptFrontmatter
+from hawk_hooks.frontmatter import parse_frontmatter, PromptFrontmatter
 
 
 class TestParseFrontmatter:
@@ -377,7 +377,7 @@ class TestPromptFrontmatter:
         assert fm.has_hooks is False
 
     def test_has_hooks_with_hooks(self):
-        from captain_hook.frontmatter import HookConfig
+        from hawk_hooks.frontmatter import HookConfig
         fm = PromptFrontmatter(
             name="test",
             description="Test",
@@ -389,13 +389,13 @@ class TestPromptFrontmatter:
 
 **Step 2: Run test to verify it fails**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_frontmatter.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_frontmatter.py -v`
 Expected: FAIL with "ModuleNotFoundError"
 
 **Step 3: Write minimal implementation**
 
 ```python
-# src/captain_hook/frontmatter.py
+# src/hawk_hooks/frontmatter.py
 """Frontmatter parsing for prompts and agents.
 
 Parses YAML frontmatter from markdown files:
@@ -531,13 +531,13 @@ def parse_file(path: str) -> tuple[PromptFrontmatter | None, str]:
 
 **Step 4: Run test to verify it passes**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_frontmatter.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_frontmatter.py -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/frontmatter.py tests/test_frontmatter.py
+git add src/hawk_hooks/frontmatter.py tests/test_frontmatter.py
 git commit -m "feat: add frontmatter parser for prompts/agents"
 ```
 
@@ -546,7 +546,7 @@ git commit -m "feat: add frontmatter parser for prompts/agents"
 ## Task 4: Update Types Module
 
 **Files:**
-- Modify: `src/captain_hook/types.py`
+- Modify: `src/hawk_hooks/types.py`
 - Modify: `tests/test_cli.py` (add type tests)
 
 **Step 1: Write the failing test**
@@ -558,7 +558,7 @@ Add to existing test file or create `tests/test_types.py`:
 """Tests for type definitions."""
 
 import pytest
-from captain_hook.types import PromptInfo, PromptType
+from hawk_hooks.types import PromptInfo, PromptType
 
 
 class TestPromptType:
@@ -584,7 +584,7 @@ class TestPromptInfo:
 
     def test_create_prompt_info(self):
         from pathlib import Path
-        from captain_hook.frontmatter import PromptFrontmatter, HookConfig
+        from hawk_hooks.frontmatter import PromptFrontmatter, HookConfig
 
         fm = PromptFrontmatter(
             name="test",
@@ -604,12 +604,12 @@ class TestPromptInfo:
 
 **Step 2: Run test to verify it fails**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_types.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_types.py -v`
 Expected: FAIL with "ImportError"
 
 **Step 3: Add new types to types.py**
 
-Add to end of `src/captain_hook/types.py`:
+Add to end of `src/hawk_hooks/types.py`:
 
 ```python
 # Add after existing code
@@ -695,13 +695,13 @@ if TYPE_CHECKING:
 
 **Step 4: Run test to verify it passes**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_types.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_types.py -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/types.py tests/test_types.py
+git add src/hawk_hooks/types.py tests/test_types.py
 git commit -m "feat: add PromptType and PromptInfo types"
 ```
 
@@ -710,7 +710,7 @@ git commit -m "feat: add PromptType and PromptInfo types"
 ## Task 5: Update Config Module for Destinations
 
 **Files:**
-- Modify: `src/captain_hook/config.py`
+- Modify: `src/hawk_hooks/config.py`
 - Create: `tests/test_config_destinations.py`
 
 **Step 1: Write the failing test**
@@ -720,7 +720,7 @@ git commit -m "feat: add PromptType and PromptInfo types"
 """Tests for destination configuration."""
 
 import pytest
-from captain_hook import config
+from hawk_hooks import config
 
 
 class TestDestinations:
@@ -800,12 +800,12 @@ class TestAgentsConfig:
 
 **Step 2: Run test to verify it fails**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_config_destinations.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_config_destinations.py -v`
 Expected: FAIL with "AttributeError"
 
 **Step 3: Add destination and prompt config functions**
 
-Add to `src/captain_hook/config.py`:
+Add to `src/hawk_hooks/config.py`:
 
 ```python
 # Add to DEFAULT_CONFIG
@@ -948,13 +948,13 @@ def ensure_dirs() -> None:
 
 **Step 4: Run test to verify it passes**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_config_destinations.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_config_destinations.py -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/config.py tests/test_config_destinations.py
+git add src/hawk_hooks/config.py tests/test_config_destinations.py
 git commit -m "feat: add destination and prompt/agent config management"
 ```
 
@@ -963,7 +963,7 @@ git commit -m "feat: add destination and prompt/agent config management"
 ## Task 6: Create Prompt Scanner Module
 
 **Files:**
-- Create: `src/captain_hook/prompt_scanner.py`
+- Create: `src/hawk_hooks/prompt_scanner.py`
 - Create: `tests/test_prompt_scanner.py`
 
 **Step 1: Write the failing test**
@@ -974,8 +974,8 @@ git commit -m "feat: add destination and prompt/agent config management"
 
 import pytest
 from pathlib import Path
-from captain_hook.prompt_scanner import scan_prompts, scan_agents, scan_all_prompts
-from captain_hook.types import PromptType
+from hawk_hooks.prompt_scanner import scan_prompts, scan_agents, scan_all_prompts
+from hawk_hooks.types import PromptType
 
 
 @pytest.fixture
@@ -1073,7 +1073,7 @@ class TestScanAll:
     """Test combined scanning."""
 
     def test_scan_all_returns_both(self, prompts_dir, agents_dir, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
         monkeypatch.setattr(config, "get_prompts_dir", lambda: prompts_dir)
         monkeypatch.setattr(config, "get_agents_dir", lambda: agents_dir)
 
@@ -1085,16 +1085,16 @@ class TestScanAll:
 
 **Step 2: Run test to verify it fails**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_prompt_scanner.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_prompt_scanner.py -v`
 Expected: FAIL with "ModuleNotFoundError"
 
 **Step 3: Write implementation**
 
 ```python
-# src/captain_hook/prompt_scanner.py
+# src/hawk_hooks/prompt_scanner.py
 """Scanner for prompts and agents directories.
 
-Scans ~/.config/captain-hook/prompts/ and agents/ for markdown files
+Scans ~/.config/hawk-hooks/prompts/ and agents/ for markdown files
 with valid frontmatter.
 """
 
@@ -1219,13 +1219,13 @@ def get_prompts_with_hooks() -> list[PromptInfo]:
 
 **Step 4: Run test to verify it passes**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_prompt_scanner.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_prompt_scanner.py -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/prompt_scanner.py tests/test_prompt_scanner.py
+git add src/hawk_hooks/prompt_scanner.py tests/test_prompt_scanner.py
 git commit -m "feat: add prompt/agent scanner module"
 ```
 
@@ -1234,7 +1234,7 @@ git commit -m "feat: add prompt/agent scanner module"
 ## Task 7: Create Sync Module
 
 **Files:**
-- Create: `src/captain_hook/sync.py`
+- Create: `src/hawk_hooks/sync.py`
 - Create: `tests/test_sync.py`
 
 **Step 1: Write the failing test**
@@ -1245,15 +1245,15 @@ git commit -m "feat: add prompt/agent scanner module"
 
 import pytest
 from pathlib import Path
-from captain_hook.sync import (
+from hawk_hooks.sync import (
     create_symlink,
     remove_symlink,
     generate_gemini_toml,
     sync_prompt,
     unsync_prompt,
 )
-from captain_hook.types import PromptInfo, PromptType
-from captain_hook.frontmatter import PromptFrontmatter
+from hawk_hooks.types import PromptInfo, PromptType
+from hawk_hooks.frontmatter import PromptFrontmatter
 
 
 @pytest.fixture
@@ -1330,7 +1330,7 @@ class TestSyncPrompt:
     """Test prompt syncing."""
 
     def test_sync_creates_claude_symlink(self, prompt_info, tmp_path, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
         claude_dest = tmp_path / "claude" / "commands"
         claude_dest.mkdir(parents=True)
         monkeypatch.setattr(
@@ -1343,7 +1343,7 @@ class TestSyncPrompt:
         assert expected.is_symlink()
 
     def test_sync_creates_gemini_toml(self, prompt_info, tmp_path, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
         gemini_dest = tmp_path / "gemini" / "commands"
         gemini_dest.mkdir(parents=True)
         monkeypatch.setattr(
@@ -1361,7 +1361,7 @@ class TestUnsyncPrompt:
     """Test prompt unsyncing."""
 
     def test_unsync_removes_files(self, prompt_info, tmp_path, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
         claude_dest = tmp_path / "claude" / "commands"
         claude_dest.mkdir(parents=True)
         link = claude_dest / "test-cmd.md"
@@ -1378,17 +1378,17 @@ class TestUnsyncPrompt:
 
 **Step 2: Run test to verify it fails**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_sync.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_sync.py -v`
 Expected: FAIL with "ModuleNotFoundError"
 
 **Step 3: Write implementation**
 
 ```python
-# src/captain_hook/sync.py
+# src/hawk_hooks/sync.py
 """Symlink synchronization for prompts and agents.
 
 Handles:
-- Creating symlinks from captain-hook dirs to tool destinations
+- Creating symlinks from hawk-hooks dirs to tool destinations
 - Generating TOML wrappers for Gemini
 - Removing synced files on disable
 """
@@ -1597,13 +1597,13 @@ def unsync_all() -> dict[str, list[Path]]:
 
 **Step 4: Run test to verify it passes**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_sync.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_sync.py -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/sync.py tests/test_sync.py
+git add src/hawk_hooks/sync.py tests/test_sync.py
 git commit -m "feat: add sync module for symlink management"
 ```
 
@@ -1612,7 +1612,7 @@ git commit -m "feat: add sync module for symlink management"
 ## Task 8: Update Interactive Module - Main Menu
 
 **Files:**
-- Modify: `src/captain_hook/interactive.py`
+- Modify: `src/hawk_hooks/interactive.py`
 
 **Step 1: Understand current menu structure**
 
@@ -1766,13 +1766,13 @@ def _toggle_agent(name: str) -> None:
 
 **Step 4: Test manually**
 
-Run: `captain-hook`
+Run: `hawk-hooks`
 Expected: See new menu items
 
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/interactive.py
+git add src/hawk_hooks/interactive.py
 git commit -m "feat: add Commands and Agents menus to interactive UI"
 ```
 
@@ -1781,7 +1781,7 @@ git commit -m "feat: add Commands and Agents menus to interactive UI"
 ## Task 9: Add Auto-Sync on Startup
 
 **Files:**
-- Modify: `src/captain_hook/interactive.py`
+- Modify: `src/hawk_hooks/interactive.py`
 
 **Step 1: Add auto-sync function**
 
@@ -1843,13 +1843,13 @@ def run_interactive():
 
 **Step 3: Test manually**
 
-Run: `captain-hook`
+Run: `hawk-hooks`
 Expected: Sees "Found new command/agent" messages if new files exist
 
 **Step 4: Commit**
 
 ```bash
-git add src/captain_hook/interactive.py
+git add src/hawk_hooks/interactive.py
 git commit -m "feat: add auto-sync on startup for prompts/agents"
 ```
 
@@ -1858,8 +1858,8 @@ git commit -m "feat: add auto-sync on startup for prompts/agents"
 ## Task 10: Add "Add..." Menu with Templates
 
 **Files:**
-- Modify: `src/captain_hook/interactive.py`
-- Modify: `src/captain_hook/templates.py`
+- Modify: `src/hawk_hooks/interactive.py`
+- Modify: `src/hawk_hooks/templates.py`
 
 **Step 1: Add template content to templates.py**
 
@@ -1988,13 +1988,13 @@ def _add_agent() -> None:
 
 **Step 3: Test manually**
 
-Run: `captain-hook` → Add... → Command
+Run: `hawk-hooks` → Add... → Command
 Expected: Creates new file
 
 **Step 4: Commit**
 
 ```bash
-git add src/captain_hook/interactive.py src/captain_hook/templates.py
+git add src/hawk_hooks/interactive.py src/hawk_hooks/templates.py
 git commit -m "feat: add Add... menu for creating prompts/agents from templates"
 ```
 
@@ -2013,8 +2013,8 @@ git commit -m "feat: add Add... menu for creating prompts/agents from templates"
 
 import pytest
 from pathlib import Path
-from captain_hook import config, prompt_scanner, sync
-from captain_hook.types import PromptType
+from hawk_hooks import config, prompt_scanner, sync
+from hawk_hooks.types import PromptType
 
 
 @pytest.fixture
@@ -2095,7 +2095,7 @@ class TestFullWorkflow:
 
 **Step 2: Run tests**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/test_integration_prompts.py -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/test_integration_prompts.py -v`
 Expected: PASS
 
 **Step 3: Commit**
@@ -2111,7 +2111,7 @@ git commit -m "test: add integration tests for prompts feature"
 
 **Step 1: Run all tests**
 
-Run: `~/.config/captain-hook/.venv/bin/python -m pytest tests/ -v`
+Run: `~/.config/hawk-hooks/.venv/bin/python -m pytest tests/ -v`
 Expected: All tests pass
 
 **Step 2: Fix any failures**

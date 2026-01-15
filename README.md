@@ -1,10 +1,10 @@
-# captain-hook
+# hawk-hooks
 
 A modular Claude Code hooks manager with auto-discovery, multi-language support, and fast bash runners.
 
 ## Features
 
-- **Auto-discovery**: Drop scripts in `~/.config/captain-hook/hooks/{event}/` and they appear automatically
+- **Auto-discovery**: Drop scripts in `~/.config/hawk-hooks/hooks/{event}/` and they appear automatically
 - **Multi-language**: Python, JavaScript, Shell, TypeScript (via bun)
 - **Fast execution**: Generated bash runners (~5ms overhead vs ~50ms for Python dispatcher)
 - **Context injection**: `.stdout.md` files output content directly to Claude's context
@@ -15,16 +15,16 @@ A modular Claude Code hooks manager with auto-discovery, multi-language support,
 
 ```bash
 # Using uv (recommended)
-uv tool install git+https://github.com/pkronstrom/captain-hook.git
+uv tool install git+https://github.com/pkronstrom/hawk-hooks.git
 
 # Or using pipx
-pipx install git+https://github.com/pkronstrom/captain-hook.git
+pipx install git+https://github.com/pkronstrom/hawk-hooks.git
 ```
 
 For development (editable install):
 ```bash
-git clone https://github.com/pkronstrom/captain-hook.git
-cd captain-hook
+git clone https://github.com/pkronstrom/hawk-hooks.git
+cd hawk-hooks
 
 # Using uv (recommended)
 uv tool install --editable .
@@ -45,26 +45,26 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 brew install uv
 ```
 
-captain-hook will automatically use uv for installing hook dependencies if available, falling back to pip otherwise.
+hawk-hooks will automatically use uv for installing hook dependencies if available, falling back to pip otherwise.
 
 ## Quick Start
 
 ```bash
-captain-hook  # First-time wizard
+hawk-hooks  # First-time wizard (or just `hawk`)
 ```
 
 The wizard will:
-1. Register captain-hook runners in Claude's settings
+1. Register hawk-hooks runners in Claude's settings
 2. Let you enable/disable hooks
 3. Install Python dependencies for enabled hooks
 
-After setup, add hooks to `~/.config/captain-hook/hooks/{event}/` and run `captain-hook toggle` to enable them.
+After setup, add hooks to `~/.config/hawk-hooks/hooks/{event}/` and run `hawk-hooks toggle` to enable them.
 
 ## Creating Hooks
 
 Place hooks in event directories:
 ```
-~/.config/captain-hook/hooks/
+~/.config/hawk-hooks/hooks/
 ├── pre_tool_use/      # Before tool execution (can block)
 ├── post_tool_use/     # After tool execution
 ├── stop/              # When Claude stops
@@ -126,7 +126,7 @@ Supported events for prompt hooks: Stop, SubagentStop, UserPromptSubmit, PreTool
 
 ## Configuration
 
-Global config: `~/.config/captain-hook/config.json`
+Global config: `~/.config/hawk-hooks/config.json`
 
 ```json
 {
@@ -141,7 +141,7 @@ Global config: `~/.config/captain-hook/config.json`
 ### Project Overrides
 
 ```bash
-captain-hook toggle  # Choose "This project" scope
+hawk-hooks toggle  # Choose "This project" scope
 ```
 
 Choose "Personal" (added to `.git/info/exclude`) or "Shared" (committable).
@@ -151,8 +151,8 @@ Choose "Personal" (added to `.git/info/exclude`) or "Shared" (committable).
 Copy examples to your hooks directory:
 
 ```bash
-cp -r examples/hooks/* ~/.config/captain-hook/hooks/
-captain-hook toggle  # Enable the ones you want
+cp -r examples/hooks/* ~/.config/hawk-hooks/hooks/
+hawk-hooks toggle  # Enable the ones you want
 ```
 
 Available examples:
@@ -168,15 +168,15 @@ Available examples:
 ## CLI Reference
 
 ```bash
-captain-hook              # Interactive menu (wizard on first run)
-captain-hook status       # Show installation status
-captain-hook toggle       # Enable/disable hooks (interactive)
-captain-hook enable <hook> [<hook>...]   # Enable hooks by name
-captain-hook disable <hook> [<hook>...]  # Disable hooks by name
-captain-hook list [--enabled|--disabled] # List hooks (scriptable)
-captain-hook install      # Install to Claude settings
-captain-hook uninstall    # Remove from Claude settings
-captain-hook install-deps # Install Python dependencies
+hawk-hooks              # Interactive menu (wizard on first run)
+hawk-hooks status       # Show installation status
+hawk-hooks toggle       # Enable/disable hooks (interactive)
+hawk-hooks enable <hook> [<hook>...]   # Enable hooks by name
+hawk-hooks disable <hook> [<hook>...]  # Disable hooks by name
+hawk-hooks list [--enabled|--disabled] # List hooks (scriptable)
+hawk-hooks install      # Install to Claude settings
+hawk-hooks uninstall    # Remove from Claude settings
+hawk-hooks install-deps # Install Python dependencies
 ```
 
 Hook names can be short (`file-guard`) or explicit (`pre_tool_use/file-guard`).

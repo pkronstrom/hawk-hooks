@@ -1,4 +1,4 @@
-"""Configuration editor for captain-hook.
+"""Configuration editor for hawk-hooks.
 
 Interactive config editing with dodo-style ANSI rendering.
 """

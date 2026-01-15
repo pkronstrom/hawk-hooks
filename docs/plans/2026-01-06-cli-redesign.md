@@ -5,19 +5,19 @@
 
 ## Overview
 
-Redesign captain-hook CLI for better UX with simplified mental model.
+Redesign hawk-hooks CLI for better UX with simplified mental model.
 
 ## Key Changes
 
 ### Mental Model
 - **Install** = one-time setup, registers all events in Claude settings
 - **Toggle** = primary way to manage handlers, instant effect (no Claude restart)
-- Project overrides via `.claude/captain-hook.json`
+- Project overrides via `.claude/hawk-hooks.json`
 
 ### Menu Structure
 ```
 ╭─────────────────────────────────────────╮
-│  captain-hook v0.1.0                    │
+│  hawk-hooks v0.1.0                    │
 │  A modular Claude Code hooks manager    │
 ╰─────────────────────────────────────────╯
 
@@ -58,7 +58,7 @@ Shows:
 
 ## Config Format
 
-### Global (`~/.config/captain-hook/config.json`)
+### Global (`~/.config/hawk-hooks/config.json`)
 ```json
 {
   "handlers": {
@@ -85,7 +85,7 @@ Shows:
 }
 ```
 
-### Project Override (`.claude/captain-hook.json`)
+### Project Override (`.claude/hawk-hooks.json`)
 ```json
 {
   "handlers": {

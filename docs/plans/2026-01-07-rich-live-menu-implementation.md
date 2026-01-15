@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Build a single-file, flicker-free interactive menu library using Rich.Live to replace questionary in captain-hook.
+**Goal:** Build a single-file, flicker-free interactive menu library using Rich.Live to replace questionary in hawk-hooks.
 
-**Architecture:** Create `src/captain_hook/rich_menu.py` with MenuItem base class + subclasses (Toggle, Text, Action, Separator), InteractiveList controller using Rich.Live for rendering, and Item factory for clean API. Manual keyboard handling with readchar library for full control.
+**Architecture:** Create `src/hawk_hooks/rich_menu.py` with MenuItem base class + subclasses (Toggle, Text, Action, Separator), InteractiveList controller using Rich.Live for rendering, and Item factory for clean API. Manual keyboard handling with readchar library for full control.
 
 **Tech Stack:** Rich (Live, Panel), readchar (keyboard input), Python 3.10+ dataclasses
 
@@ -43,11 +43,11 @@ git commit -m "deps: add readchar for keyboard input"
 ## Task 2: Create MenuItem base classes
 
 **Files:**
-- Create: `src/captain_hook/rich_menu.py`
+- Create: `src/hawk_hooks/rich_menu.py`
 
 **Step 1: Create module with MenuItem dataclasses**
 
-Create `src/captain_hook/rich_menu.py`:
+Create `src/hawk_hooks/rich_menu.py`:
 ```python
 """Rich.Live-based interactive menu system."""
 from dataclasses import dataclass
@@ -111,13 +111,13 @@ class SeparatorItem(MenuItem):
 
 **Step 2: Verify imports work**
 
-Run: `python -c "from src.captain_hook.rich_menu import MenuItem, ToggleItem"`
+Run: `python -c "from src.hawk_hooks.rich_menu import MenuItem, ToggleItem"`
 Expected: No errors
 
 **Step 3: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "feat: add MenuItem base classes"
 ```
 
@@ -126,11 +126,11 @@ git commit -m "feat: add MenuItem base classes"
 ## Task 3: Add Item factory class
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (append at end)
+- Modify: `src/hawk_hooks/rich_menu.py` (append at end)
 
 **Step 1: Add Item factory**
 
-Append to `src/captain_hook/rich_menu.py`:
+Append to `src/hawk_hooks/rich_menu.py`:
 ```python
 
 
@@ -162,14 +162,14 @@ class Item:
 
 Run:
 ```bash
-python -c "from src.captain_hook.rich_menu import Item; print(Item.toggle('test', 'Test', True))"
+python -c "from src.hawk_hooks.rich_menu import Item; print(Item.toggle('test', 'Test', True))"
 ```
 Expected: Prints `ToggleItem(key='test', label='Test', enabled=True, value=True)`
 
 **Step 3: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "feat: add Item factory class"
 ```
 
@@ -178,11 +178,11 @@ git commit -m "feat: add Item factory class"
 ## Task 4: Create InteractiveList skeleton
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (append at end)
+- Modify: `src/hawk_hooks/rich_menu.py` (append at end)
 
 **Step 1: Add InteractiveList class**
 
-Append to `src/captain_hook/rich_menu.py`:
+Append to `src/hawk_hooks/rich_menu.py`:
 ```python
 from rich.console import Console
 from rich.panel import Panel
@@ -232,7 +232,7 @@ class InteractiveList:
 
 Create test script `test_menu.py`:
 ```python
-from src.captain_hook.rich_menu import InteractiveList, Item
+from src.hawk_hooks.rich_menu import InteractiveList, Item
 
 menu = InteractiveList(
     title="Test Menu",
@@ -252,7 +252,7 @@ Expected: Displays menu with 4 items, cursor on first item
 **Step 3: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "feat: add InteractiveList skeleton with rendering"
 ```
 
@@ -261,7 +261,7 @@ git commit -m "feat: add InteractiveList skeleton with rendering"
 ## Task 5: Add keyboard navigation
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (InteractiveList class)
+- Modify: `src/hawk_hooks/rich_menu.py` (InteractiveList class)
 
 **Step 1: Add imports**
 
@@ -339,7 +339,7 @@ Expected:
 **Step 5: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "feat: add keyboard navigation"
 ```
 
@@ -348,7 +348,7 @@ git commit -m "feat: add keyboard navigation"
 ## Task 6: Add toggle functionality
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (InteractiveList._handle_key)
+- Modify: `src/hawk_hooks/rich_menu.py` (InteractiveList._handle_key)
 
 **Step 1: Implement toggle activation**
 
@@ -392,7 +392,7 @@ Expected:
 **Step 4: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "feat: add toggle and action functionality"
 ```
 
@@ -401,7 +401,7 @@ git commit -m "feat: add toggle and action functionality"
 ## Task 7: Add inline text editing
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (InteractiveList class)
+- Modify: `src/hawk_hooks/rich_menu.py` (InteractiveList class)
 
 **Step 1: Add text editing method**
 
@@ -510,7 +510,7 @@ Expected:
 **Step 6: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "feat: add inline text editing"
 ```
 
@@ -519,7 +519,7 @@ git commit -m "feat: add inline text editing"
 ## Task 8: Add initialization cursor skip
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (InteractiveList.__init__)
+- Modify: `src/hawk_hooks/rich_menu.py` (InteractiveList.__init__)
 
 **Step 1: Skip separators on init**
 
@@ -548,7 +548,7 @@ Expected: Cursor starts on "Debug mode", not separator
 **Step 3: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "fix: skip separators on initialization"
 ```
 
@@ -557,7 +557,7 @@ git commit -m "fix: skip separators on initialization"
 ## Task 9: Replace questionary in interactive_config()
 
 **Files:**
-- Modify: `src/captain_hook/cli.py:638-735`
+- Modify: `src/hawk_hooks/cli.py:638-735`
 
 **Step 1: Add import**
 
@@ -644,7 +644,7 @@ def interactive_config():
 
 **Step 3: Test manually**
 
-Run: `captain-hook` → select "Config"
+Run: `hawk-hooks` → select "Config"
 Expected:
 - Menu shows with Rich.Live rendering
 - No flickering on toggle
@@ -655,7 +655,7 @@ Expected:
 **Step 4: Commit**
 
 ```bash
-git add src/captain_hook/cli.py
+git add src/hawk_hooks/cli.py
 git commit -m "refactor: replace questionary with rich_menu in config"
 ```
 
@@ -696,7 +696,7 @@ git commit -m "chore: cleanup test files"
 ## Task 11: Polish and document
 
 **Files:**
-- Modify: `src/captain_hook/rich_menu.py` (add docstrings)
+- Modify: `src/hawk_hooks/rich_menu.py` (add docstrings)
 
 **Step 1: Add module docstring**
 
@@ -707,7 +707,7 @@ Update top of `rich_menu.py`:
 A single-file, reusable menu library for building flicker-free CLI menus.
 
 Example:
-    from captain_hook.rich_menu import InteractiveList, Item
+    from hawk_hooks.rich_menu import InteractiveList, Item
 
     menu = InteractiveList(
         title="Settings",
@@ -729,7 +729,7 @@ Ensure all classes have docstrings explaining their purpose.
 **Step 3: Test full workflow**
 
 Manual test:
-1. Run `captain-hook`
+1. Run `hawk-hooks`
 2. Select "Config"
 3. Toggle several options
 4. Edit a text field
@@ -739,7 +739,7 @@ Manual test:
 **Step 4: Commit**
 
 ```bash
-git add src/captain_hook/rich_menu.py
+git add src/hawk_hooks/rich_menu.py
 git commit -m "docs: add docstrings to rich_menu module"
 ```
 
@@ -778,7 +778,7 @@ Expected: ~12 commits implementing the feature
 
 ## Success Criteria
 
-- ✅ `src/captain_hook/rich_menu.py` created (~250-300 lines)
+- ✅ `src/hawk_hooks/rich_menu.py` created (~250-300 lines)
 - ✅ No screen flickering when toggling items
 - ✅ Cursor stays in place after interactions
 - ✅ Inline text editing works smoothly

@@ -1,4 +1,4 @@
-"""Tests for captain-hook CLI commands."""
+"""Tests for hawk-hooks CLI commands."""
 
 import argparse
 import json
@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from captain_hook import cli, config
-from captain_hook.cli import (
+from hawk_hooks import cli, config
+from hawk_hooks.cli import (
     cmd_disable,
     cmd_enable,
     cmd_install,
@@ -274,7 +274,7 @@ class TestCmdInstall:
         (project_dir / ".git").mkdir()  # Make it look like a git repo
 
         # Patch project settings path
-        with patch("captain_hook.installer.get_project_settings_path") as mock_path:
+        with patch("hawk_hooks.installer.get_project_settings_path") as mock_path:
             settings_file = project_dir / ".claude" / "settings.json"
             settings_file.parent.mkdir(parents=True)
             settings_file.write_text("{}")
@@ -289,7 +289,7 @@ class TestCmdInstall:
     def test_install_creates_claude_settings(self, mock_config_paths, mock_args, capsys):
         """Test that install creates Claude settings if they don't exist."""
         # Remove existing settings
-        from captain_hook import installer
+        from hawk_hooks import installer
         settings_path = installer.get_user_settings_path()
         if settings_path.exists():
             settings_path.unlink()
@@ -324,7 +324,7 @@ class TestCmdUninstall:
 
     def test_uninstall_removes_hooks_from_settings(self, mock_config_paths, mock_args):
         """Test that uninstall removes hooks from Claude settings."""
-        from captain_hook import installer
+        from hawk_hooks import installer
 
         # Install first
         install_args = mock_args(scope="user")
@@ -347,7 +347,7 @@ class TestCmdUninstall:
         for event_hooks in settings.get("hooks", {}).values():
             for hook_group in event_hooks:
                 for hook in hook_group.get("hooks", []):
-                    assert "captain-hook" not in hook.get("command", "")
+                    assert "hawk-hooks" not in hook.get("command", "")
 
 
 class TestCmdToggle:
@@ -389,16 +389,16 @@ class TestMainParser:
     def test_version_flag(self, capsys):
         """Test --version flag."""
         with pytest.raises(SystemExit) as exc_info:
-            with patch("sys.argv", ["captain-hook", "--version"]):
+            with patch("sys.argv", ["hawk-hooks", "--version"]):
                 main()
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert "captain-hook" in captured.out
+        assert "hawk-hooks" in captured.out
 
     def test_enable_subcommand_parsing(self):
         """Test enable subcommand parses correctly."""
-        with patch("sys.argv", ["captain-hook", "enable", "test-hook", "other-hook"]):
+        with patch("sys.argv", ["hawk-hooks", "enable", "test-hook", "other-hook"]):
             parser = argparse.ArgumentParser()
             subparsers = parser.add_subparsers(dest="command")
 
@@ -412,7 +412,7 @@ class TestMainParser:
 
     def test_disable_subcommand_parsing(self):
         """Test disable subcommand parses correctly."""
-        with patch("sys.argv", ["captain-hook", "disable", "test-hook"]):
+        with patch("sys.argv", ["hawk-hooks", "disable", "test-hook"]):
             parser = argparse.ArgumentParser()
             subparsers = parser.add_subparsers(dest="command")
 
@@ -478,8 +478,8 @@ class TestMainParser:
 
     def test_no_subcommand_calls_interactive(self, mock_config_paths):
         """Test that no subcommand launches interactive menu."""
-        with patch("captain_hook.cli.interactive_menu") as mock_menu:
-            with patch("sys.argv", ["captain-hook"]):
+        with patch("hawk_hooks.cli.interactive_menu") as mock_menu:
+            with patch("sys.argv", ["hawk-hooks"]):
                 main()
             mock_menu.assert_called_once()
 

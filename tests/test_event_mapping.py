@@ -1,6 +1,6 @@
 """Tests for event mapping between tools."""
 
-from captain_hook.event_mapping import (
+from hawk_hooks.event_mapping import (
     get_canonical_event,
     get_tool_event,
     is_tool_specific_event,

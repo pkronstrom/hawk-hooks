@@ -74,7 +74,7 @@ def main():
     title = f"Claude Code [{project}]"
     message = f"Needs permission: {tool_name}"
 
-    # Desktop notification (env var set by captain-hook runner)
+    # Desktop notification (env var set by hawk-hooks runner)
     if get_bool_env("NOTIFY_DESKTOP", True):
         send_desktop_notification(title, message)
 

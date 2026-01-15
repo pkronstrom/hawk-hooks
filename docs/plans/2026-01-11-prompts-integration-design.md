@@ -5,7 +5,7 @@
 
 ## Overview
 
-Integrate unified prompt/agent management into captain-hook, inspired by the `~/.prompts` system. Captain-hook becomes a one-stop shop for managing hooks, commands, and agents across multiple AI coding tools (Claude, Gemini, Codex).
+Integrate unified prompt/agent management into hawk-hooks, inspired by the `~/.prompts` system. Captain-hook becomes a one-stop shop for managing hooks, commands, and agents across multiple AI coding tools (Claude, Gemini, Codex).
 
 ## Goals
 
@@ -18,7 +18,7 @@ Integrate unified prompt/agent management into captain-hook, inspired by the `~/
 ## Directory Structure
 
 ```
-~/.config/captain-hook/
+~/.config/hawk-hooks/
 ├── hooks/           # scripts (.py, .sh, .js, .ts) - existing
 │   └── pre_tool_use/
 │       └── my-guard.sh
@@ -110,9 +110,9 @@ Tool-specific events (e.g., `user_prompt_submit` for Claude, `BeforeModel` for G
 ## CLI Commands
 
 ```
-captain-hook install    # registers hook handlers in settings.json
-captain-hook uninstall  # removes handlers + all symlinks everywhere
-captain-hook            # main menu (auto-syncs first)
+hawk-hooks install    # registers hook handlers in settings.json
+hawk-hooks uninstall  # removes handlers + all symlinks everywhere
+hawk-hooks            # main menu (auto-syncs first)
 ```
 
 ## Menu Structure
@@ -223,7 +223,7 @@ On menu launch:
 
 ### Presets/Templates
 
-Store in `~/.config/captain-hook/templates/` or bundled with package:
+Store in `~/.config/hawk-hooks/templates/` or bundled with package:
 - `hook-bash-guard.py` - Block dangerous bash commands
 - `hook-session-context.md` - Session start context injection
 - `agent-code-reviewer.md` - Code review persona

@@ -2,7 +2,7 @@
 
 
 import pytest
-from captain_hook.sync import (
+from hawk_hooks.sync import (
     create_symlink,
     generate_gemini_toml,
     remove_symlink,
@@ -10,8 +10,8 @@ from captain_hook.sync import (
     unsync_prompt,
 )
 
-from captain_hook.frontmatter import PromptFrontmatter
-from captain_hook.types import PromptInfo, PromptType
+from hawk_hooks.frontmatter import PromptFrontmatter
+from hawk_hooks.types import PromptInfo, PromptType
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ class TestSyncPrompt:
     """Test prompt syncing."""
 
     def test_sync_creates_claude_symlink(self, prompt_info, tmp_path, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
 
         claude_dest = tmp_path / "claude" / "commands"
         claude_dest.mkdir(parents=True)
@@ -105,7 +105,7 @@ class TestSyncPrompt:
         assert expected.is_symlink()
 
     def test_sync_creates_gemini_toml(self, prompt_info, tmp_path, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
 
         gemini_dest = tmp_path / "gemini" / "commands"
         gemini_dest.mkdir(parents=True)
@@ -127,7 +127,7 @@ class TestUnsyncPrompt:
     """Test prompt unsyncing."""
 
     def test_unsync_removes_files(self, prompt_info, tmp_path, monkeypatch):
-        from captain_hook import config
+        from hawk_hooks import config
 
         claude_dest = tmp_path / "claude" / "commands"
         claude_dest.mkdir(parents=True)

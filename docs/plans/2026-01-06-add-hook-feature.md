@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add a top-level "Add hook" menu item to captain-hook for quickly creating or linking new hooks.
+Add a top-level "Add hook" menu item to hawk-hooks for quickly creating or linking new hooks.
 
 ## Menu Position
 
@@ -48,7 +48,7 @@ import sys
 
 def main():
     data = json.load(sys.stdin)
-    # See: ~/.config/captain-hook/docs/hooks.md
+    # See: ~/.config/hawk-hooks/docs/hooks.md
     # Exit 0 = ok, Exit 2 = block, other = error
     sys.exit(0)
 
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
 set -euo pipefail
 INPUT=$(cat)
-# See: ~/.config/captain-hook/docs/hooks.md
+# See: ~/.config/hawk-hooks/docs/hooks.md
 # Exit 0 = ok, Exit 2 = block, other = error
 exit 0
 ```
@@ -78,7 +78,7 @@ exit 0
 // Env:
 
 const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 ```
@@ -91,7 +91,7 @@ process.exit(0);
 // Env:
 
 const data = await Bun.stdin.json();
-// See: ~/.config/captain-hook/docs/hooks.md
+// See: ~/.config/hawk-hooks/docs/hooks.md
 // Exit 0 = ok, Exit 2 = block, other = error
 process.exit(0);
 ```
@@ -120,7 +120,7 @@ Add your context here. This content is injected when the hook runs.
 
 ## Documentation File
 
-Create `~/.config/captain-hook/docs/hooks.md` on first install or when missing:
+Create `~/.config/hawk-hooks/docs/hooks.md` on first install or when missing:
 
 ```markdown
 # Captain-Hook Reference
@@ -208,7 +208,7 @@ Fields: session_id, cwd, source (manual|auto)
 
 ### Files to create
 - `templates.py`: Script template strings and generation logic
-- `~/.config/captain-hook/docs/hooks.md`: Generated on install
+- `~/.config/hawk-hooks/docs/hooks.md`: Generated on install
 
 ### Menu choices use inline hints
 ```

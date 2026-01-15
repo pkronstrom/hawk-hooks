@@ -26,7 +26,7 @@ Build a single-file, reusable menu library using Rich.Live for flicker-free upda
 
 ### File Structure
 
-Single file: `src/captain_hook/rich_menu.py` (~400-500 lines)
+Single file: `src/hawk_hooks/rich_menu.py` (~400-500 lines)
 
 ### Core Components
 
@@ -231,7 +231,7 @@ Document test cases in docstrings for future contributors.
 
 ## Implementation Plan
 
-1. Create `src/captain_hook/rich_menu.py`
+1. Create `src/hawk_hooks/rich_menu.py`
 2. Implement MenuItem base + subclasses
 3. Implement InteractiveList with basic rendering
 4. Add keyboard handling (navigation, toggle, edit)

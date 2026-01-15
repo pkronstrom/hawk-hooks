@@ -81,7 +81,7 @@ def main():
     }
     message = messages.get(stop_reason) or (f"Done ({stop_reason})" if stop_reason else "Done")
 
-    # Desktop notification (env var set by captain-hook runner)
+    # Desktop notification (env var set by hawk-hooks runner)
     if get_bool_env("NOTIFY_DESKTOP", True):
         send_desktop_notification(title, message)
 

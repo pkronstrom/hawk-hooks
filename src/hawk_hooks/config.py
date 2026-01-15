@@ -1,4 +1,4 @@
-"""Configuration management for captain-hook."""
+"""Configuration management for hawk-hooks."""
 
 from __future__ import annotations
 
@@ -36,9 +36,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 
 def get_config_dir() -> Path:
-    """Get the captain-hook config directory."""
+    """Get the hawk-hooks config directory."""
     xdg_config = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
-    return Path(xdg_config) / "captain-hook"
+    return Path(xdg_config) / "hawk-hooks"
 
 
 def get_config_path() -> Path:
@@ -129,7 +129,7 @@ def get_project_config_path(project_dir: Path | None = None) -> Path:
         project_dir = Path.cwd()
     # Security: validate project directory
     validated = _validate_project_dir(project_dir)
-    return validated / ".claude" / "captain-hook" / "config.json"
+    return validated / ".claude" / "hawk-hooks" / "config.json"
 
 
 def get_project_runners_dir(project_dir: Path | None = None) -> Path:
@@ -138,7 +138,7 @@ def get_project_runners_dir(project_dir: Path | None = None) -> Path:
         project_dir = Path.cwd()
     # Security: validate project directory
     validated = _validate_project_dir(project_dir)
-    return validated / ".claude" / "captain-hook" / "runners"
+    return validated / ".claude" / "hawk-hooks" / "runners"
 
 
 def ensure_dirs() -> None:
@@ -231,10 +231,10 @@ def save_project_config(
 
 
 def _add_to_git_exclude(project_dir: Path) -> None:
-    """Add captain-hook dir to .git/info/exclude."""
+    """Add hawk-hooks dir to .git/info/exclude."""
     git_exclude = project_dir / ".git" / "info" / "exclude"
     if git_exclude.parent.exists():
-        exclude_entry = ".claude/captain-hook/"
+        exclude_entry = ".claude/hawk-hooks/"
         try:
             content = git_exclude.read_text() if git_exclude.exists() else ""
             if exclude_entry not in content:

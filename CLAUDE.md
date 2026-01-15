@@ -1,11 +1,11 @@
-# captain-hook
+# hawk-hooks
 
 A modular Claude Code hooks manager.
 
 ## Architecture
 
 ```
-src/captain_hook/
+src/hawk_hooks/
 ├── config.py      # Configuration loading/saving (JSON)
 ├── scanner.py     # Auto-discovery of hook scripts
 ├── generator.py   # Generates bash runners for command/stdout hooks
@@ -32,15 +32,15 @@ src/captain_hook/
 
 ## File Locations
 
-- Global config: `~/.config/captain-hook/config.json`
-- Hooks: `~/.config/captain-hook/hooks/{event}/`
-- Runners: `~/.config/captain-hook/runners/{event}.sh`
-- Venv: `~/.config/captain-hook/.venv/`
+- Global config: `~/.config/hawk-hooks/config.json`
+- Hooks: `~/.config/hawk-hooks/hooks/{event}/`
+- Runners: `~/.config/hawk-hooks/runners/{event}.sh`
+- Venv: `~/.config/hawk-hooks/.venv/`
 
 ## How It Works
 
-1. `captain-hook install` → registers bash runners in `~/.claude/settings.json`
-2. `captain-hook toggle` → enables/disables hooks, regenerates runners, syncs prompt hooks
+1. `hawk-hooks install` → registers bash runners in `~/.claude/settings.json`
+2. `hawk-hooks toggle` → enables/disables hooks, regenerates runners, syncs prompt hooks
 3. Claude triggers event → bash runner executes → chains enabled hooks
 4. Native prompt hooks are registered directly as `type: "prompt"` in Claude settings
 
@@ -48,11 +48,11 @@ src/captain_hook/
 
 ```bash
 pip install -e .
-captain-hook  # Run the CLI
+hawk-hooks  # Run the CLI (or just `hawk`)
 ```
 
 After modifying hook-related code:
-1. Run `captain-hook toggle` to regenerate runners
+1. Run `hawk-hooks toggle` to regenerate runners
 2. Test with a Claude Code session
 
 ## Adding New Hook Types
