@@ -1,5 +1,7 @@
 # hawk-hooks
 
+![hawk banner](docs/hawk_banner.png)
+
 A modular Claude Code hooks manager with auto-discovery, multi-language support, and fast bash runners.
 
 Part of the **dodo/owl/hawk** trio:
