@@ -105,11 +105,36 @@ def _validate_project_dir(project_dir: Path) -> Path:
     if not resolved.is_dir():
         raise ValueError(f"Not a directory: {resolved}")
 
-    # Block sensitive system directories
-    blocked_prefixes = ["/etc", "/usr", "/bin", "/sbin", "/var", "/root", "/sys", "/proc"]
+    resolved_str = str(resolved)
+
+    # Block sensitive system directories (Linux + macOS)
+    blocked_prefixes = [
+        "/etc",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/var",
+        "/root",
+        "/sys",
+        "/proc",
+        "/boot",
+        "/dev",
+        "/tmp",
+        # macOS-specific
+        "/Library",
+        "/System",
+        "/Applications",
+        "/private/etc",
+        "/private/var",
+    ]
     for prefix in blocked_prefixes:
-        if str(resolved).startswith(prefix):
+        if resolved_str.startswith(prefix):
             raise ValueError(f"Cannot use system directory: {resolved}")
+
+    # Additional check: reject if path contains ".." after resolution
+    # (shouldn't happen with resolve(), but defense in depth)
+    if ".." in resolved_str:
+        raise ValueError(f"Path traversal detected: {resolved}")
 
     # Prefer directories that look like projects (have .git or common project files)
     # This is a soft check - we still allow other directories but log a warning

@@ -346,8 +346,14 @@ def sync_prompt_hooks(
                 "type": "prompt",
                 "prompt": f"[hawk-hooks] {sanitized_prompt}",
             }
+            # Security: validate timeout is within reasonable bounds
             if "timeout" in prompt_config:
-                hook_entry["timeout"] = prompt_config["timeout"]
+                timeout_val = prompt_config["timeout"]
+                MIN_TIMEOUT = 1
+                MAX_TIMEOUT = 3600  # 1 hour max
+                if isinstance(timeout_val, (int, float)) and MIN_TIMEOUT <= timeout_val <= MAX_TIMEOUT:
+                    hook_entry["timeout"] = int(timeout_val)
+                # Invalid timeouts are silently ignored (use default)
 
             # Add to settings
             if claude_event not in settings["hooks"]:

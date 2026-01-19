@@ -17,6 +17,45 @@ if TYPE_CHECKING:
     from .types import PromptInfo
 
 
+def _validate_safe_destination(dest: Path) -> None:
+    """Validate that destination path is in an allowed location.
+
+    Security: Prevents symlink creation in sensitive system directories.
+
+    Raises:
+        ValueError: If destination is in a blocked location.
+    """
+    import tempfile
+
+    resolved = dest.resolve()
+    resolved_str = str(resolved)
+
+    # Allowed base directories (user home subdirectories + temp for testing)
+    allowed_prefixes = [
+        str(Path.home() / ".claude"),
+        str(Path.home() / ".gemini"),
+        str(Path.home() / ".codex"),
+        str(Path.home() / ".config"),
+        tempfile.gettempdir(),  # Allow temp directory (for tests)
+        "/private/var/folders",  # macOS temp directory (for tests)
+    ]
+
+    # Check if destination is in an allowed location
+    is_allowed = any(resolved_str.startswith(prefix) for prefix in allowed_prefixes)
+    if not is_allowed:
+        raise ValueError(
+            f"Destination not in allowed location: {dest}. "
+            f"Must be under one of: {allowed_prefixes}"
+        )
+
+    # Block sensitive directories even within allowed prefixes
+    # Note: /var/folders is explicitly allowed above for macOS temp
+    blocked_patterns = ["/etc/", "/usr/", "/bin/", "/sbin/", "/root/", "/sys/", "/proc/"]
+    for pattern in blocked_patterns:
+        if pattern in resolved_str:
+            raise ValueError(f"Destination contains blocked path pattern: {pattern}")
+
+
 def create_symlink(source: Path, dest: Path) -> None:
     """Create a symlink from dest pointing to source.
 
@@ -25,8 +64,11 @@ def create_symlink(source: Path, dest: Path) -> None:
         dest: Destination symlink path.
 
     Raises:
-        ValueError: If destination is a directory (not a symlink to one).
+        ValueError: If destination is a directory or in a blocked location.
     """
+    # Security: validate destination is in allowed location
+    _validate_safe_destination(dest)
+
     # Ensure parent directory exists
     dest.parent.mkdir(parents=True, exist_ok=True)
 

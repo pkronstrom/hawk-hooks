@@ -33,9 +33,22 @@ def validate_package_name(name: str) -> bool:
 def validate_env_value(value: str) -> bool:
     """Validate an environment variable value is safe.
 
-    Returns True if the value is within length limits.
+    Security: Checks length limits and rejects dangerous patterns.
+    Returns True if the value is safe to use.
     """
-    return len(value) <= MAX_ENV_VALUE_LENGTH
+    if len(value) > MAX_ENV_VALUE_LENGTH:
+        return False
+
+    # Reject control characters (except common whitespace)
+    if any(c in value for c in "\x00\r"):
+        return False
+
+    # Reject shell command substitution patterns
+    dangerous_patterns = ["$(", "`", "${", "\\n", "\\r"]
+    if any(pattern in value for pattern in dangerous_patterns):
+        return False
+
+    return True
 
 
 # Supported file extensions and their interpreters
@@ -144,9 +157,15 @@ def parse_hook_metadata(
                     env_vars[full_var_name] = default_value
 
             # Timeout pattern: # Timeout: 3600
+            # Security: validate timeout is within reasonable bounds (1 second to 24 hours)
             timeout_match = re.match(r"^[#/\-*\s]*Timeout:\s*(\d+)$", line, re.IGNORECASE)
             if timeout_match:
-                timeout = int(timeout_match.group(1))
+                MIN_TIMEOUT = 1
+                MAX_TIMEOUT = 86400  # 24 hours
+                parsed_timeout = int(timeout_match.group(1))
+                if MIN_TIMEOUT <= parsed_timeout <= MAX_TIMEOUT:
+                    timeout = parsed_timeout
+                # Invalid timeouts are silently ignored
 
     except (OSError, UnicodeDecodeError):
         # Skip metadata parsing if file can't be read or decoded

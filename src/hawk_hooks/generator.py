@@ -14,35 +14,72 @@ from .types import Scope
 
 
 def _get_interpreter_path(interpreter: str) -> str:
-    """Get absolute path for an interpreter, falling back to name if not found.
+    """Get absolute path for an interpreter.
 
-    Security: Using absolute paths prevents PATH manipulation attacks.
+    Security: Uses absolute paths to prevent PATH manipulation attacks.
+    Falls back to standard system paths if shutil.which() fails.
     """
+    # Standard system paths for common interpreters (security: prevents PATH manipulation)
+    STANDARD_PATHS: dict[str, list[str]] = {
+        "cat": ["/bin/cat", "/usr/bin/cat"],
+        "bash": ["/bin/bash", "/usr/bin/bash"],
+        "node": ["/usr/local/bin/node", "/usr/bin/node", "/opt/homebrew/bin/node"],
+        "bun": ["/usr/local/bin/bun", "/opt/homebrew/bin/bun"],
+    }
+
+    # First try shutil.which for the current PATH
     path = shutil.which(interpreter)
-    return path if path else interpreter
+    if path:
+        return path
+
+    # Fall back to known standard paths
+    for standard_path in STANDARD_PATHS.get(interpreter, []):
+        if Path(standard_path).exists():
+            return standard_path
+
+    # If no path found, raise an error rather than using bare interpreter name
+    raise FileNotFoundError(
+        f"Interpreter '{interpreter}' not found in PATH or standard locations. "
+        f"Checked: {STANDARD_PATHS.get(interpreter, [])}"
+    )
 
 
 def _atomic_write_executable(path: Path, content: str) -> None:
-    """Write content to file atomically with executable permissions.
+    """Write content to file atomically with owner-only executable permissions.
 
-    Security: Prevents TOCTOU race conditions by writing to a temp file
-    with correct permissions, then atomically renaming.
+    Security:
+    - Prevents TOCTOU race conditions by writing to a temp file with correct
+      permissions, then atomically renaming.
+    - Uses 0700 permissions (owner rwx only) to prevent other users from
+      reading potentially sensitive hook configurations.
+    - Sets umask before mkstemp to ensure temp file has restrictive permissions.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Create temp file in same directory for atomic rename
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+
+    # Save original umask and set restrictive umask for temp file creation
+    original_umask = os.umask(0o077)
+    fd = None
+    tmp_path = None
     try:
-        # Write content and set permissions atomically
+        # Create temp file in same directory for atomic rename
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        # Write content and set permissions (owner rwx only for security)
         os.write(fd, content.encode("utf-8"))
-        os.fchmod(fd, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+        os.fchmod(fd, stat.S_IRWXU)  # 0700: owner read/write/execute only
         os.close(fd)
+        fd = None  # Mark as closed
         # Atomic rename
         os.rename(tmp_path, path)
+        tmp_path = None  # Mark as renamed (don't clean up)
     except (OSError, IOError):
-        os.close(fd)
-        if os.path.exists(tmp_path):
+        if fd is not None:
+            os.close(fd)
+        if tmp_path is not None and os.path.exists(tmp_path):
             os.unlink(tmp_path)
         raise
+    finally:
+        # Restore original umask
+        os.umask(original_umask)
 
 
 # Template for generated bash runners
