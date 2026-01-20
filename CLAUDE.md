@@ -9,12 +9,22 @@ A modular Claude Code hooks manager. Part of the **dodo/owl/hawk** trio:
 
 ```
 src/hawk_hooks/
-├── config.py      # Configuration loading/saving (JSON)
-├── scanner.py     # Auto-discovery of hook scripts
-├── generator.py   # Generates bash runners for command/stdout hooks
-├── installer.py   # Registers hooks in Claude settings + syncs prompt hooks
-├── cli.py         # Interactive CLI with Rich
-└── rich_menu.py   # Custom Rich-based interactive menu system
+├── cli.py              # Interactive CLI with Rich
+├── config.py           # Configuration loading/saving (JSON)
+├── event_mapping.py    # Canonical event mapping between AI tools
+├── events.py           # Event definitions and metadata
+├── frontmatter.py      # YAML/comment frontmatter parsing
+├── generator.py        # Generates bash runners for command/stdout hooks
+├── hook_manager.py     # Hook lifecycle management
+├── installer.py        # Registers hooks in Claude settings + syncs prompt hooks
+├── interactive/        # Interactive menu components
+├── interactive.py      # Interactive mode entry point
+├── prompt_scanner.py   # Scans for prompt.json hooks
+├── rich_menu.py        # Custom Rich-based interactive menu system
+├── scanner.py          # Auto-discovery of hook scripts
+├── sync.py             # Sync hooks between config and Claude settings
+├── templates.py        # Hook templates for scaffolding
+└── types.py            # Type definitions
 ```
 
 ## Hook Types
@@ -31,7 +41,7 @@ src/hawk_hooks/
 - **Stdout hooks**: Files that inject text into Claude's context
 - **Native prompt hooks**: LLM-evaluated hooks (Haiku decides approve/block)
 - **Runners**: Generated bash scripts that chain enabled command/stdout hooks
-- **Events**: pre_tool_use, post_tool_use, stop, subagent_stop, notification, user_prompt_submit, session_start, session_end, pre_compact
+- **Events**: pre_tool_use, post_tool_use, stop, subagent_stop, notification, user_prompt_submit, session_start, session_end, pre_compact, permission_request
 
 ## File Locations
 

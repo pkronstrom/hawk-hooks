@@ -4,10 +4,7 @@
 
 A modular Claude Code hooks manager with auto-discovery, multi-language support, and fast bash runners.
 
-Part of the **dodo/owl/hawk** trio:
-- [dodo-tasks](https://github.com/pkronstrom/dodo-tasks) - Task tracking
-- [owl-afk](https://github.com/pkronstrom/owl-afk) - Background/away management
-- **hawk-hooks** - Event interception & orchestration
+Part of [**Nest-Driven Development**](https://github.com/pkronstrom/nest-driven-development) — the minimum vibable workflow.
 
 ## Features
 
@@ -72,11 +69,16 @@ After setup, add hooks to `~/.config/hawk-hooks/hooks/{event}/` and run `hawk to
 Place hooks in event directories:
 ```
 ~/.config/hawk-hooks/hooks/
-├── pre_tool_use/      # Before tool execution (can block)
-├── post_tool_use/     # After tool execution
-├── stop/              # When Claude stops
-├── notification/      # On notifications
-└── user_prompt_submit/ # Before user prompt is sent
+├── pre_tool_use/       # Before tool execution (can block)
+├── post_tool_use/      # After tool execution
+├── stop/               # When Claude stops
+├── subagent_stop/      # When a subagent completes
+├── notification/       # On notifications
+├── user_prompt_submit/ # Before user prompt is sent
+├── session_start/      # At session start/resume
+├── session_end/        # When session ends
+├── pre_compact/        # Before context compaction
+└── permission_request/ # When permission is requested
 ```
 
 ### Hook Types
@@ -153,7 +155,7 @@ hawk toggle  # Choose "This project" scope
 
 Choose "Personal" (added to `.git/info/exclude`) or "Shared" (committable).
 
-## Example Hooks
+## Examples
 
 Copy examples to your hooks directory:
 
@@ -162,15 +164,50 @@ cp -r examples/hooks/* ~/.config/hawk-hooks/hooks/
 hawk toggle  # Enable the ones you want
 ```
 
-Available examples:
-- `python-lint.py` - Ruff linting
-- `python-format.py` - Ruff auto-formatting
+### Example Hooks
+
+**pre_tool_use/**
 - `file-guard.py` - Block sensitive file modifications
 - `dangerous-cmd.sh` - Block dangerous commands
 - `shell-lint.sh` - Shellcheck linting
 - `git-commit-guide.sh` - Git commit best practices
+- `loop-detector-cli.py` - Detect repetitive tool calls
+- `scope-creep-detector-cli.py` - Detect scope creep
+- `confidence-checker-cli.py` - Check confidence levels
+
+**post_tool_use/**
+- `python-lint.py` - Ruff linting
+- `python-format.py` - Ruff auto-formatting
+
+**stop/**
 - `notify.py` - Desktop + ntfy.sh notifications
 - `docs-update.sh` - Remind to update documentation
+- `completion-check.stdout.md` - Completion checklist context
+- `completion-validator-cli.py` - Validate task completion
+
+**notification/**
+- `notify.py` - Desktop + ntfy.sh notifications
+
+**user_prompt_submit/**
+- `context-primer.stdout.md` - Prime context on prompt submit
+
+### Example Prompts (Skills)
+
+The `examples/prompts/` directory contains skill definitions for Claude Code:
+- `commit.md` - Generate commit messages
+- `prime-context.md` - Prime session with project context
+- `code-audit.md` - Comprehensive code audits
+- `gemini.md` / `codex.md` - Delegate to other AI tools
+- And more...
+
+### Example Agents
+
+The `examples/agents/` directory contains Task tool agent definitions:
+- `code-reviewer.md` - Code review agent
+- `test-generator.md` - Test generation agent
+- `security-auditor.md` - Security audit agent
+- `refactor-assistant.md` - Refactoring suggestions
+- `docs-writer.md` - Documentation writer
 
 ## CLI Reference
 
@@ -201,6 +238,7 @@ Hook names can be short (`file-guard`) or explicit (`pre_tool_use/file-guard`).
 | `session_start` | Session starts/resumes | No |
 | `session_end` | Session ends | No |
 | `pre_compact` | Before context compaction | No |
+| `permission_request` | When permission is requested | No |
 
 ### Blocking Hooks
 
