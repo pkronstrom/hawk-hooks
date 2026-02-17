@@ -134,3 +134,7 @@ class Registry:
             for name in names:
                 result.append((ct, name))
         return result
+
+    def has_from_name(self, type_dir: str, name: str) -> bool:
+        """Check if a name exists in a registry subdirectory by dir name."""
+        return (self.path / type_dir / name).exists()

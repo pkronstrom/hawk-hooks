@@ -1,0 +1,342 @@
+"""v2 CLI interface for hawk-hooks.
+
+New command structure for multi-tool management.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from . import __version__
+from .types import ComponentType, Tool
+
+
+def cmd_init(args):
+    """Initialize a directory for hawk management."""
+    from . import v2_config
+    from .v2_sync import sync_directory
+
+    project_dir = Path(args.dir).resolve() if args.dir else Path.cwd().resolve()
+
+    if not project_dir.is_dir():
+        print(f"Error: Not a directory: {project_dir}")
+        sys.exit(1)
+
+    config_path = v2_config.get_dir_config_path(project_dir)
+    if config_path.exists() and not args.force:
+        print(f"Already initialized: {config_path}")
+        print("Use --force to reinitialize.")
+        return
+
+    # Build dir config
+    dir_config: dict = {}
+    if args.profile:
+        profile = v2_config.load_profile(args.profile)
+        if profile is None:
+            print(f"Error: Profile not found: {args.profile}")
+            sys.exit(1)
+        dir_config["profile"] = args.profile
+
+    # Save dir config
+    v2_config.save_dir_config(project_dir, dir_config)
+
+    # Register in global index
+    v2_config.register_directory(project_dir, profile=args.profile)
+
+    # Ensure registry dirs exist
+    v2_config.ensure_v2_dirs()
+
+    # Sync
+    results = sync_directory(project_dir)
+
+    # Summary
+    print(f"Initialized: {config_path}")
+    if args.profile:
+        print(f"Profile: {args.profile}")
+    print(f"Registered in global index.")
+
+    total_linked = sum(len(r.linked) for r in results)
+    if total_linked:
+        print(f"\nSynced {total_linked} component(s):")
+        for r in results:
+            if r.linked:
+                print(f"  {r.tool}: {', '.join(r.linked)}")
+
+    print("\nNext steps:")
+    print("  hawk add skill <path>   # Add skills to registry")
+    print("  hawk sync               # Re-sync after changes")
+    print("  hawk status             # View current state")
+
+
+def cmd_sync(args):
+    """Sync components to tools."""
+    from .v2_sync import format_sync_results, sync_all, sync_directory, sync_global
+
+    tools = [Tool(args.tool)] if args.tool else None
+
+    if args.dir:
+        project_dir = Path(args.dir).resolve()
+        results = sync_directory(project_dir, tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results({str(project_dir): results})
+    elif args.globals_only:
+        results = sync_global(tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results({"global": results})
+    else:
+        all_results = sync_all(tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results(all_results)
+
+    if args.dry_run:
+        print("Dry run (no changes applied):")
+    print(formatted or "  No changes.")
+
+
+def cmd_status(args):
+    """Show current status."""
+    from . import v2_config
+    from .adapters import get_adapter
+    from .registry import Registry
+    from .resolver import resolve
+
+    cfg = v2_config.load_global_config()
+    registry = Registry(v2_config.get_registry_path(cfg))
+
+    # Show registry contents
+    contents = registry.list()
+    total = sum(len(names) for names in contents.values())
+    print(f"Registry: {total} component(s)")
+    for ct, names in contents.items():
+        if names:
+            print(f"  {ct.registry_dir}: {', '.join(names)}")
+
+    # Show global resolved set
+    resolved = resolve(cfg)
+    print(f"\nGlobal active:")
+    for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+        items = getattr(resolved, field)
+        if items:
+            print(f"  {field}: {', '.join(items)}")
+
+    # Show tool status
+    print(f"\nTools:")
+    for tool in Tool.all():
+        adapter = get_adapter(tool)
+        installed = adapter.detect_installed()
+        tool_cfg = cfg.get("tools", {}).get(str(tool), {})
+        enabled = tool_cfg.get("enabled", True)
+        status_parts = []
+        if installed:
+            status_parts.append("installed")
+        else:
+            status_parts.append("not found")
+        if enabled:
+            status_parts.append("enabled")
+        else:
+            status_parts.append("disabled")
+        print(f"  {tool}: {', '.join(status_parts)}")
+
+    # Show registered directories
+    dirs = v2_config.get_registered_directories()
+    if dirs:
+        print(f"\nDirectories ({len(dirs)}):")
+        for dir_path, entry in dirs.items():
+            profile = entry.get("profile", "")
+            suffix = f" (profile: {profile})" if profile else ""
+            exists = Path(dir_path).exists()
+            marker = "" if exists else " [missing]"
+            print(f"  {dir_path}{suffix}{marker}")
+
+
+def cmd_add(args):
+    """Add a component to the registry."""
+    from .registry import Registry
+    from . import v2_config
+
+    registry = Registry(v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    component_type = ComponentType(args.type)
+    source = Path(args.path).resolve()
+    name = args.name or source.name
+
+    if registry.detect_clash(component_type, name):
+        if not args.force:
+            print(f"Error: {component_type}/{name} already exists. Use --force to replace.")
+            sys.exit(1)
+        registry.remove(component_type, name)
+
+    try:
+        path = registry.add(component_type, name, source)
+        print(f"Added {component_type}/{name}")
+        print(f"  -> {path}")
+        print(f"\nTo activate: add '{name}' to your config's {component_type.registry_dir} list")
+        print(f"  or run: hawk sync")
+    except (FileNotFoundError, FileExistsError) as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
+def cmd_remove(args):
+    """Remove a component from the registry."""
+    from .registry import Registry
+    from . import v2_config
+
+    registry = Registry(v2_config.get_registry_path())
+    component_type = ComponentType(args.type)
+
+    if registry.remove(component_type, args.name):
+        print(f"Removed {component_type}/{args.name}")
+        print("Run 'hawk sync' to update tool configs.")
+    else:
+        print(f"Not found: {component_type}/{args.name}")
+        sys.exit(1)
+
+
+def cmd_list(args):
+    """List registry contents."""
+    from .registry import Registry
+    from . import v2_config
+
+    registry = Registry(v2_config.get_registry_path())
+
+    if args.type:
+        component_type = ComponentType(args.type)
+        contents = registry.list(component_type)
+    else:
+        contents = registry.list()
+
+    for ct, names in contents.items():
+        if names:
+            print(f"{ct.registry_dir}/")
+            for name in names:
+                print(f"  {name}")
+
+
+def cmd_profile_list(args):
+    """List available profiles."""
+    from . import v2_config
+
+    profiles = v2_config.list_profiles()
+    if not profiles:
+        print("No profiles found.")
+        print(f"Create one in: {v2_config.get_profiles_dir()}/")
+        return
+    for name in profiles:
+        print(f"  {name}")
+
+
+def cmd_profile_show(args):
+    """Show profile details."""
+    from . import v2_config
+
+    import yaml
+
+    profile = v2_config.load_profile(args.name)
+    if profile is None:
+        print(f"Profile not found: {args.name}")
+        sys.exit(1)
+
+    print(yaml.dump(profile, default_flow_style=False))
+
+
+def cmd_migrate(args):
+    """Migrate v1 config to v2."""
+    from .migration import run_migration
+
+    success, msg = run_migration(backup=not args.no_backup)
+    if success:
+        print(f"Migration successful: {msg}")
+        print("\nNext steps:")
+        print("  hawk status   # Review the migrated config")
+        print("  hawk sync     # Sync to tools")
+    else:
+        print(f"Migration skipped: {msg}")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the v2 CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="hawk",
+        description="hawk-hooks: Multi-agent CLI package manager",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version=f"hawk-hooks {__version__}")
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # init
+    init_p = subparsers.add_parser("init", help="Initialize directory for hawk management")
+    init_p.add_argument("--profile", help="Profile to use")
+    init_p.add_argument("--dir", help="Directory to initialize (default: cwd)")
+    init_p.add_argument("--force", action="store_true", help="Reinitialize if exists")
+    init_p.set_defaults(func=cmd_init)
+
+    # sync
+    sync_p = subparsers.add_parser("sync", help="Sync components to tools")
+    sync_p.add_argument("--dir", help="Sync specific directory")
+    sync_p.add_argument("--tool", choices=[t.value for t in Tool], help="Sync specific tool")
+    sync_p.add_argument("--dry-run", action="store_true", help="Show what would change")
+    sync_p.add_argument("--global", dest="globals_only", action="store_true", help="Sync global only")
+    sync_p.set_defaults(func=cmd_sync)
+
+    # status
+    status_p = subparsers.add_parser("status", help="Show current status")
+    status_p.add_argument("--dir", help="Show status for specific directory")
+    status_p.set_defaults(func=cmd_status)
+
+    # add
+    add_p = subparsers.add_parser("add", help="Add component to registry")
+    add_p.add_argument("type", choices=[ct.value for ct in ComponentType], help="Component type")
+    add_p.add_argument("path", help="Path to component file or directory")
+    add_p.add_argument("--name", help="Name in registry (default: filename)")
+    add_p.add_argument("--force", action="store_true", help="Replace existing")
+    add_p.set_defaults(func=cmd_add)
+
+    # remove
+    rm_p = subparsers.add_parser("remove", help="Remove component from registry")
+    rm_p.add_argument("type", choices=[ct.value for ct in ComponentType], help="Component type")
+    rm_p.add_argument("name", help="Component name")
+    rm_p.set_defaults(func=cmd_remove)
+
+    # list
+    list_p = subparsers.add_parser("list", help="List registry contents")
+    list_p.add_argument("type", nargs="?", choices=[ct.value for ct in ComponentType], help="Filter by type")
+    list_p.set_defaults(func=cmd_list)
+
+    # profile
+    profile_p = subparsers.add_parser("profile", help="Profile management")
+    profile_sub = profile_p.add_subparsers(dest="profile_cmd")
+
+    profile_list_p = profile_sub.add_parser("list", help="List profiles")
+    profile_list_p.set_defaults(func=cmd_profile_list)
+
+    profile_show_p = profile_sub.add_parser("show", help="Show profile details")
+    profile_show_p.add_argument("name", help="Profile name")
+    profile_show_p.set_defaults(func=cmd_profile_show)
+
+    # migrate
+    migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")
+    migrate_p.add_argument("--no-backup", action="store_true", help="Skip backup of v1 config")
+    migrate_p.set_defaults(func=cmd_migrate)
+
+    return parser
+
+
+def main_v2():
+    """v2 main entry point."""
+    parser = build_parser()
+    args = parser.parse_args()
+
+    if args.command is None:
+        # No subcommand - try interactive menu, fall back to help
+        try:
+            from .interactive import interactive_menu
+
+            interactive_menu()
+        except ImportError:
+            parser.print_help()
+    elif hasattr(args, "func"):
+        args.func(args)
+    else:
+        parser.print_help()
