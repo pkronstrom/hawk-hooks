@@ -44,7 +44,9 @@ class ComponentType(str, Enum):
 
     @property
     def registry_dir(self) -> str:
-        """Directory name in the registry (pluralized)."""
+        """Directory name in the registry (pluralized, except mcp)."""
+        if self == ComponentType.MCP:
+            return "mcp"
         return self.value + "s"
 
 

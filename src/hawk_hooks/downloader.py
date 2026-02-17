@@ -115,6 +115,9 @@ def _scan_typed_dir(
     for entry in sorted(directory.iterdir()):
         if entry.name.startswith("."):
             continue
+        # Skip symlinks for security (untrusted repos could link outside clone)
+        if entry.is_symlink():
+            continue
 
         if entry.is_dir():
             # Directory-style component (e.g., skill with multiple files)
@@ -141,6 +144,8 @@ def _scan_mcp_dir(directory: Path, content: ClassifiedContent) -> None:
         return
 
     for entry in sorted(directory.iterdir()):
+        if entry.is_symlink():
+            continue
         if entry.is_file() and entry.suffix in (".yaml", ".yml", ".json"):
             content.items.append(
                 ClassifiedItem(
@@ -155,6 +160,8 @@ def _scan_top_level(directory: Path, content: ClassifiedContent) -> None:
     """Scan top-level files when no structured subdirectories found."""
     for entry in sorted(directory.iterdir()):
         if entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+        if entry.is_symlink():
             continue
 
         if entry.is_file():

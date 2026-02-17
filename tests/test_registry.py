@@ -122,6 +122,42 @@ class TestHasAndGetPath:
         assert registry.get_path(ComponentType.SKILL, "nope") is None
 
 
+class TestNameValidation:
+    def test_rejects_path_traversal(self, registry, tmp_path):
+        source = tmp_path / "skill.md"
+        source.write_text("x")
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.add(ComponentType.SKILL, "../../etc/passwd", source)
+
+    def test_rejects_slash(self, registry, tmp_path):
+        source = tmp_path / "skill.md"
+        source.write_text("x")
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.add(ComponentType.SKILL, "sub/skill.md", source)
+
+    def test_rejects_dotdot(self, registry, tmp_path):
+        source = tmp_path / "skill.md"
+        source.write_text("x")
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.add(ComponentType.SKILL, "..", source)
+
+    def test_rejects_hidden(self, registry, tmp_path):
+        source = tmp_path / "skill.md"
+        source.write_text("x")
+        with pytest.raises(ValueError, match="hidden"):
+            registry.add(ComponentType.SKILL, ".hidden", source)
+
+    def test_rejects_empty(self, registry, tmp_path):
+        source = tmp_path / "skill.md"
+        source.write_text("x")
+        with pytest.raises(ValueError):
+            registry.add(ComponentType.SKILL, "", source)
+
+    def test_remove_rejects_traversal(self, registry):
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.remove(ComponentType.SKILL, "../secret")
+
+
 class TestClashDetection:
     def test_detects_clash(self, registry, tmp_path):
         source = tmp_path / "skill.md"

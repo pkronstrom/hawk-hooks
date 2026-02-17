@@ -13,6 +13,24 @@ from .types import ComponentType
 from . import v2_config
 
 
+def _validate_name(name: str) -> None:
+    """Validate a component name for safety.
+
+    Rejects names that could escape the registry directory.
+
+    Raises:
+        ValueError: If name is unsafe.
+    """
+    if not name or name.strip() != name:
+        raise ValueError(f"Invalid component name: {name!r}")
+    if ".." in name or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid component name (path traversal): {name!r}")
+    if name.startswith("."):
+        raise ValueError(f"Invalid component name (hidden file): {name!r}")
+    if any(c < " " for c in name):
+        raise ValueError(f"Invalid component name (control chars): {name!r}")
+
+
 class Registry:
     """Manages the hawk-hooks component registry."""
 
@@ -51,6 +69,8 @@ class Registry:
             FileNotFoundError: If source does not exist.
             FileExistsError: If name already exists (use detect_clash first).
         """
+        _validate_name(name)
+
         if not source.exists():
             raise FileNotFoundError(f"Source not found: {source}")
 
@@ -73,6 +93,7 @@ class Registry:
 
         Returns True if removed, False if not found.
         """
+        _validate_name(name)
         dest = self._type_dir(component_type) / name
         if not dest.exists():
             return False

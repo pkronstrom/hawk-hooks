@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 from ..types import ResolvedSet, SyncResult, Tool
+
+# Shared marker for hawk-managed MCP entries
+HAWK_MCP_MARKER = "__hawk_managed"
 
 
 class ToolAdapter(ABC):
@@ -191,7 +195,8 @@ class ToolAdapter(ABC):
                     # Check if it points into our registry
                     try:
                         target = entry.resolve()
-                        if str(source_dir.resolve()) in str(target):
+                        resolved_source = source_dir.resolve()
+                        if target == resolved_source or target.is_relative_to(resolved_source):
                             current.add(entry.name)
                     except (OSError, ValueError):
                         pass
@@ -213,6 +218,57 @@ class ToolAdapter(ABC):
                     result.linked.append(name)
                 except Exception as e:
                     result.errors.append(f"link {name}: {e}")
+
+    @staticmethod
+    def _merge_mcp_json(
+        config_path: Path,
+        servers: dict[str, dict],
+        server_key: str = "mcpServers",
+    ) -> None:
+        """Merge hawk-managed MCP servers into a JSON config file.
+
+        Preserves manually-added entries, replaces hawk-managed ones.
+        """
+        data: dict = {}
+        if config_path.exists():
+            try:
+                data = json.loads(config_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = {}
+
+        existing = data.get(server_key, {})
+
+        # Remove old hawk-managed entries
+        cleaned = {
+            k: v for k, v in existing.items()
+            if not (isinstance(v, dict) and v.get(HAWK_MCP_MARKER))
+        }
+
+        # Add new hawk-managed entries
+        for name, cfg in servers.items():
+            cleaned[name] = {**cfg, HAWK_MCP_MARKER: True}
+
+        data[server_key] = cleaned
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(data, indent=2) + "\n")
+
+    @staticmethod
+    def _read_mcp_json(
+        config_path: Path,
+        server_key: str = "mcpServers",
+    ) -> dict[str, dict]:
+        """Read only hawk-managed MCP entries from a JSON config file."""
+        if not config_path.exists():
+            return {}
+        try:
+            data = json.loads(config_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return {}
+        servers = data.get(server_key, {})
+        return {
+            k: v for k, v in servers.items()
+            if isinstance(v, dict) and v.get(HAWK_MCP_MARKER)
+        }
 
     @staticmethod
     def _create_symlink(source: Path, dest: Path) -> None:

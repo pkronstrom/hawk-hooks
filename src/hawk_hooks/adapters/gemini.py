@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
 from ..types import Tool
-from .base import ToolAdapter
-
-HAWK_MCP_MARKER = "__hawk_managed"
+from .base import HAWK_MCP_MARKER, ToolAdapter
 
 
 def _escape_toml_string(s: str) -> str:
@@ -100,11 +96,7 @@ class GeminiAdapter(ToolAdapter):
         return False
 
     def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
-        """Register hooks in Gemini settings.json format.
-
-        Gemini uses the same settings.json hook format as Claude.
-        """
-        # Hooks are handled by the sync command via generator/installer
+        """Register hooks in Gemini settings.json format."""
         return list(hook_names)
 
     def write_mcp_config(
@@ -113,40 +105,4 @@ class GeminiAdapter(ToolAdapter):
         target_dir: Path,
     ) -> None:
         """Merge hawk-managed MCP servers into .gemini/settings.json."""
-        settings_path = target_dir / "settings.json"
-
-        existing: dict[str, Any] = {}
-        if settings_path.exists():
-            try:
-                with open(settings_path) as f:
-                    existing = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                existing = {}
-
-        if not isinstance(existing, dict):
-            existing = {}
-
-        mcp_servers = existing.get("mcpServers", {})
-        if not isinstance(mcp_servers, dict):
-            mcp_servers = {}
-
-        # Remove old hawk-managed entries
-        to_remove = [
-            name
-            for name, cfg in mcp_servers.items()
-            if isinstance(cfg, dict) and cfg.get(HAWK_MCP_MARKER)
-        ]
-        for name in to_remove:
-            del mcp_servers[name]
-
-        # Add new hawk-managed entries
-        for name, server_cfg in servers.items():
-            entry = dict(server_cfg)
-            entry[HAWK_MCP_MARKER] = True
-            mcp_servers[name] = entry
-
-        existing["mcpServers"] = mcp_servers
-
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(settings_path, "w") as f:
-            json.dump(existing, f, indent=2)
+        self._merge_mcp_json(target_dir / "settings.json", servers)

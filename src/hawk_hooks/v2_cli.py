@@ -112,9 +112,17 @@ def cmd_status(args):
         if names:
             print(f"  {ct.registry_dir}: {', '.join(names)}")
 
-    # Show global resolved set
-    resolved = resolve(cfg)
-    print(f"\nGlobal active:")
+    # Show resolved set (global or directory-scoped)
+    if args.dir:
+        project_dir = Path(args.dir).resolve()
+        dir_config = v2_config.load_dir_config(project_dir)
+        profile_name = dir_config.get("profile") if dir_config else None
+        profile = v2_config.load_profile(profile_name) if profile_name else None
+        resolved = resolve(cfg, profile=profile, dir_config=dir_config)
+        print(f"\nActive for {project_dir}:")
+    else:
+        resolved = resolve(cfg)
+        print(f"\nGlobal active:")
     for field in ["skills", "hooks", "commands", "agents", "mcp"]:
         items = getattr(resolved, field)
         if items:

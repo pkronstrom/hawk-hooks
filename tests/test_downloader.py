@@ -122,6 +122,39 @@ class TestClassify:
         assert "visible.md" in names
 
 
+    def test_skips_symlinks(self, tmp_path):
+        (tmp_path / "skills").mkdir()
+        real_file = tmp_path / "skills" / "real.md"
+        real_file.write_text("real")
+        (tmp_path / "skills" / "link.md").symlink_to(real_file)
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "real.md" in names
+        assert "link.md" not in names
+
+    def test_skips_symlinks_top_level(self, tmp_path):
+        real_file = tmp_path / "real.md"
+        real_file.write_text("real")
+        (tmp_path / "link.md").symlink_to(real_file)
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "real.md" in names
+        assert "link.md" not in names
+
+    def test_skips_symlinks_mcp(self, tmp_path):
+        (tmp_path / "mcp").mkdir()
+        real_file = tmp_path / "mcp" / "real.yaml"
+        real_file.write_text("x")
+        (tmp_path / "mcp" / "link.yaml").symlink_to(real_file)
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "real.yaml" in names
+        assert "link.yaml" not in names
+
+
 class TestByType:
     def test_group_by_type(self):
         items = [

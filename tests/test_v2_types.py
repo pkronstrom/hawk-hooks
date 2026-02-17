@@ -33,7 +33,7 @@ class TestComponentType:
     def test_registry_dir(self):
         assert ComponentType.SKILL.registry_dir == "skills"
         assert ComponentType.HOOK.registry_dir == "hooks"
-        assert ComponentType.MCP.registry_dir == "mcps"
+        assert ComponentType.MCP.registry_dir == "mcp"
 
     def test_str_enum(self):
         assert ComponentType("skill") == ComponentType.SKILL
