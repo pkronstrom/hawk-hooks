@@ -2,14 +2,65 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 from ..types import Tool
 from .base import ToolAdapter
 
+HAWK_MCP_MARKER = "__hawk_managed"
+
+
+def _escape_toml_string(s: str) -> str:
+    """Escape a string for TOML basic string (double-quoted)."""
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
+
+
+def md_to_toml(source: Path) -> str:
+    """Convert a markdown command file to Gemini TOML format.
+
+    Reads the markdown file, extracts frontmatter (if any), and generates
+    a TOML command file with name, description, and prompt fields.
+    """
+    content = source.read_text()
+
+    # Try to parse frontmatter
+    name = source.stem
+    description = ""
+    body = content
+
+    # Simple frontmatter extraction
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            import yaml
+
+            try:
+                fm = yaml.safe_load(parts[1])
+                if isinstance(fm, dict):
+                    name = fm.get("name", name)
+                    description = fm.get("description", "")
+                body = parts[2].strip()
+            except Exception:
+                body = content
+
+    name_escaped = _escape_toml_string(name)
+    desc_escaped = _escape_toml_string(description)
+    # Use TOML multiline literal string for body
+    body_escaped = body.replace("'''", "'''\"'''\"'''")
+
+    return f"""name = "{name_escaped}"
+description = "{desc_escaped}"
+
+prompt = '''
+{body_escaped}
+'''
+"""
+
 
 class GeminiAdapter(ToolAdapter):
-    """Adapter for Gemini CLI. Full implementation in M3."""
+    """Adapter for Gemini CLI."""
 
     @property
     def tool(self) -> Tool:
@@ -24,22 +75,78 @@ class GeminiAdapter(ToolAdapter):
     def get_project_dir(self, project: Path) -> Path:
         return project / ".gemini"
 
-    def get_commands_dir(self, target_dir: Path) -> Path:
-        """Gemini uses commands/ directory."""
-        return target_dir / "commands"
-
     def link_command(self, source: Path, target_dir: Path) -> Path:
-        """Gemini commands need TOML conversion from markdown."""
-        # TODO M3: implement md -> toml conversion
-        # For now, symlink as-is
-        dest = self.get_commands_dir(target_dir) / source.name
-        self._create_symlink(source, dest)
+        """Convert markdown command to TOML and write to commands dir."""
+        commands_dir = self.get_commands_dir(target_dir)
+        commands_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate TOML filename
+        dest = commands_dir / f"{source.stem}.toml"
+
+        toml_content = md_to_toml(source)
+        dest.write_text(toml_content)
         return dest
 
+    def unlink_command(self, name: str, target_dir: Path) -> bool:
+        """Remove a TOML command file."""
+        commands_dir = self.get_commands_dir(target_dir)
+        # Try both .toml and .md extensions
+        for ext in [".toml", ".md", ""]:
+            stem = name.rsplit(".", 1)[0] if "." in name else name
+            path = commands_dir / f"{stem}{ext}" if ext else commands_dir / name
+            if path.exists():
+                path.unlink()
+                return True
+        return False
+
     def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
-        # TODO M3: Gemini settings.json hooks + bash runner
+        """Register hooks in Gemini settings.json format.
+
+        Gemini uses the same settings.json hook format as Claude.
+        """
+        # Hooks are handled by the sync command via generator/installer
         return list(hook_names)
 
-    def write_mcp_config(self, servers: dict[str, dict], target_dir: Path) -> None:
-        # TODO M3: merge into .gemini/settings.json
-        pass
+    def write_mcp_config(
+        self,
+        servers: dict[str, dict],
+        target_dir: Path,
+    ) -> None:
+        """Merge hawk-managed MCP servers into .gemini/settings.json."""
+        settings_path = target_dir / "settings.json"
+
+        existing: dict[str, Any] = {}
+        if settings_path.exists():
+            try:
+                with open(settings_path) as f:
+                    existing = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+
+        if not isinstance(existing, dict):
+            existing = {}
+
+        mcp_servers = existing.get("mcpServers", {})
+        if not isinstance(mcp_servers, dict):
+            mcp_servers = {}
+
+        # Remove old hawk-managed entries
+        to_remove = [
+            name
+            for name, cfg in mcp_servers.items()
+            if isinstance(cfg, dict) and cfg.get(HAWK_MCP_MARKER)
+        ]
+        for name in to_remove:
+            del mcp_servers[name]
+
+        # Add new hawk-managed entries
+        for name, server_cfg in servers.items():
+            entry = dict(server_cfg)
+            entry[HAWK_MCP_MARKER] = True
+            mcp_servers[name] = entry
+
+        existing["mcpServers"] = mcp_servers
+
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(settings_path, "w") as f:
+            json.dump(existing, f, indent=2)
