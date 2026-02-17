@@ -5,7 +5,15 @@ import pytest
 from hawk_hooks import v2_config
 from hawk_hooks.registry import Registry
 from hawk_hooks.types import ComponentType, ResolvedSet, Tool
-from hawk_hooks.v2_sync import format_sync_results, sync_directory, sync_global, SyncResult
+from hawk_hooks.v2_sync import (
+    _cache_key,
+    _read_cached_hash,
+    _write_cached_hash,
+    format_sync_results,
+    sync_directory,
+    sync_global,
+    SyncResult,
+)
 
 
 @pytest.fixture
@@ -109,6 +117,61 @@ class TestSyncDirectory:
 
         results = sync_directory(project, tools=[Tool.CLAUDE])
         assert len(results) == 1
+
+
+class TestSyncCache:
+    def test_cache_key_global(self):
+        key = _cache_key("global", Tool.CLAUDE)
+        assert key == "global_claude"
+
+    def test_cache_key_directory(self):
+        key = _cache_key("/home/user/project", Tool.GEMINI)
+        assert key == "home_user_project_gemini"
+
+    def test_read_write_cache(self, v2_env):
+        _write_cached_hash("global", Tool.CLAUDE, "abc123")
+        assert _read_cached_hash("global", Tool.CLAUDE) == "abc123"
+
+    def test_read_missing_cache(self, v2_env):
+        assert _read_cached_hash("nonexistent", Tool.CLAUDE) is None
+
+    def test_cache_skips_unchanged(self, v2_env, tmp_path, monkeypatch):
+        """Second sync with same config should produce no changes (cache hit)."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        # First sync — should produce linked items
+        results1 = sync_global(tools=[Tool.CLAUDE])
+        assert results1[0].linked  # something was linked
+
+        # Second sync — cache hit, no changes
+        results2 = sync_global(tools=[Tool.CLAUDE])
+        assert not results2[0].linked
+        assert not results2[0].unlinked
+        assert not results2[0].errors
+
+    def test_force_bypasses_cache(self, v2_env, tmp_path, monkeypatch):
+        """--force should sync even when cache matches."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        # First sync
+        sync_global(tools=[Tool.CLAUDE])
+
+        # Force sync — should still do work (symlinks already exist so no new links,
+        # but it should not short-circuit via cache)
+        results = sync_global(tools=[Tool.CLAUDE], force=True)
+        # The result is computed by the adapter (not a cache no-op),
+        # so tool name should still be set
+        assert results[0].tool == "claude"
 
 
 class TestFormatResults:

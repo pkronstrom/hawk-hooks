@@ -12,10 +12,38 @@ from .resolver import resolve
 from .types import ResolvedSet, SyncResult, Tool
 
 
+def _get_cache_dir() -> Path:
+    """Get the resolved-set cache directory."""
+    return v2_config.get_config_dir() / "cache" / "resolved"
+
+
+def _cache_key(scope: str, tool: Tool) -> str:
+    """Build a cache filename for a scope+tool combination."""
+    safe_scope = scope.replace("/", "_").replace("\\", "_").lstrip("_")
+    return f"{safe_scope}_{tool.value}"
+
+
+def _read_cached_hash(scope: str, tool: Tool) -> str | None:
+    """Read the cached hash for a scope+tool, or None if missing."""
+    cache_file = _get_cache_dir() / _cache_key(scope, tool)
+    try:
+        return cache_file.read_text().strip()
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def _write_cached_hash(scope: str, tool: Tool, hash_val: str) -> None:
+    """Write a resolved-set hash to the cache."""
+    cache_dir = _get_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / _cache_key(scope, tool)).write_text(hash_val)
+
+
 def sync_directory(
     project_dir: Path,
     tools: list[Tool] | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> list[SyncResult]:
     """Sync a single directory to all enabled tools.
 
@@ -23,6 +51,7 @@ def sync_directory(
         project_dir: The project directory to sync.
         tools: Optional filter to specific tools.
         dry_run: If True, compute what would change but don't apply.
+        force: If True, bypass hash cache and sync unconditionally.
 
     Returns:
         List of SyncResult, one per tool.
@@ -48,6 +77,8 @@ def sync_directory(
     registry = Registry(v2_config.get_registry_path(cfg))
     results: list[SyncResult] = []
 
+    scope_key = str(project_dir.resolve())
+
     for tool in enabled_tools:
         adapter = get_adapter(tool)
 
@@ -60,12 +91,21 @@ def sync_directory(
             results.append(result)
             continue
 
+        # Check cache — skip if resolved set hasn't changed
+        current_hash = resolved.hash_key()
+        if not force and _read_cached_hash(scope_key, tool) == current_hash:
+            results.append(SyncResult(tool=str(tool)))
+            continue
+
         # Determine target directory
         target_dir = adapter.get_project_dir(project_dir)
 
-        # For global scope, use the tool's global dir
         result = adapter.sync(resolved, target_dir, registry.path)
         results.append(result)
+
+        # Update cache after successful sync
+        if not result.errors:
+            _write_cached_hash(scope_key, tool, current_hash)
 
     return results
 
@@ -73,12 +113,14 @@ def sync_directory(
 def sync_global(
     tools: list[Tool] | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> list[SyncResult]:
     """Sync global config to all enabled tools.
 
     Args:
         tools: Optional filter to specific tools.
         dry_run: If True, compute what would change but don't apply.
+        force: If True, bypass hash cache and sync unconditionally.
 
     Returns:
         List of SyncResult, one per tool.
@@ -98,9 +140,19 @@ def sync_global(
             results.append(result)
             continue
 
+        # Check cache — skip if resolved set hasn't changed
+        current_hash = resolved.hash_key()
+        if not force and _read_cached_hash("global", tool) == current_hash:
+            results.append(SyncResult(tool=str(tool)))
+            continue
+
         target_dir = adapter.get_global_dir()
         result = adapter.sync(resolved, target_dir, registry.path)
         results.append(result)
+
+        # Update cache after successful sync
+        if not result.errors:
+            _write_cached_hash("global", tool, current_hash)
 
     return results
 
@@ -108,6 +160,7 @@ def sync_global(
 def sync_all(
     tools: list[Tool] | None = None,
     dry_run: bool = False,
+    force: bool = False,
 ) -> dict[str, list[SyncResult]]:
     """Sync global + all registered directories.
 
@@ -117,7 +170,7 @@ def sync_all(
     all_results: dict[str, list[SyncResult]] = {}
 
     # Sync global
-    all_results["global"] = sync_global(tools=tools, dry_run=dry_run)
+    all_results["global"] = sync_global(tools=tools, dry_run=dry_run, force=force)
 
     # Sync each registered directory
     directories = v2_config.get_registered_directories()
@@ -125,7 +178,7 @@ def sync_all(
         dir_path = Path(dir_path_str)
         if dir_path.exists():
             all_results[dir_path_str] = sync_directory(
-                dir_path, tools=tools, dry_run=dry_run
+                dir_path, tools=tools, dry_run=dry_run, force=force
             )
 
     return all_results

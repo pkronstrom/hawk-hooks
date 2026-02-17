@@ -76,15 +76,17 @@ def cmd_sync(args):
 
     tools = [Tool(args.tool)] if args.tool else None
 
+    force = args.force
+
     if args.dir:
         project_dir = Path(args.dir).resolve()
-        results = sync_directory(project_dir, tools=tools, dry_run=args.dry_run)
+        results = sync_directory(project_dir, tools=tools, dry_run=args.dry_run, force=force)
         formatted = format_sync_results({str(project_dir): results})
     elif args.globals_only:
-        results = sync_global(tools=tools, dry_run=args.dry_run)
+        results = sync_global(tools=tools, dry_run=args.dry_run, force=force)
         formatted = format_sync_results({"global": results})
     else:
-        all_results = sync_all(tools=tools, dry_run=args.dry_run)
+        all_results = sync_all(tools=tools, dry_run=args.dry_run, force=force)
         formatted = format_sync_results(all_results)
 
     if args.dry_run:
@@ -240,6 +242,82 @@ def cmd_profile_show(args):
     print(yaml.dump(profile, default_flow_style=False))
 
 
+def cmd_download(args):
+    """Download components from a git URL."""
+    import shutil
+    import tempfile
+
+    from .downloader import add_items_to_registry, check_clashes, classify, shallow_clone
+    from .registry import Registry
+    from . import v2_config
+
+    url = args.url
+    registry = Registry(v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    # 1. Shallow clone
+    print(f"Cloning {url}...")
+    try:
+        clone_dir = shallow_clone(url)
+    except Exception as e:
+        print(f"Error cloning: {e}")
+        sys.exit(1)
+
+    try:
+        # 2. Classify contents
+        content = classify(clone_dir)
+        if not content.items:
+            print("No components found in repository.")
+            return
+
+        print(f"\nFound {len(content.items)} component(s):")
+        for item in content.items:
+            print(f"  [{item.component_type.value}] {item.name}")
+
+        # 3. Check for clashes
+        clashes = check_clashes(content.items, registry)
+        if clashes:
+            print(f"\nClashes with existing registry entries:")
+            for item in clashes:
+                print(f"  {item.component_type.value}/{item.name}")
+
+        # 4. Add to registry
+        replace = args.replace
+        if clashes and not replace:
+            print("\nUse --replace to overwrite existing entries.")
+            # Filter out clashing items
+            clash_keys = {(c.component_type, c.name) for c in clashes}
+            items_to_add = [
+                i for i in content.items
+                if (i.component_type, i.name) not in clash_keys
+            ]
+        else:
+            items_to_add = content.items
+
+        if not items_to_add:
+            print("\nNo new components to add.")
+            return
+
+        added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+
+        # 5. Summary
+        if added:
+            print(f"\nAdded {len(added)} component(s):")
+            for name in added:
+                print(f"  + {name}")
+        if skipped:
+            print(f"\nSkipped {len(skipped)}:")
+            for name in skipped:
+                print(f"  - {name}")
+
+        print("\nNext steps:")
+        print("  hawk list              # View registry")
+        print("  hawk sync              # Sync to tools")
+    finally:
+        # Clean up temp dir
+        shutil.rmtree(clone_dir, ignore_errors=True)
+
+
 def cmd_migrate(args):
     """Migrate v1 config to v2."""
     from .migration import run_migration
@@ -277,6 +355,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p.add_argument("--dir", help="Sync specific directory")
     sync_p.add_argument("--tool", choices=[t.value for t in Tool], help="Sync specific tool")
     sync_p.add_argument("--dry-run", action="store_true", help="Show what would change")
+    sync_p.add_argument("--force", action="store_true", help="Bypass cache, sync unconditionally")
     sync_p.add_argument("--global", dest="globals_only", action="store_true", help="Sync global only")
     sync_p.set_defaults(func=cmd_sync)
 
@@ -314,6 +393,12 @@ def build_parser() -> argparse.ArgumentParser:
     profile_show_p = profile_sub.add_parser("show", help="Show profile details")
     profile_show_p.add_argument("name", help="Profile name")
     profile_show_p.set_defaults(func=cmd_profile_show)
+
+    # download
+    dl_p = subparsers.add_parser("download", help="Download components from git URL")
+    dl_p.add_argument("url", help="Git URL to clone")
+    dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
+    dl_p.set_defaults(func=cmd_download)
 
     # migrate
     migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")

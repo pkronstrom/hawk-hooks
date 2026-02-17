@@ -84,3 +84,17 @@ class TestArgParsing:
     def test_migrate_no_backup(self):
         args = self.parser.parse_args(["migrate", "--no-backup"])
         assert args.no_backup is True
+
+    def test_download(self):
+        args = self.parser.parse_args(["download", "https://github.com/user/repo"])
+        assert args.command == "download"
+        assert args.url == "https://github.com/user/repo"
+        assert args.replace is False
+
+    def test_download_replace(self):
+        args = self.parser.parse_args(["download", "https://github.com/user/repo", "--replace"])
+        assert args.replace is True
+
+    def test_sync_force(self):
+        args = self.parser.parse_args(["sync", "--force"])
+        assert args.force is True
