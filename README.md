@@ -2,18 +2,21 @@
 
 ![hawk banner](docs/hawk_banner.png)
 
-A modular Claude Code hooks manager with auto-discovery, multi-language support, and fast bash runners.
+**Drop-in Claude Code hooks for developers who want to extend the AI without touching JSON.**
 
 Part of [**Nest-Driven Development**](https://github.com/pkronstrom/nest-driven-development) — the minimum vibable workflow.
 
+Claude Code hooks are powerful, but adding one means editing a JSON config and hoping you got the schema right. hawk makes hooks first-class citizens: drop a file in the right folder, and it's live.
+
+No restart. No config editing. hawk watches your hook directories and wires everything automatically, whether you're writing a quick shell guard or a full LLM-evaluated decision. Sharp by design — hooks execute in ~5ms and get out of the way.
+
 ## Features
 
-- **Auto-discovery**: Drop scripts in `~/.config/hawk-hooks/hooks/{event}/` and they appear automatically
-- **Multi-language**: Python, JavaScript, Shell, TypeScript (via bun)
-- **Fast execution**: Generated bash runners (~5ms overhead vs ~50ms for Python dispatcher)
-- **Context injection**: `.stdout.md` files output content directly to Claude's context
-- **Native prompt hooks**: `.prompt.json` files for LLM-evaluated decisions (Haiku)
-- **Project overrides**: Per-project hook configurations that override global settings
+- **Drop a file, get a hook** — auto-discovery means any script in `~/.config/hawk-hooks/hooks/{event}/` is live immediately
+- **Write hooks in whatever language you think in** — Python, JavaScript, TypeScript, or shell all work
+- **Inject context directly into Claude's view** — `.stdout.md` files surface output right where Claude sees it
+- **Let Haiku make the call** — `.prompt.json` hooks use a fast LLM for nuanced allow/block decisions
+- **Override per project, keep globals clean** — project-level hook configs layer on top without polluting your global setup
 
 ## Installation
 
