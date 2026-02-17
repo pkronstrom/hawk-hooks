@@ -6,8 +6,94 @@ the codebase. These are designed to replace magic strings with type-safe constan
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
+
+
+# ── v2 enums ──────────────────────────────────────────────────────────────
+
+
+class Tool(str, Enum):
+    """Supported AI CLI tools."""
+
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+    CODEX = "codex"
+    OPENCODE = "opencode"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def all(cls) -> list["Tool"]:
+        return list(cls)
+
+
+class ComponentType(str, Enum):
+    """Types of components managed in the registry."""
+
+    SKILL = "skill"
+    HOOK = "hook"
+    COMMAND = "command"
+    AGENT = "agent"
+    MCP = "mcp"
+    PROMPT = "prompt"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @property
+    def registry_dir(self) -> str:
+        """Directory name in the registry (pluralized)."""
+        return self.value + "s"
+
+
+@dataclass
+class ResolvedSet:
+    """Resolved set of components for a directory + tool combination."""
+
+    skills: list[str] = field(default_factory=list)
+    hooks: list[str] = field(default_factory=list)
+    commands: list[str] = field(default_factory=list)
+    agents: list[str] = field(default_factory=list)
+    mcp: list[str] = field(default_factory=list)
+
+    def get(self, component_type: ComponentType) -> list[str]:
+        """Get the list for a given component type."""
+        mapping = {
+            ComponentType.SKILL: self.skills,
+            ComponentType.HOOK: self.hooks,
+            ComponentType.COMMAND: self.commands,
+            ComponentType.AGENT: self.agents,
+            ComponentType.MCP: self.mcp,
+        }
+        return mapping.get(component_type, [])
+
+    def hash_key(self) -> str:
+        """Deterministic hash for cache comparison."""
+        import hashlib
+
+        parts = [
+            ",".join(sorted(self.skills)),
+            ",".join(sorted(self.hooks)),
+            ",".join(sorted(self.commands)),
+            ",".join(sorted(self.agents)),
+            ",".join(sorted(self.mcp)),
+        ]
+        return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
+
+
+@dataclass
+class SyncResult:
+    """Result of syncing a resolved set to a tool."""
+
+    tool: str
+    linked: list[str] = field(default_factory=list)
+    unlinked: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+# ── v1 types (preserved for backwards compatibility) ──────────────────────
 
 
 # Result dataclasses for typed returns

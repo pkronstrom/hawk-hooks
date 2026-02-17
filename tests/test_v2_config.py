@@ -1,0 +1,162 @@
+"""Tests for v2 YAML config management."""
+
+import pytest
+import yaml
+
+from hawk_hooks import v2_config
+from hawk_hooks.types import Tool
+
+
+@pytest.fixture
+def v2_env(tmp_path, monkeypatch):
+    """Set up a temp v2 config environment."""
+    config_dir = tmp_path / "hawk-hooks"
+    config_dir.mkdir()
+    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+    return config_dir
+
+
+class TestGlobalConfig:
+    def test_load_defaults_when_missing(self, v2_env):
+        cfg = v2_config.load_global_config()
+        assert cfg["debug"] is False
+        assert "claude" in cfg["tools"]
+        assert cfg["global"]["skills"] == []
+
+    def test_save_and_load(self, v2_env):
+        cfg = v2_config.load_global_config()
+        cfg["debug"] = True
+        cfg["global"]["skills"] = ["tdd"]
+        v2_config.save_global_config(cfg)
+
+        loaded = v2_config.load_global_config()
+        assert loaded["debug"] is True
+        assert loaded["global"]["skills"] == ["tdd"]
+
+    def test_deep_merge_with_defaults(self, v2_env):
+        # Write partial config
+        config_path = v2_config.get_global_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.dump({"debug": True}, f)
+
+        cfg = v2_config.load_global_config()
+        assert cfg["debug"] is True
+        # Defaults should fill in
+        assert "tools" in cfg
+        assert "global" in cfg
+
+    def test_handles_corrupt_yaml(self, v2_env):
+        config_path = v2_config.get_global_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(":::invalid yaml:::")
+
+        cfg = v2_config.load_global_config()
+        # Should return defaults
+        assert cfg["debug"] is False
+
+
+class TestProfiles:
+    def test_save_and_load(self, v2_env):
+        data = {
+            "name": "web-fullstack",
+            "skills": ["tdd", "react-patterns"],
+            "hooks": ["block-secrets"],
+        }
+        v2_config.save_profile("web-fullstack", data)
+        loaded = v2_config.load_profile("web-fullstack")
+        assert loaded is not None
+        assert loaded["skills"] == ["tdd", "react-patterns"]
+
+    def test_load_missing_returns_none(self, v2_env):
+        assert v2_config.load_profile("nonexistent") is None
+
+    def test_list_profiles(self, v2_env):
+        v2_config.save_profile("web", {"name": "web"})
+        v2_config.save_profile("api", {"name": "api"})
+        profiles = v2_config.list_profiles()
+        assert profiles == ["api", "web"]
+
+    def test_list_profiles_empty(self, v2_env):
+        assert v2_config.list_profiles() == []
+
+
+class TestDirConfig:
+    def test_save_and_load(self, v2_env, tmp_path):
+        project = tmp_path / "my-project"
+        project.mkdir()
+
+        data = {
+            "profile": "web-fullstack",
+            "skills": {"enabled": ["tdd"], "disabled": []},
+        }
+        v2_config.save_dir_config(project, data)
+        loaded = v2_config.load_dir_config(project)
+        assert loaded is not None
+        assert loaded["profile"] == "web-fullstack"
+
+    def test_load_missing_returns_none(self, tmp_path):
+        assert v2_config.load_dir_config(tmp_path / "nonexistent") is None
+
+
+class TestDirectoryIndex:
+    def test_register_and_list(self, v2_env, tmp_path):
+        project = tmp_path / "my-project"
+        project.mkdir()
+
+        v2_config.register_directory(project, profile="web")
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) in dirs
+        assert dirs[str(project.resolve())]["profile"] == "web"
+
+    def test_unregister(self, v2_env, tmp_path):
+        project = tmp_path / "my-project"
+        project.mkdir()
+
+        v2_config.register_directory(project)
+        v2_config.unregister_directory(project)
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) not in dirs
+
+
+class TestEnabledTools:
+    def test_all_enabled_by_default(self, v2_env):
+        tools = v2_config.get_enabled_tools()
+        assert Tool.CLAUDE in tools
+        assert Tool.GEMINI in tools
+        assert len(tools) == 4
+
+    def test_disable_tool(self, v2_env):
+        cfg = v2_config.load_global_config()
+        cfg["tools"]["gemini"]["enabled"] = False
+        v2_config.save_global_config(cfg)
+
+        tools = v2_config.get_enabled_tools()
+        assert Tool.GEMINI not in tools
+        assert Tool.CLAUDE in tools
+
+
+class TestToolGlobalDir:
+    def test_default_dirs(self, v2_env):
+        path = v2_config.get_tool_global_dir(Tool.CLAUDE)
+        assert str(path).endswith(".claude")
+
+    def test_custom_dir(self, v2_env):
+        cfg = v2_config.load_global_config()
+        cfg["tools"]["claude"]["global_dir"] = "/custom/path"
+        v2_config.save_global_config(cfg)
+
+        path = v2_config.get_tool_global_dir(Tool.CLAUDE)
+        assert str(path) == "/custom/path"
+
+
+class TestEnsureDirs:
+    def test_creates_registry_dirs(self, v2_env):
+        v2_config.ensure_v2_dirs()
+        registry = v2_config.get_registry_path()
+        assert (registry / "skills").exists()
+        assert (registry / "hooks").exists()
+        assert (registry / "commands").exists()
+        assert (registry / "agents").exists()
+        assert (registry / "mcp").exists()
+        assert (registry / "prompts").exists()
