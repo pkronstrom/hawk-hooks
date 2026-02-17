@@ -487,8 +487,8 @@ def main_v2():
 
     if args.command is None:
         try:
-            from .interactive import interactive_menu
-            interactive_menu()
+            from .v2_interactive import v2_interactive_menu
+            v2_interactive_menu()
         except ImportError:
             parser.print_help()
     elif hasattr(args, "func"):
