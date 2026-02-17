@@ -90,6 +90,11 @@ class TestArgParsing:
         assert args.command == "download"
         assert args.url == "https://github.com/user/repo"
         assert args.replace is False
+        assert args.all is False
+
+    def test_download_all(self):
+        args = self.parser.parse_args(["download", "https://github.com/user/repo", "--all"])
+        assert args.all is True
 
     def test_download_replace(self):
         args = self.parser.parse_args(["download", "https://github.com/user/repo", "--replace"])

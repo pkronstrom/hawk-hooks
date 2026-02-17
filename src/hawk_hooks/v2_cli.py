@@ -253,7 +253,6 @@ def cmd_profile_show(args):
 def cmd_download(args):
     """Download components from a git URL."""
     import shutil
-    import tempfile
 
     from .downloader import add_items_to_registry, check_clashes, classify, shallow_clone
     from .registry import Registry
@@ -282,25 +281,33 @@ def cmd_download(args):
         for item in content.items:
             print(f"  [{item.component_type.value}] {item.name}")
 
-        # 3. Check for clashes
-        clashes = check_clashes(content.items, registry)
+        # 3. Let user select (unless --all)
+        if args.all:
+            selected_items = content.items
+        else:
+            selected_items = _interactive_select_items(content.items)
+            if not selected_items:
+                print("\nNo components selected.")
+                return
+
+        # 4. Check for clashes
+        clashes = check_clashes(selected_items, registry)
         if clashes:
             print(f"\nClashes with existing registry entries:")
             for item in clashes:
                 print(f"  {item.component_type.value}/{item.name}")
 
-        # 4. Add to registry
+        # 5. Add to registry
         replace = args.replace
         if clashes and not replace:
             print("\nUse --replace to overwrite existing entries.")
-            # Filter out clashing items
             clash_keys = {(c.component_type, c.name) for c in clashes}
             items_to_add = [
-                i for i in content.items
+                i for i in selected_items
                 if (i.component_type, i.name) not in clash_keys
             ]
         else:
-            items_to_add = content.items
+            items_to_add = selected_items
 
         if not items_to_add:
             print("\nNo new components to add.")
@@ -308,7 +315,7 @@ def cmd_download(args):
 
         added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
 
-        # 5. Summary
+        # 6. Summary
         if added:
             print(f"\nAdded {len(added)} component(s):")
             for name in added:
@@ -324,6 +331,29 @@ def cmd_download(args):
     finally:
         # Clean up temp dir
         shutil.rmtree(clone_dir, ignore_errors=True)
+
+
+def _interactive_select_items(items):
+    """Show interactive multi-select for download items. Returns selected items."""
+    from simple_term_menu import TerminalMenu
+
+    options = [f"[{item.component_type.value}] {item.name}" for item in items]
+    menu = TerminalMenu(
+        options,
+        title="\nSelect components to add (space to toggle, enter to confirm):",
+        multi_select=True,
+        preselected_entries=list(range(len(options))),
+        multi_select_select_on_accept=False,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q",),
+    )
+    result = menu.show()
+    if result is None:
+        return []
+    indices = list(result) if isinstance(result, tuple) else [result]
+    return [items[i] for i in indices]
 
 
 def cmd_clean(args):
@@ -430,6 +460,7 @@ def build_parser() -> argparse.ArgumentParser:
     # download
     dl_p = subparsers.add_parser("download", help="Download components from git URL")
     dl_p.add_argument("url", help="Git URL to clone")
+    dl_p.add_argument("--all", action="store_true", help="Add all components without prompting")
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.set_defaults(func=cmd_download)
 
@@ -455,7 +486,11 @@ def main_v2():
     args = parser.parse_args()
 
     if args.command is None:
-        parser.print_help()
+        try:
+            from .interactive import interactive_menu
+            interactive_menu()
+        except ImportError:
+            parser.print_help()
     elif hasattr(args, "func"):
         args.func(args)
     else:
