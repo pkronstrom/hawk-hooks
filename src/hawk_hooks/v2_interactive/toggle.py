@@ -244,7 +244,7 @@ def run_toggle_list(
                     scope = "local" if scope == "global" else "global"
 
             # Quit
-            elif key in ("q", readchar.key.ESCAPE):
+            elif key in ("q", "\x1b"):
                 break
 
             live.update(Text.from_markup(_build_display()))
