@@ -46,8 +46,8 @@ Review across all applicable dimensions. **Skip dimensions that don't apply** to
 Also ask the user whether they'd like to use `codex` and/or `gemini` skills with subagents to run parallel reviews, or just run it here.
 
 If yes, spawn the agent(s) with best thinking models available. Use the Skill tool:
-- `/codex` with args: `-m o3 -s read-only "<review prompt with files and context>"`
-- `/gemini` with args: `-m gemini-2.5-pro -s read-only "<review prompt with files and context>"`
+- `/codex` with args: `-m gpt-5.3-codex -s read-only "<review prompt with files and context>"`
+- `/gemini` with args: `-m gemini-3-flash-preview -s read-only "<review prompt with files and context>"`
 
 #### Code Quality & Architecture
 - DRY violations — copy-pasted logic, repeated patterns that should be abstracted

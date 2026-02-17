@@ -92,15 +92,15 @@ Output a structured report with:
 **Invoke both in parallel:**
 
 Use the Skill tool twice in a single response:
-- `/codex` with args: `-m o3 -s read-only "<review prompt>"`
-- `/gemini` with args: `-m gemini-2.5-pro -s read-only "<review prompt>"`
+- `/codex` with args: `-m gpt-5.3-codex -s read-only "<review prompt>"`
+- `/gemini` with args: `-m gemini-3-flash-preview -s read-only "<review prompt>"`
 
 **Fallback if skills unavailable:**
 
 If `/codex` or `/gemini` skills are not available, fall back to direct CLI:
 ```bash
-codex exec -m o3 -s read-only "<review prompt>"
-gemini exec -m gemini-2.5-pro -s read-only "<review prompt>"
+codex exec -m gpt-5.3-codex -s read-only "<review prompt>"
+gemini exec -m gemini-3-flash-preview -s read-only "<review prompt>"
 ```
 
 ### Step 4: Synthesize Results
