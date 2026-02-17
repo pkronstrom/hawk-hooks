@@ -326,6 +326,31 @@ def cmd_download(args):
         shutil.rmtree(clone_dir, ignore_errors=True)
 
 
+def cmd_clean(args):
+    """Remove all hawk-managed symlinks, MCP entries, and cache."""
+    from .v2_sync import clean_all, clean_directory, clean_global, format_sync_results
+
+    tools = [Tool(args.tool)] if args.tool else None
+
+    if args.dir:
+        project_dir = Path(args.dir).resolve()
+        results = clean_directory(project_dir, tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results({str(project_dir): results})
+    elif args.globals_only:
+        results = clean_global(tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results({"global": results})
+    else:
+        all_results = clean_all(tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results(all_results)
+
+    if args.dry_run:
+        print("Dry run (no changes applied):")
+    print(formatted or "  No changes.")
+
+    if not args.dry_run:
+        print("\nAll hawk-managed items removed from tool configs.")
+
+
 def cmd_migrate(args):
     """Migrate v1 config to v2."""
     from .migration import run_migration
@@ -408,6 +433,14 @@ def build_parser() -> argparse.ArgumentParser:
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.set_defaults(func=cmd_download)
 
+    # clean
+    clean_p = subparsers.add_parser("clean", help="Remove all hawk-managed items from tools")
+    clean_p.add_argument("--dir", help="Clean specific directory only")
+    clean_p.add_argument("--tool", choices=[t.value for t in Tool], help="Clean specific tool")
+    clean_p.add_argument("--dry-run", action="store_true", help="Show what would be removed")
+    clean_p.add_argument("--global", dest="globals_only", action="store_true", help="Clean global only")
+    clean_p.set_defaults(func=cmd_clean)
+
     # migrate
     migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")
     migrate_p.add_argument("--no-backup", action="store_true", help="Skip backup of v1 config")
@@ -422,13 +455,7 @@ def main_v2():
     args = parser.parse_args()
 
     if args.command is None:
-        # No subcommand - try interactive menu, fall back to help
-        try:
-            from .interactive import interactive_menu
-
-            interactive_menu()
-        except ImportError:
-            parser.print_help()
+        parser.print_help()
     elif hasattr(args, "func"):
         args.func(args)
     else:

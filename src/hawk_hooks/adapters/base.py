@@ -212,12 +212,27 @@ class ToolAdapter(ABC):
         # Link new
         for name in desired - current:
             source = source_dir / name
-            if source.exists():
-                try:
-                    link_fn(source, target_dir)
-                    result.linked.append(name)
-                except Exception as e:
-                    result.errors.append(f"link {name}: {e}")
+            if not source.exists():
+                continue
+            # Check if destination already exists but belongs to something else
+            dest = get_dir_fn(target_dir) / name
+            if dest.exists() or dest.is_symlink():
+                is_ours = False
+                if dest.is_symlink():
+                    try:
+                        resolved_target = dest.resolve()
+                        resolved_source = source_dir.resolve()
+                        is_ours = resolved_target == resolved_source or resolved_target.is_relative_to(resolved_source)
+                    except (OSError, ValueError):
+                        pass
+                if not is_ours:
+                    result.errors.append(f"skip {name}: already exists (not managed by hawk)")
+                    continue
+            try:
+                link_fn(source, target_dir)
+                result.linked.append(name)
+            except Exception as e:
+                result.errors.append(f"link {name}: {e}")
 
     @staticmethod
     def _merge_mcp_json(

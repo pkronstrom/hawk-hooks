@@ -9,6 +9,7 @@ from hawk_hooks.v2_sync import (
     _cache_key,
     _read_cached_hash,
     _write_cached_hash,
+    clean_global,
     format_sync_results,
     sync_directory,
     sync_global,
@@ -172,6 +173,69 @@ class TestSyncCache:
         # The result is computed by the adapter (not a cache no-op),
         # so tool name should still be set
         assert results[0].tool == "claude"
+
+
+class TestClean:
+    def test_clean_removes_symlinks(self, v2_env, tmp_path, monkeypatch):
+        """Clean should remove all hawk-managed symlinks."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        # First sync to create symlinks
+        results = sync_global(tools=[Tool.CLAUDE])
+        assert results[0].linked
+
+        # Verify symlink exists
+        assert (claude_dir / "skills" / "tdd").is_symlink()
+
+        # Clean
+        clean_results = clean_global(tools=[Tool.CLAUDE])
+        assert len(clean_results) == 1
+        assert "tdd" in clean_results[0].unlinked
+
+        # Verify symlink is gone
+        assert not (claude_dir / "skills" / "tdd").exists()
+
+    def test_clean_clears_cache(self, v2_env, tmp_path, monkeypatch):
+        """Clean should clear the sync cache."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        # Sync to populate cache
+        sync_global(tools=[Tool.CLAUDE])
+        assert _read_cached_hash("global", Tool.CLAUDE) is not None
+
+        # Clean
+        clean_global(tools=[Tool.CLAUDE])
+        assert _read_cached_hash("global", Tool.CLAUDE) is None
+
+    def test_clean_dry_run(self, v2_env, tmp_path, monkeypatch):
+        """Dry-run clean should report but not remove."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        # Sync first
+        sync_global(tools=[Tool.CLAUDE])
+        assert (claude_dir / "skills" / "tdd").is_symlink()
+
+        # Dry-run clean
+        clean_results = clean_global(tools=[Tool.CLAUDE], dry_run=True)
+        assert any("tdd" in item for item in clean_results[0].unlinked)
+
+        # Symlink should still exist
+        assert (claude_dir / "skills" / "tdd").is_symlink()
 
 
 class TestFormatResults:

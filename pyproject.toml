@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hawk-hooks"
+name = "hawk"
 version = "0.7.0"
-description = "A modular Claude Code hooks manager"
+description = "Multi-agent CLI package manager for AI tools"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [
     { name = "Peter Kronström", email = "peter.kronstrom@gmail.com" }
 ]
-keywords = ["claude", "hooks", "cli", "automation"]
+keywords = ["claude", "gemini", "codex", "opencode", "hooks", "cli", "ai-tools"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

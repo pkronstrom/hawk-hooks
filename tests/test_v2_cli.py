@@ -98,3 +98,22 @@ class TestArgParsing:
     def test_sync_force(self):
         args = self.parser.parse_args(["sync", "--force"])
         assert args.force is True
+
+    def test_clean_default(self):
+        args = self.parser.parse_args(["clean"])
+        assert args.command == "clean"
+        assert args.dry_run is False
+        assert args.dir is None
+        assert args.tool is None
+
+    def test_clean_dry_run(self):
+        args = self.parser.parse_args(["clean", "--dry-run"])
+        assert args.dry_run is True
+
+    def test_clean_with_tool(self):
+        args = self.parser.parse_args(["clean", "--tool", "claude"])
+        assert args.tool == "claude"
+
+    def test_clean_global(self):
+        args = self.parser.parse_args(["clean", "--global"])
+        assert args.globals_only is True

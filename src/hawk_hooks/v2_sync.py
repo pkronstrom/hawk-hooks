@@ -184,6 +184,124 @@ def sync_all(
     return all_results
 
 
+def clean_directory(
+    project_dir: Path,
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> list[SyncResult]:
+    """Remove all hawk-managed items from a directory's tool configs.
+
+    Syncs with an empty resolved set, which causes all hawk-managed
+    symlinks to be unlinked.
+    """
+    cfg = v2_config.load_global_config()
+    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+    registry = Registry(v2_config.get_registry_path(cfg))
+    empty = ResolvedSet()
+    results: list[SyncResult] = []
+    scope_key = str(project_dir.resolve())
+
+    for tool in enabled_tools:
+        adapter = get_adapter(tool)
+        target_dir = adapter.get_project_dir(project_dir)
+
+        if dry_run:
+            result = SyncResult(tool=str(tool))
+            result.unlinked = _compute_would_unlink(registry.path, adapter, target_dir)
+            results.append(result)
+            continue
+
+        result = adapter.sync(empty, target_dir, registry.path)
+        results.append(result)
+
+        # Clear cache for this scope+tool
+        cache_file = _get_cache_dir() / _cache_key(scope_key, tool)
+        if cache_file.exists():
+            cache_file.unlink()
+
+    return results
+
+
+def clean_global(
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> list[SyncResult]:
+    """Remove all hawk-managed items from global tool configs."""
+    cfg = v2_config.load_global_config()
+    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+    registry = Registry(v2_config.get_registry_path(cfg))
+    empty = ResolvedSet()
+    results: list[SyncResult] = []
+
+    for tool in enabled_tools:
+        adapter = get_adapter(tool)
+        target_dir = adapter.get_global_dir()
+
+        if dry_run:
+            result = SyncResult(tool=str(tool))
+            result.unlinked = _compute_would_unlink(registry.path, adapter, target_dir)
+            results.append(result)
+            continue
+
+        result = adapter.sync(empty, target_dir, registry.path)
+        results.append(result)
+
+        # Clear cache
+        cache_file = _get_cache_dir() / _cache_key("global", tool)
+        if cache_file.exists():
+            cache_file.unlink()
+
+    return results
+
+
+def clean_all(
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> dict[str, list[SyncResult]]:
+    """Remove all hawk-managed items from global + all registered directories."""
+    all_results: dict[str, list[SyncResult]] = {}
+
+    all_results["global"] = clean_global(tools=tools, dry_run=dry_run)
+
+    directories = v2_config.get_registered_directories()
+    for dir_path_str in directories:
+        dir_path = Path(dir_path_str)
+        if dir_path.exists():
+            all_results[dir_path_str] = clean_directory(
+                dir_path, tools=tools, dry_run=dry_run
+            )
+
+    return all_results
+
+
+def _compute_would_unlink(
+    registry_path: Path,
+    adapter,
+    target_dir: Path,
+) -> list[str]:
+    """Compute what would be unlinked in a dry-run clean."""
+    would_unlink: list[str] = []
+    for comp_type, get_dir_fn in [
+        ("skill", adapter.get_skills_dir),
+        ("agent", adapter.get_agents_dir),
+        ("command", adapter.get_commands_dir),
+    ]:
+        comp_dir = get_dir_fn(target_dir)
+        source_dir = registry_path / (comp_type + "s")
+        if not comp_dir.exists():
+            continue
+        for entry in comp_dir.iterdir():
+            if entry.is_symlink():
+                try:
+                    target = entry.resolve()
+                    resolved_source = source_dir.resolve()
+                    if target == resolved_source or target.is_relative_to(resolved_source):
+                        would_unlink.append(f"{comp_type}:{entry.name}")
+                except (OSError, ValueError):
+                    pass
+    return would_unlink
+
+
 def _compute_would_link(
     resolved: ResolvedSet,
     registry: Registry,
