@@ -697,16 +697,18 @@ def run_toggle_list(
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
 
-            # Delete item from registry
+            # Delete item from registry (or remove orphaned reference)
             elif key == "d":
                 name = _get_item_name_at_cursor()
-                if name and on_delete:
-                    live.stop()
-                    console.print(f"\n[yellow]Delete [bold]{name}[/bold] from registry?[/yellow] [dim](y/N)[/dim] ", end="")
-                    confirm = readchar.readkey()
-                    console.print()
-                    if confirm.lower() == "y":
-                        if on_delete(name):
+                if name:
+                    is_orphan = registry_items is not None and name not in registry_items
+                    if is_orphan:
+                        # Orphaned config reference — just remove from lists
+                        live.stop()
+                        console.print(f"\n[yellow]Remove [bold]{name}[/bold] (not in registry) from config?[/yellow] [dim](y/N)[/dim] ", end="")
+                        confirm = readchar.readkey()
+                        console.print()
+                        if confirm.lower() == "y":
                             if name in items:
                                 items.remove(name)
                             for cs in checked_sets:
@@ -718,16 +720,43 @@ def run_toggle_list(
                                     if name in g.items:
                                         g.items.remove(name)
                                 groups[:] = [g for g in groups if g.items]
-                            status_msg = f"Deleted {name}"
+                            status_msg = f"Removed {name}"
                             _rebuild_rows()
                             if row_list:
                                 cursor = min(cursor, len(row_list) - 1)
                                 if row_list[cursor][0] == ROW_SEPARATOR and cursor > 0:
                                     cursor -= 1
                             changed = True
-                        else:
-                            status_msg = f"Failed to delete {name}"
-                    live.start()
+                        live.start()
+                    elif on_delete:
+                        # Real registry item — delete from registry
+                        live.stop()
+                        console.print(f"\n[yellow]Delete [bold]{name}[/bold] from registry?[/yellow] [dim](y/N)[/dim] ", end="")
+                        confirm = readchar.readkey()
+                        console.print()
+                        if confirm.lower() == "y":
+                            if on_delete(name):
+                                if name in items:
+                                    items.remove(name)
+                                for cs in checked_sets:
+                                    cs.discard(name)
+                                for ins in initial_sets:
+                                    ins.discard(name)
+                                if groups:
+                                    for g in groups:
+                                        if name in g.items:
+                                            g.items.remove(name)
+                                    groups[:] = [g for g in groups if g.items]
+                                status_msg = f"Deleted {name}"
+                                _rebuild_rows()
+                                if row_list:
+                                    cursor = min(cursor, len(row_list) - 1)
+                                    if row_list[cursor][0] == ROW_SEPARATOR and cursor > 0:
+                                        cursor -= 1
+                                changed = True
+                            else:
+                                status_msg = f"Failed to delete {name}"
+                        live.start()
 
             # Quit / done
             elif key in ("q", "\x1b"):
