@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Description: Lint shell scripts with shellcheck
-# Deps: shellcheck, jq
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Lint shell scripts with shellcheck
+# hawk-hook: deps=shellcheck,jq
 
 set -euo pipefail
 

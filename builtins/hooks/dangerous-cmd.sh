@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Description: Block dangerous shell commands
-# Deps: jq
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Block dangerous shell commands
+# hawk-hook: deps=jq
 
 set -euo pipefail
 

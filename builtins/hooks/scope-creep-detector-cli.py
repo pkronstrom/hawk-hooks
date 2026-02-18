@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Description: Detect scope creep using transcript analysis + Haiku
-# Deps: none
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Detect scope creep using transcript analysis + Haiku
 
 """
 Scope Creep Detector - Analyzes the session transcript to verify Claude's

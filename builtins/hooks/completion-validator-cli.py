@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Description: Validate task completion using transcript analysis + Haiku
-# Deps: none
+# hawk-hook: events=stop
+# hawk-hook: description=Validate task completion using transcript analysis + Haiku
 
 """
 Completion Validator - Analyzes the session transcript to verify Claude

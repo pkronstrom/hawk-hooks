@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Description: Remind to update README.md and CLAUDE.md
+# hawk-hook: events=stop
+# hawk-hook: description=Remind to update README.md and CLAUDE.md
 
 cat << 'EOF'
 Before finishing, check if documentation needs updates:

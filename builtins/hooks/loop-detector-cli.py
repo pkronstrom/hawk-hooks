@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Description: Detect repetitive action loops using transcript analysis + Haiku
-# Deps: none
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Detect repetitive action loops using transcript analysis + Haiku
 
 """
 Loop Detector - Analyzes the session transcript to detect if Claude is stuck

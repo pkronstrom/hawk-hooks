@@ -131,3 +131,25 @@ class TestDirectoryFallback:
         f.write_text("# Check things\nDo stuff\n")
         meta = parse_hook_meta(f)
         assert meta.events == ["stop"]
+
+
+class TestBuiltins:
+    """Verify all bundled hooks have valid hawk-hook metadata."""
+
+    def test_all_builtins_have_events(self):
+        for candidate in [
+            Path(__file__).parent.parent / "builtins" / "hooks",
+            Path(__file__).parent.parent / "src" / "hawk_hooks" / "builtins" / "hooks",
+        ]:
+            if candidate.exists():
+                builtins_dir = candidate
+                break
+        else:
+            pytest.skip("builtins/hooks not found")
+
+        for f in sorted(builtins_dir.iterdir()):
+            if f.name.startswith(".") or f.is_dir():
+                continue
+            meta = parse_hook_meta(f)
+            assert meta.events, f"{f.name} has no events in hawk-hook metadata"
+            assert meta.description, f"{f.name} has no description in hawk-hook metadata"

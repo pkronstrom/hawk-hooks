@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# Description: Auto-format Python files with ruff
-# Deps: ruff
+# hawk-hook: events=post_tool_use
+# hawk-hook: description=Run ruff linter on modified Python files
+# hawk-hook: deps=ruff
 
 import json
 import subprocess
@@ -22,17 +23,18 @@ def main():
     if not file_path.endswith(".py"):
         return
 
-    # Run ruff format (auto-fixes)
-    subprocess.run(
-        ["ruff", "format", "--quiet", file_path],
+    # Run ruff check
+    result = subprocess.run(
+        ["ruff", "check", "--output-format=concise", file_path],
         capture_output=True,
+        text=True,
     )
 
-    # Run ruff check with auto-fix
-    subprocess.run(
-        ["ruff", "check", "--fix", "--quiet", file_path],
-        capture_output=True,
-    )
+    if result.returncode != 0:
+        print(f"Ruff found issues in {file_path}:", file=sys.stderr)
+        print(result.stdout, file=sys.stderr)
+        # Don't block, just warn
+        # sys.exit(2)  # Uncomment to block on lint errors
 
 
 if __name__ == "__main__":

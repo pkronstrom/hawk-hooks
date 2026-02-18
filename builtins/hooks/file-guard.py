@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Description: Block modifications to sensitive files
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Block modifications to sensitive files
 
 import json
 import sys

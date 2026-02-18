@@ -1,4 +1,8 @@
-# Description: Add project context to user prompts
+---
+hawk-hook:
+  events: [user_prompt_submit]
+  description: Add project context to user prompts
+---
 
 When processing this request, consider:
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Description: Check if Claude verified info before editing (transcript analysis + Haiku)
-# Deps: none
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Check if Claude verified info before editing (transcript analysis + Haiku)
 
 """
 Confidence Checker - Analyzes the session transcript to verify Claude has

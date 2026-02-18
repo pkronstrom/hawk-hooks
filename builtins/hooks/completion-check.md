@@ -1,4 +1,8 @@
-# Description: Verify task completion before stopping
+---
+hawk-hook:
+  events: [stop]
+  description: Verify task completion before stopping
+---
 
 Before stopping, please verify:
 

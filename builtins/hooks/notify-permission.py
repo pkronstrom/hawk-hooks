@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-# Description: Send desktop and ntfy.sh notifications on permission request
-# Deps: requests
-# Env: DESKTOP=true
-# Env: NTFY_ENABLED=false
-# Env: NTFY_SERVER=https://ntfy.sh
-# Env: NTFY_TOPIC=
+# hawk-hook: events=notification
+# hawk-hook: description=Send desktop and ntfy.sh notifications on permission request
+# hawk-hook: deps=requests
+# hawk-hook: env=DESKTOP=true
+# hawk-hook: env=NTFY_ENABLED=false
+# hawk-hook: env=NTFY_SERVER=https://ntfy.sh
+# hawk-hook: env=NTFY_TOPIC=
 
 import json
 import os

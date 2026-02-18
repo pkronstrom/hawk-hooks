@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Description: Git commit best practices guidance
-# Deps: jq
+# hawk-hook: events=pre_tool_use
+# hawk-hook: description=Git commit best practices guidance
+# hawk-hook: deps=jq
 
 set -euo pipefail
 
