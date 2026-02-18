@@ -316,14 +316,16 @@ def cmd_add(args):
         sys.exit(1)
 
     # Determine component type
-    if args.type:
+    if args.type and args.type in valid_types:
         component_type = ComponentType(args.type)
+    elif stdin_content is not None:
+        # Can't prompt interactively when stdin is a pipe
+        print("Error: type is required when reading from stdin.")
+        print("  echo 'content' | hawk add skill --name my-skill.md")
+        sys.exit(1)
     else:
-        # Try to auto-detect
-        if source:
-            component_type = _guess_component_type(source)
-        else:
-            component_type = None
+        # Try to auto-detect from file
+        component_type = _guess_component_type(source) if source else None
 
         if component_type:
             print(f"Detected type: {component_type.value}")
@@ -346,13 +348,17 @@ def cmd_add(args):
     elif source:
         name = source.name
     else:
-        # Stdin — need a name
+        # Stdin — need a name (can't prompt if stdin is a pipe)
+        if stdin_content is not None:
+            print("Error: --name is required when reading from stdin.")
+            print("  echo 'content' | hawk add skill --name my-skill.md")
+            sys.exit(1)
         try:
             name = input("Name for this component (e.g. my-skill.md): ").strip()
         except (KeyboardInterrupt, EOFError):
             return
         if not name:
-            print("Error: name is required for stdin input.")
+            print("Error: name is required.")
             sys.exit(1)
 
     # If stdin, write to temp file first
