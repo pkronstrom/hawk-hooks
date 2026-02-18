@@ -125,13 +125,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
 
     for display_name, field, ct in COMPONENT_TYPES:
         count_str = _count_enabled(state, field)
-        reg_count = len(state["contents"].get(ct, []))
         label = f"{display_name:<14} {count_str}"
-        if reg_count == 0:
-            if ct == ComponentType.MCP:
-                label = f"{display_name:<14} (empty \u2014 add with +)"
-            else:
-                label = f"{display_name:<14} (empty)"
         options.append((label, field))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
