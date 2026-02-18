@@ -200,3 +200,88 @@ class TestSyncForeignProtection:
 
         # Should not report as error - it's ours, already current
         assert not any("skip tdd" in e for e in result.errors)
+
+
+class TestGenerateRunnersWithMeta:
+    """Test _generate_runners with hawk-hook metadata (flat files)."""
+
+    def test_groups_by_metadata_events(self, tmp_path):
+        """Hook with hawk-hook header groups by declared events."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "guard.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+
+        runners = adapter._generate_runners(["guard.py"], registry, runners_dir)
+        assert "pre_tool_use" in runners
+        assert runners["pre_tool_use"].exists()
+        content = runners["pre_tool_use"].read_text()
+        assert "guard.py" in content
+
+    def test_multi_event_hook(self, tmp_path):
+        """Hook targeting multiple events appears in multiple runners."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "notify.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=stop,notification\nimport sys\n")
+
+        runners = adapter._generate_runners(["notify.py"], registry, runners_dir)
+        assert "stop" in runners
+        assert "notification" in runners
+
+    def test_content_hook_with_frontmatter(self, tmp_path):
+        """Markdown hook with frontmatter generates cat call."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "check.md"
+        hook.write_text("---\nhawk-hook:\n  events: [stop]\n---\nVerify completion.\n")
+
+        runners = adapter._generate_runners(["check.md"], registry, runners_dir)
+        assert "stop" in runners
+        content = runners["stop"].read_text()
+        assert "check.md" in content
+
+    def test_hook_without_metadata_skipped(self, tmp_path):
+        """Hook with no hawk-hook header and no event dir fallback is skipped."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "random.py"
+        hook.write_text("#!/usr/bin/env python3\nimport sys\n")
+
+        runners = adapter._generate_runners(["random.py"], registry, runners_dir)
+        assert runners == {}
+
+    def test_stale_runners_cleaned(self, tmp_path):
+        """Runners for events no longer in use are deleted."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+        runners_dir.mkdir(parents=True)
+
+        # Create a stale runner
+        stale = runners_dir / "old_event.sh"
+        stale.write_text("#!/bin/bash\nexit 0\n")
+
+        hook = hooks_dir / "guard.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+
+        adapter._generate_runners(["guard.py"], registry, runners_dir)
+        assert not stale.exists()

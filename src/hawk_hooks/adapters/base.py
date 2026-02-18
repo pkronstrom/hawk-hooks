@@ -219,27 +219,28 @@ class ToolAdapter(ABC):
         registry_path: Path,
         runners_dir: Path,
     ) -> dict[str, Path]:
-        """Generate bash runners from hook references.
+        """Generate bash runners from hook files using hawk-hook metadata.
 
-        Hook names use event/filename format (e.g. "pre_tool_use/file-guard.py").
-        Groups hooks by event, generates one runner per event that chains
-        all enabled hooks for that event.
+        Hook names are plain filenames (e.g. "file-guard.py").
+        Each hook's metadata declares which events it targets.
+        One runner is generated per event, chaining all hooks for that event.
 
         Returns dict of {event_name: runner_path}.
         """
         from collections import defaultdict
         import shlex
         from ..generator import _get_interpreter_path, _atomic_write_executable
+        from ..hook_meta import parse_hook_meta
 
-        # Group by event
+        # Resolve hooks and group by event
         hooks_by_event: dict[str, list[Path]] = defaultdict(list)
         hooks_dir = registry_path / "hooks"
-        for ref in hook_names:
-            if "/" not in ref:
+        for name in hook_names:
+            hook_path = hooks_dir / name
+            if not hook_path.is_file():
                 continue
-            event, filename = ref.split("/", 1)
-            hook_path = hooks_dir / event / filename
-            if hook_path.is_file():
+            meta = parse_hook_meta(hook_path)
+            for event in meta.events:
                 hooks_by_event[event].append(hook_path)
 
         runners: dict[str, Path] = {}
@@ -251,8 +252,8 @@ class ToolAdapter(ABC):
                 safe_path = shlex.quote(str(script))
                 suffix = script.suffix
 
-                if script.name.endswith((".stdout.md", ".stdout.txt")):
-                    # Stdout hook: cat the file
+                # Content hooks: cat the file
+                if script.name.endswith((".stdout.md", ".stdout.txt")) or suffix in (".md", ".txt"):
                     try:
                         cat_path = _get_interpreter_path("cat")
                     except FileNotFoundError:
@@ -287,7 +288,6 @@ class ToolAdapter(ABC):
                         f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {bun_path} run {safe_path} || exit $?; }}'
                     )
                 else:
-                    # Assume executable
                     calls.append(
                         f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {safe_path} || exit $?; }}'
                     )
