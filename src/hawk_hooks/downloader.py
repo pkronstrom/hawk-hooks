@@ -140,22 +140,46 @@ def _scan_typed_dir(
             continue
 
         if entry.is_dir():
-            # Directory-style component (e.g., skill with multiple files)
-            content.items.append(
-                ClassifiedItem(
-                    component_type=component_type,
-                    name=entry.name,
-                    source_path=entry,
+            if component_type == ComponentType.HOOK:
+                # Legacy event-dir layout: recurse one level into event dirs
+                for sub in sorted(entry.iterdir()):
+                    if sub.name.startswith(".") or sub.is_symlink() or not sub.is_file():
+                        continue
+                    content.items.append(
+                        ClassifiedItem(
+                            component_type=component_type,
+                            name=sub.name,
+                            source_path=sub,
+                        )
+                    )
+            else:
+                # Directory-style component (e.g., skill with multiple files)
+                content.items.append(
+                    ClassifiedItem(
+                        component_type=component_type,
+                        name=entry.name,
+                        source_path=entry,
+                    )
                 )
-            )
         elif entry.is_file():
-            content.items.append(
-                ClassifiedItem(
-                    component_type=component_type,
-                    name=entry.name,
-                    source_path=entry,
+            if component_type == ComponentType.HOOK:
+                # For hooks: validate file is a hook
+                if _is_hook_file(entry):
+                    content.items.append(
+                        ClassifiedItem(
+                            component_type=component_type,
+                            name=entry.name,
+                            source_path=entry,
+                        )
+                    )
+            else:
+                content.items.append(
+                    ClassifiedItem(
+                        component_type=component_type,
+                        name=entry.name,
+                        source_path=entry,
+                    )
                 )
-            )
 
 
 def _scan_mcp_dir(directory: Path, content: ClassifiedContent) -> None:
@@ -349,6 +373,30 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
     return content
 
 
+def _is_hook_file(path: Path) -> bool:
+    """Check if a file is a valid hook (script, .stdout.*, or has hawk-hook header)."""
+    suffix = path.suffix.lower()
+
+    # Scripts are always valid hooks
+    if suffix in (".py", ".sh", ".js", ".ts"):
+        return True
+
+    # .stdout.* files are always content hooks
+    if path.name.endswith((".stdout.md", ".stdout.txt")):
+        return True
+
+    # .md/.txt only if they have hawk-hook frontmatter
+    if suffix in (".md", ".txt"):
+        try:
+            from .hook_meta import parse_hook_meta
+            meta = parse_hook_meta(path)
+            return bool(meta.events)
+        except Exception:
+            return False
+
+    return False
+
+
 def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
     """Classify a single file based on its extension and parent directory."""
     suffix = path.suffix.lower()
@@ -370,9 +418,19 @@ def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
     if parent_dir_name == "prompts" and suffix == ".md":
         return ClassifiedItem(ComponentType.PROMPT, name, path)
 
-    # Hooks
+    # Hooks — scripts in hooks/ dir
     if parent_dir_name == "hooks" and suffix in (".py", ".sh", ".js", ".ts"):
         return ClassifiedItem(ComponentType.HOOK, name, path)
+
+    # Hooks — .stdout.* in hooks/
+    if parent_dir_name == "hooks" and name.endswith((".stdout.md", ".stdout.txt")):
+        return ClassifiedItem(ComponentType.HOOK, name, path)
+
+    # Hooks — .md/.txt in hooks/ with hawk-hook frontmatter
+    if parent_dir_name == "hooks" and suffix in (".md", ".txt"):
+        if _is_hook_file(path):
+            return ClassifiedItem(ComponentType.HOOK, name, path)
+        return None  # Skip plain markdown in hooks/
 
     # Markdown with frontmatter → try to classify as command
     if suffix == ".md":

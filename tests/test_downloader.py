@@ -363,3 +363,68 @@ class TestScanDirectory:
         content = scan_directory(tmp_path)
         assert len(content.items) == 1
         assert content.items[0].component_type == ComponentType.COMMAND
+
+
+class TestClassifyFlatHooks:
+    """Test classify() with flat hook files (hawk-hook headers)."""
+
+    def test_flat_hook_with_header(self, tmp_path):
+        """File directly in hooks/ with hawk-hook header is classified as hook."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        hook = hooks_dir / "guard.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        assert hook_items[0].name == "guard.py"
+
+    def test_legacy_event_dir_still_works(self, tmp_path):
+        """Files in hooks/event_name/ dirs still classified as hooks."""
+        hooks_dir = tmp_path / "hooks" / "pre_tool_use"
+        hooks_dir.mkdir(parents=True)
+        hook = hooks_dir / "guard.py"
+        hook.write_text("#!/usr/bin/env python3\nimport sys\n")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) >= 1
+
+    def test_md_with_frontmatter_is_hook(self, tmp_path):
+        """Markdown file in hooks/ with hawk-hook frontmatter is classified as hook."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        hook = hooks_dir / "check.md"
+        hook.write_text("---\nhawk-hook:\n  events: [stop]\n---\nContent\n")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        assert hook_items[0].name == "check.md"
+
+    def test_md_without_frontmatter_not_hook(self, tmp_path):
+        """Plain markdown in hooks/ without hawk-hook frontmatter is NOT classified."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        readme = hooks_dir / "README.md"
+        readme.write_text("# My Hooks\nDocumentation here.\n")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert not any(i.name == "README.md" for i in hook_items)
+
+
+class TestScanDirectoryHooks:
+    """Test scan_directory() hook detection with hawk-hook headers."""
+
+    def test_detects_hawk_hook_header(self, tmp_path):
+        """scan_directory finds scripts with hawk-hook headers in hooks/."""
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        hook = hooks_dir / "notify.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=stop\nimport sys\n")
+
+        content = scan_directory(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "notify.py" for i in hook_items)
