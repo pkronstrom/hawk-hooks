@@ -211,33 +211,185 @@ def cmd_projects(args):
     _run_projects_tree()
 
 
+def _guess_component_type(path: Path) -> ComponentType | None:
+    """Guess component type from file/directory characteristics."""
+    if path.is_dir():
+        # Directory with SKILL.md → skill
+        if (path / "SKILL.md").exists() or (path / "skill.md").exists():
+            return ComponentType.SKILL
+        return None
+
+    suffix = path.suffix.lower()
+    parent = path.parent.name.lower()
+
+    # Parent directory hints
+    if parent == "commands":
+        return ComponentType.COMMAND
+    if parent == "agents":
+        return ComponentType.AGENT
+    if parent == "prompts":
+        return ComponentType.PROMPT
+    if parent == "hooks":
+        return ComponentType.HOOK
+    if parent == "skills":
+        return ComponentType.SKILL
+    if parent == "mcp":
+        return ComponentType.MCP
+
+    # File extension hints
+    if suffix in (".py", ".sh", ".js", ".ts"):
+        return ComponentType.HOOK
+    if suffix in (".yaml", ".yml"):
+        return ComponentType.MCP
+
+    # Markdown with frontmatter → command
+    if suffix == ".md":
+        try:
+            head = path.read_text(errors="replace")[:500]
+            if head.startswith("---") and "name:" in head and "description:" in head:
+                return ComponentType.COMMAND
+        except OSError:
+            pass
+
+    return None
+
+
+def _ask_component_type() -> ComponentType | None:
+    """Interactively ask the user what type of component this is."""
+    type_options = [
+        ("skill", "Skill — reusable instructions / knowledge"),
+        ("command", "Command — slash command / action"),
+        ("agent", "Agent — autonomous agent definition"),
+        ("hook", "Hook — event-triggered script"),
+        ("prompt", "Prompt — prompt template"),
+        ("mcp", "MCP — MCP server configuration"),
+    ]
+    print("\nWhat type of component is this?")
+    for i, (key, desc) in enumerate(type_options, 1):
+        print(f"  {i}) {desc}")
+
+    try:
+        choice = input("\nChoice [1-6]: ").strip()
+        idx = int(choice) - 1
+        if 0 <= idx < len(type_options):
+            return ComponentType(type_options[idx][0])
+    except (ValueError, KeyboardInterrupt, EOFError):
+        pass
+    return None
+
+
 def cmd_add(args):
     """Add a component to the registry."""
+    import tempfile
+
     from .registry import Registry
     from . import v2_config
+
+    # Handle "hawk add /path/to/file.md" (argparse puts path in args.type)
+    valid_types = {ct.value for ct in ComponentType}
+    if args.type and args.type not in valid_types and args.path is None:
+        # args.type is actually a path, not a type
+        args.path = args.type
+        args.type = None
 
     registry = Registry(v2_config.get_registry_path())
     registry.ensure_dirs()
 
-    component_type = ComponentType(args.type)
-    source = Path(args.path).resolve()
-    name = args.name or source.name
+    # Determine source: file path or stdin
+    source = None
+    stdin_content = None
 
+    if args.path:
+        source = Path(args.path).resolve()
+        if not source.exists():
+            print(f"Error: {source} does not exist.")
+            sys.exit(1)
+    elif not sys.stdin.isatty():
+        # Reading from stdin
+        stdin_content = sys.stdin.read()
+        if not stdin_content.strip():
+            print("Error: no content received from stdin.")
+            sys.exit(1)
+    else:
+        print("Usage: hawk add [type] <path>")
+        print("       echo 'content' | hawk add [type] --name myfile.md")
+        sys.exit(1)
+
+    # Determine component type
+    if args.type:
+        component_type = ComponentType(args.type)
+    else:
+        # Try to auto-detect
+        if source:
+            component_type = _guess_component_type(source)
+        else:
+            component_type = None
+
+        if component_type:
+            print(f"Detected type: {component_type.value}")
+            try:
+                confirm = input(f"Use '{component_type.value}'? [Y/n]: ").strip().lower()
+                if confirm and confirm != "y":
+                    component_type = _ask_component_type()
+            except (KeyboardInterrupt, EOFError):
+                return
+        else:
+            component_type = _ask_component_type()
+
+        if component_type is None:
+            print("Cancelled.")
+            return
+
+    # Determine name
+    if args.name:
+        name = args.name
+    elif source:
+        name = source.name
+    else:
+        # Stdin — need a name
+        try:
+            name = input("Name for this component (e.g. my-skill.md): ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return
+        if not name:
+            print("Error: name is required for stdin input.")
+            sys.exit(1)
+
+    # If stdin, write to temp file first
+    if stdin_content is not None:
+        tmp = Path(tempfile.mkdtemp(prefix="hawk-add-")) / name
+        tmp.write_text(stdin_content)
+        source = tmp
+
+    # Add to registry
     if registry.detect_clash(component_type, name):
         if not args.force:
-            print(f"Error: {component_type}/{name} already exists. Use --force to replace.")
+            print(f"Error: {component_type.value}/{name} already exists. Use --force to replace.")
             sys.exit(1)
         registry.remove(component_type, name)
 
     try:
         path = registry.add(component_type, name, source)
-        print(f"Added {component_type}/{name}")
+        print(f"\nAdded {component_type.value}/{name}")
         print(f"  -> {path}")
-        print(f"\nTo activate: add '{name}' to your config's {component_type.registry_dir} list")
-        print(f"  or run: hawk sync")
     except (FileNotFoundError, FileExistsError) as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+    # Enable in global config
+    if getattr(args, "enable", True):
+        cfg = v2_config.load_global_config()
+        global_section = cfg.get("global", {})
+        field = component_type.registry_dir
+        enabled = global_section.get(field, [])
+        if name not in enabled:
+            enabled.append(name)
+            global_section[field] = enabled
+            cfg["global"] = global_section
+            v2_config.save_global_config(cfg)
+            print(f"Enabled in global config ({field})")
+
+    print(f"\nRun 'hawk sync' to apply.")
 
 
 def cmd_remove(args):
@@ -870,10 +1022,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     # add
     add_p = subparsers.add_parser("add", help="Add component to registry")
-    add_p.add_argument("type", choices=[ct.value for ct in ComponentType], help="Component type")
-    add_p.add_argument("path", help="Path to component file or directory")
+    add_p.add_argument("type", nargs="?", default=None,
+                       help="Component type: skill, hook, command, agent, mcp, prompt (auto-detected if omitted)")
+    add_p.add_argument("path", nargs="?", help="Path to component (reads stdin if omitted)")
     add_p.add_argument("--name", help="Name in registry (default: filename)")
     add_p.add_argument("--force", action="store_true", help="Replace existing")
+    add_p.add_argument("--enable", action="store_true", default=True,
+                       help="Enable in global config (default)")
+    add_p.add_argument("--no-enable", dest="enable", action="store_false",
+                       help="Don't enable in global config")
     add_p.set_defaults(func=cmd_add)
 
     # remove

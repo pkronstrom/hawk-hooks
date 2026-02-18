@@ -53,6 +53,20 @@ class TestArgParsing:
         args = self.parser.parse_args(["add", "hook", "/path", "--name", "my-hook"])
         assert args.name == "my-hook"
 
+    def test_add_path_only(self):
+        args = self.parser.parse_args(["add", "/path/to/file.md"])
+        # When only path is given, type is the path and path is None
+        # (argparse can't distinguish — cmd_add handles this)
+        assert args.type == "/path/to/file.md"
+
+    def test_add_no_enable(self):
+        args = self.parser.parse_args(["add", "skill", "/path", "--no-enable"])
+        assert args.enable is False
+
+    def test_add_enable_default(self):
+        args = self.parser.parse_args(["add", "skill", "/path"])
+        assert args.enable is True
+
     def test_remove(self):
         args = self.parser.parse_args(["remove", "skill", "tdd"])
         assert args.type == "skill"
