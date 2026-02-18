@@ -394,14 +394,14 @@ def _make_mcp_add_callback(state: dict):
         if "/" in name or ".." in name or name.startswith("."):
             console.print("[red]Invalid name.[/red]")
             console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+            readchar.readkey()
             return None
 
         # Check clash
         if registry.has(ComponentType.MCP, name + ".yaml"):
             console.print(f"[red]Already exists: mcp/{name}.yaml[/red]")
             console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+            readchar.readkey()
             return None
 
         # Command
@@ -1112,7 +1112,7 @@ def _run_projects_tree() -> None:
             # Show global config editor or toggle
             console.print(f"\n[dim]Global config: {v2_config.get_global_config_path()}[/dim]")
             console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+            readchar.readkey()
         else:
             # Open dashboard scoped to that directory
             from . import v2_interactive_menu
