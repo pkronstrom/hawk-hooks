@@ -109,55 +109,64 @@ def _build_header(state: dict) -> str:
     total_components = sum(len(names) for names in state["contents"].values())
     tools_active = sum(1 for t in state["tools_status"].values() if t["installed"] and t["enabled"])
 
-    header = f"\U0001f985 hawk v{__version__} \u2014 {total_components} components, {tools_active} tools"
+    header = f"\U0001f985 [bold]hawk[/bold] v{__version__} [dim]\u2014 {total_components} components, {tools_active} tools[/dim]"
 
     if state["scope"] == "local" and state["project_name"]:
-        header += f"\n\U0001f4cd This project: {state['project_dir']}"
+        header += f"\n[dim]\U0001f4cd {state['project_dir']}[/dim]"
     else:
-        header += f"\n\U0001f310 All projects"
+        header += f"\n[dim]\U0001f310 Global[/dim]"
 
     return header
 
 
 def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
-    """Build main menu options with counts."""
+    """Build main menu options with counts.
+
+    Uses ANSI escape codes for color since TerminalMenu doesn't support Rich markup.
+    """
+    # ANSI helpers
+    DIM = "\033[2m"
+    GREEN = "\033[32m"
+    RED = "\033[31m"
+    RESET = "\033[0m"
+
     options: list[tuple[str, str | None]] = []
 
     for display_name, field, ct in COMPONENT_TYPES:
         count_str = _count_enabled(state, field)
-        label = f"{display_name:<14} {count_str}"
+        label = f"{display_name:<14} {DIM}{count_str}{RESET}"
         options.append((label, field))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
-    options.append(("Download       Fetch from git URL", "download"))
+    options.append((f"Download       {DIM}Fetch from git URL{RESET}", "download"))
 
     # Packages count
     packages = v2_config.load_packages()
     pkg_count = len(packages)
     if pkg_count > 0:
-        options.append((f"Packages       {pkg_count} installed, manage & update", "packages"))
+        options.append((f"Packages       {DIM}{pkg_count} installed, manage & update{RESET}", "packages"))
     else:
-        options.append(("Packages       (none installed)", "packages"))
+        options.append((f"Packages       {DIM}(none installed){RESET}", "packages"))
 
-    options.append(("Registry       Browse installed items", "registry"))
+    options.append((f"Registry       {DIM}Browse installed items{RESET}", "registry"))
 
     # Tools summary
     tool_parts = []
     for tool in Tool.all():
         ts = state["tools_status"][tool]
         if ts["installed"] and ts["enabled"]:
-            tool_parts.append(f"{tool} \u2714")
+            tool_parts.append(f"{GREEN}{tool} \u2714{RESET}")
         elif ts["installed"]:
-            tool_parts.append(f"{tool} \u2716")
+            tool_parts.append(f"{RED}{tool} \u2716{RESET}")
         else:
-            tool_parts.append(str(tool))
+            tool_parts.append(f"{DIM}{tool}{RESET}")
     tools_str = "  ".join(tool_parts)
     options.append((f"Tools          {tools_str}", "tools"))
-    options.append(("Projects       Manage registered directories", "projects"))
+    options.append((f"Projects       {DIM}Manage registered directories{RESET}", "projects"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
-    options.append(("Settings       Editor, paths, behavior", "settings"))
-    options.append(("Sync           Apply changes to tools", "sync"))
+    options.append((f"Settings       {DIM}Editor, paths, behavior{RESET}", "settings"))
+    options.append((f"Sync           {DIM}Apply changes to tools{RESET}", "sync"))
     options.append(("Exit", "exit"))
 
     return options
