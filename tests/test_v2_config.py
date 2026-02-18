@@ -124,7 +124,7 @@ class TestEnabledTools:
         tools = v2_config.get_enabled_tools()
         assert Tool.CLAUDE in tools
         assert Tool.GEMINI in tools
-        assert len(tools) == 4
+        assert len(tools) == 6
 
     def test_disable_tool(self, v2_env):
         cfg = v2_config.load_global_config()

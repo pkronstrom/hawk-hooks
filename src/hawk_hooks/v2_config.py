@@ -33,6 +33,8 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
         "gemini": {"enabled": True, "global_dir": "~/.gemini"},
         "codex": {"enabled": True, "global_dir": "~/.codex"},
         "opencode": {"enabled": True, "global_dir": "~/.config/opencode"},
+        "cursor": {"enabled": True, "global_dir": "~/.cursor"},
+        "antigravity": {"enabled": True, "global_dir": "~/.gemini/antigravity"},
     },
     "directories": {},
 }
@@ -221,6 +223,8 @@ def get_tool_global_dir(tool: Tool, cfg: dict[str, Any] | None = None) -> Path:
         Tool.GEMINI: "~/.gemini",
         Tool.CODEX: "~/.codex",
         Tool.OPENCODE: "~/.config/opencode",
+        Tool.CURSOR: "~/.cursor",
+        Tool.ANTIGRAVITY: "~/.gemini/antigravity",
     }
     raw = tool_cfg.get("global_dir", default_dirs.get(tool, ""))
     return Path(os.path.expanduser(raw))

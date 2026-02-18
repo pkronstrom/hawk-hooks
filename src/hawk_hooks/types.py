@@ -20,6 +20,8 @@ class Tool(str, Enum):
     GEMINI = "gemini"
     CODEX = "codex"
     OPENCODE = "opencode"
+    CURSOR = "cursor"
+    ANTIGRAVITY = "antigravity"
 
     def __str__(self) -> str:
         return self.value

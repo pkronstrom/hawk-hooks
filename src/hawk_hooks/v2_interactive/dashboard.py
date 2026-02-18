@@ -111,9 +111,9 @@ def _build_header(state: dict) -> str:
     header = f"\U0001f985 hawk v{__version__} \u2014 {total_components} components, {tools_active} tools"
 
     if state["scope"] == "local" and state["project_name"]:
-        header += f"\n\U0001f4cd Local: {state['project_dir']}"
+        header += f"\n\U0001f4cd This project: {state['project_dir']}"
     else:
-        header += f"\n\U0001f310 Global"
+        header += f"\n\U0001f310 All projects"
 
     return header
 
@@ -127,7 +127,10 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
         reg_count = len(state["contents"].get(ct, []))
         label = f"{display_name:<14} {count_str}"
         if reg_count == 0:
-            label = f"{display_name:<14} [dim](empty)[/dim]"
+            if ct == ComponentType.MCP:
+                label = f"{display_name:<14} (empty \u2014 add with +)"
+            else:
+                label = f"{display_name:<14} (empty)"
         options.append((label, field))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
@@ -143,11 +146,12 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
         elif ts["installed"]:
             tool_parts.append(f"{tool} \u2716")
         else:
-            tool_parts.append(f"[dim]{tool}[/dim]")
+            tool_parts.append(str(tool))
     tools_str = "  ".join(tool_parts)
     options.append((f"Tools          {tools_str}", "tools"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
+    options.append(("Settings       Editor, paths, behavior", "settings"))
     options.append(("Sync           Apply changes to tools", "sync"))
     options.append(("Exit", "exit"))
 
@@ -173,23 +177,42 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
     # Get current enabled lists
     global_enabled = list(state["global_cfg"].get(field, []))
 
-    local_enabled = None
+    # Always allow local scope — use cwd as project dir
+    project_dir = state.get("project_dir") or Path.cwd().resolve()
+    project_name = state.get("project_name") or project_dir.name
+    local_is_new = state["local_cfg"] is None
+
+    local_enabled: list[str] = []
     if state["local_cfg"] is not None:
         local_section = state["local_cfg"].get(field, {})
         if isinstance(local_section, dict):
             local_enabled = list(local_section.get("enabled", []))
-        else:
-            local_enabled = []
 
     start_scope = state["scope"]
+
+    # Registry path for open/edit
+    registry_path = v2_config.get_registry_path(state["cfg"])
+    registry_dir = ct.registry_dir if ct else ""
+
+    # MCP gets an "Add" action
+    on_add = None
+    add_label = "Add new..."
+    if ct == ComponentType.MCP:
+        on_add = _make_mcp_add_callback(state)
+        add_label = "Add MCP server..."
 
     new_global, new_local, changed = run_toggle_list(
         display_name,
         registry_names,
         global_enabled,
         local_enabled,
-        state["project_name"],
+        project_name,
         start_scope,
+        registry_path=registry_path,
+        registry_dir=registry_dir,
+        local_is_new=local_is_new,
+        on_add=on_add,
+        add_label=add_label,
     )
 
     if changed:
@@ -199,8 +222,17 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         cfg["global"] = state["global_cfg"]
         v2_config.save_global_config(cfg)
 
-        # Update local config
-        if new_local is not None and state["project_dir"]:
+        # Update local config (auto-create if new)
+        if new_local is not None:
+            if local_is_new:
+                # Auto-create .hawk/config.yaml and register directory
+                v2_config.save_dir_config(project_dir, {})
+                v2_config.register_directory(project_dir)
+                state["local_cfg"] = {}
+                state["project_dir"] = project_dir
+                state["project_name"] = project_name
+                state["scope"] = "local"
+
             local_cfg = state["local_cfg"] or {}
             local_section = local_cfg.get(field, {})
             if not isinstance(local_section, dict):
@@ -208,9 +240,114 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
             local_section["enabled"] = new_local
             local_cfg[field] = local_section
             state["local_cfg"] = local_cfg
-            v2_config.save_dir_config(state["project_dir"], local_cfg)
+            v2_config.save_dir_config(project_dir, local_cfg)
 
     return changed
+
+
+def _make_mcp_add_callback(state: dict):
+    """Create a callback for adding MCP servers from the toggle list."""
+    import yaml
+
+    registry = state["registry"]
+    registry_path = v2_config.get_registry_path(state["cfg"])
+
+    def _add_mcp_server() -> str | None:
+        """Interactive MCP server creation. Returns name or None."""
+        try:
+            return _add_mcp_server_inner()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[dim]Cancelled.[/dim]")
+            return None
+
+    def _add_mcp_server_inner() -> str | None:
+        console.print("\n[bold]Add MCP Server[/bold]")
+        console.print("[dim]" + "\u2500" * 40 + "[/dim]")
+
+        # Name
+        name = console.input("\n[cyan]Server name[/cyan] (e.g. github, postgres): ").strip()
+        if not name:
+            console.print("[dim]Cancelled.[/dim]")
+            return None
+
+        # Validate name
+        if "/" in name or ".." in name or name.startswith("."):
+            console.print("[red]Invalid name.[/red]")
+            console.input("[dim]Press Enter to continue...[/dim]")
+            return None
+
+        # Check clash
+        if registry.has(ComponentType.MCP, name + ".yaml"):
+            console.print(f"[red]Already exists: mcp/{name}.yaml[/red]")
+            console.input("[dim]Press Enter to continue...[/dim]")
+            return None
+
+        # Command
+        command = console.input("[cyan]Command[/cyan] (e.g. npx, uvx, node, docker): ").strip()
+        if not command:
+            console.print("[dim]Cancelled.[/dim]")
+            return None
+
+        # Args
+        args_str = console.input("[cyan]Arguments[/cyan] (space-separated, e.g. -y @modelcontextprotocol/server-github): ").strip()
+        args = args_str.split() if args_str else []
+
+        # Env vars (optional)
+        console.print("[dim]Environment variables (one per line, KEY=VALUE, empty line to finish):[/dim]")
+        env: dict[str, str] = {}
+        while True:
+            line = console.input("  ").strip()
+            if not line:
+                break
+            if "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+            else:
+                console.print(f"  [dim]Skipping (no '='): {line}[/dim]")
+
+        # Build config
+        mcp_config: dict = {"command": command}
+        if args:
+            mcp_config["args"] = args
+        if env:
+            mcp_config["env"] = env
+
+        # Preview
+        console.print(f"\n[bold]Preview:[/bold]")
+        console.print(f"  [cyan]{name}[/cyan]: {command} {' '.join(args)}")
+        if env:
+            for k, v in env.items():
+                display_v = v if len(v) < 20 else v[:17] + "..."
+                console.print(f"    {k}={display_v}")
+
+        # Confirm
+        confirm_menu = TerminalMenu(
+            ["Yes, add to registry", "Cancel"],
+            title="\nAdd this MCP server?",
+            cursor_index=0,
+            menu_cursor="\u276f ",
+            menu_cursor_style=("fg_cyan", "bold"),
+            menu_highlight_style=("fg_cyan", "bold"),
+        )
+        result = confirm_menu.show()
+        if result != 0:
+            console.print("[dim]Cancelled.[/dim]")
+            return None
+
+        # Write YAML to registry
+        mcp_dir = registry_path / "mcp"
+        mcp_dir.mkdir(parents=True, exist_ok=True)
+        mcp_file = mcp_dir / f"{name}.yaml"
+        mcp_file.write_text(yaml.dump(mcp_config, default_flow_style=False, sort_keys=False))
+
+        # Refresh registry contents in state
+        state["contents"] = registry.list()
+
+        console.print(f"[green]\u2714[/green] Added mcp/{name}.yaml")
+        console.print()
+        return f"{name}.yaml"
+
+    return _add_mcp_server
 
 
 def _handle_tools_toggle(state: dict) -> bool:
@@ -266,24 +403,169 @@ def _handle_tools_toggle(state: dict) -> bool:
 
 
 def _handle_registry_browse(state: dict) -> None:
-    """Show read-only registry browser."""
-    lines = []
+    """Interactive registry browser with sections, view, edit, remove."""
+    import readchar
+    from rich.live import Live
+    from rich.text import Text
+
+    from .toggle import (
+        _get_terminal_height, _calculate_visible_range,
+        _pick_file, _view_in_terminal, _open_in_finder, _open_in_editor,
+    )
+
+    registry = state["registry"]
+    registry_path = v2_config.get_registry_path(state["cfg"])
+
+    # Build flat list with section headers
+    rows: list[tuple[str, str | None, ComponentType | None]] = []  # (label, name, ct)
     for ct, names in state["contents"].items():
         if names:
-            lines.append(f"  {ct.registry_dir}/")
+            rows.append((f"[bold]{ct.registry_dir}/[/bold]", None, None))  # section header
             for name in sorted(names):
-                lines.append(f"    {name}")
+                rows.append((name, name, ct))
 
-    if not lines:
+    if not rows:
         console.print("\n[dim]Registry is empty. Run [cyan]hawk download <url>[/cyan] to add components.[/dim]\n")
-    else:
-        console.print(f"\n[bold]Registry[/bold] \u2014 {sum(len(n) for n in state['contents'].values())} components")
-        console.print("[dim]\u2500" * 40 + "[/dim]")
-        for line in lines:
-            console.print(line)
-        console.print()
+        console.input("[dim]Press Enter to continue...[/dim]")
+        return
 
-    console.input("[dim]Press Enter to continue...[/dim]")
+    cursor = 0
+    # Start on first non-header item
+    if rows[0][1] is None and len(rows) > 1:
+        cursor = 1
+    status_msg = ""
+
+    def _is_header(idx: int) -> bool:
+        return rows[idx][1] is None
+
+    def _build_display() -> str:
+        lines: list[str] = []
+        total = len(rows)
+        total_items = sum(len(n) for n in state["contents"].values())
+        lines.append(f"[bold]Registry[/bold] \u2014 {total_items} components")
+        lines.append("[dim]\u2500" * 50 + "[/dim]")
+
+        max_visible = _get_terminal_height() - 7
+        _, vis_start, vis_end = _calculate_visible_range(cursor, total, max_visible, 0)
+
+        if vis_start > 0:
+            lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
+
+        for i in range(vis_start, vis_end):
+            is_cur = i == cursor
+            label, name, ct = rows[i]
+
+            if name is None:
+                # Section header
+                lines.append(f"\n  {label}")
+            else:
+                prefix = "[cyan]\u276f[/cyan] " if is_cur else "    "
+                style = "[bold]" if is_cur else ""
+                end = "[/bold]" if is_cur else ""
+                lines.append(f"{prefix}{style}{name}{end}")
+
+        if vis_end < total:
+            lines.append(f"[dim]  \u2193 {total - vis_end} more[/dim]")
+
+        if status_msg:
+            lines.append(f"\n[dim]{status_msg}[/dim]")
+
+        lines.append("")
+        lines.append("[dim]\u2191\u2193/jk: navigate  v: view  e: edit  o: open  x: remove  q: done[/dim]")
+        return "\n".join(lines)
+
+    def _get_item_path(idx: int) -> Path | None:
+        _, name, ct = rows[idx]
+        if name and ct:
+            p = registry_path / ct.registry_dir / name
+            return p if p.exists() else None
+        return None
+
+    with Live("", console=console, refresh_per_second=15, transient=True) as live:
+        live.update(Text.from_markup(_build_display()))
+        while True:
+            try:
+                key = readchar.readkey()
+            except (KeyboardInterrupt, EOFError):
+                break
+
+            status_msg = ""
+            total = len(rows)
+
+            if key in (readchar.key.UP, "k"):
+                cursor = (cursor - 1) % total
+                if _is_header(cursor):
+                    cursor = (cursor - 1) % total
+            elif key in (readchar.key.DOWN, "j"):
+                cursor = (cursor + 1) % total
+                if _is_header(cursor):
+                    cursor = (cursor + 1) % total
+
+            elif key == "v":
+                path = _get_item_path(cursor)
+                if path:
+                    live.stop()
+                    target = _pick_file(path)
+                    if target:
+                        _view_in_terminal(target)
+                    live.start()
+
+            elif key == "o":
+                path = _get_item_path(cursor)
+                if path:
+                    live.stop()
+                    _open_in_finder(path)
+                    status_msg = f"Opened {rows[cursor][1]}"
+                    live.start()
+
+            elif key == "e":
+                path = _get_item_path(cursor)
+                if path:
+                    live.stop()
+                    _open_in_editor(path)
+                    live.start()
+
+            elif key == "x":
+                _, name, ct = rows[cursor]
+                if name and ct:
+                    # Confirm removal
+                    live.stop()
+                    confirm_menu = TerminalMenu(
+                        ["No", "Yes, remove"],
+                        title=f"\nRemove {ct.value}/{name} from registry?",
+                        cursor_index=0,
+                        menu_cursor="\u276f ",
+                        menu_cursor_style=("fg_cyan", "bold"),
+                        menu_highlight_style=("fg_cyan", "bold"),
+                    )
+                    result = confirm_menu.show()
+                    if result == 1:
+                        if registry.remove(ct, name):
+                            status_msg = f"Removed {ct.value}/{name}"
+                            # Rebuild rows
+                            state["contents"] = registry.list()
+                            rows.clear()
+                            for rct, rnames in state["contents"].items():
+                                if rnames:
+                                    rows.append((f"[bold]{rct.registry_dir}/[/bold]", None, None))
+                                    for rn in sorted(rnames):
+                                        rows.append((rn, rn, rct))
+                            if not rows:
+                                live.start()
+                                break
+                            cursor = min(cursor, len(rows) - 1)
+                            if _is_header(cursor) and cursor + 1 < len(rows):
+                                cursor += 1
+                            elif _is_header(cursor) and cursor > 0:
+                                cursor -= 1
+                        else:
+                            status_msg = f"Failed to remove {name}"
+                    live.start()
+
+            elif key in ("q", "\x1b"):
+                break
+
+            live.update(Text.from_markup(_build_display()))
 
 
 def _handle_sync(state: dict) -> None:
@@ -403,6 +685,10 @@ def run_dashboard() -> None:
         elif action == "sync":
             _handle_sync(state)
             dirty = False  # Just synced
+
+        elif action == "settings":
+            from .config_editor import run_config_editor
+            run_config_editor()
 
         elif action == "download":
             _handle_download()

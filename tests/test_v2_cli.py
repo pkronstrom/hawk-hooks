@@ -122,3 +122,8 @@ class TestArgParsing:
     def test_clean_global(self):
         args = self.parser.parse_args(["clean", "--global"])
         assert args.globals_only is True
+
+    def test_config(self):
+        args = self.parser.parse_args(["config"])
+        assert args.command == "config"
+        assert hasattr(args, "func")

@@ -6,7 +6,9 @@ import json
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
+from ..registry import _validate_name
 from ..types import ResolvedSet, SyncResult, Tool
 
 # Shared marker for hawk-managed MCP entries
@@ -169,6 +171,16 @@ class ToolAdapter(ABC):
         except Exception as e:
             result.errors.append(f"hooks: {e}")
 
+        # Sync MCP servers
+        if resolved.mcp:
+            try:
+                servers = self._load_mcp_servers(resolved.mcp, registry_path / "mcp")
+                if servers:
+                    self.write_mcp_config(servers, target_dir)
+                    result.linked.extend(f"mcp:{name}" for name in servers)
+            except Exception as e:
+                result.errors.append(f"mcp: {e}")
+
         return result
 
     # ── Helpers ──
@@ -184,7 +196,15 @@ class ToolAdapter(ABC):
         result: SyncResult,
     ) -> None:
         """Sync a set of components: link desired, unlink stale."""
-        desired = set(names)
+        # Validate all names to prevent path traversal from config
+        validated: list[str] = []
+        for name in names:
+            try:
+                _validate_name(name)
+                validated.append(name)
+            except ValueError as e:
+                result.errors.append(f"invalid name {name!r}: {e}")
+        desired = set(validated)
         comp_dir = get_dir_fn(target_dir)
 
         # Find currently linked items (symlinks only)
@@ -233,6 +253,47 @@ class ToolAdapter(ABC):
                 result.linked.append(name)
             except Exception as e:
                 result.errors.append(f"link {name}: {e}")
+
+    @staticmethod
+    def _load_mcp_servers(
+        mcp_names: list[str],
+        mcp_dir: Path,
+    ) -> dict[str, dict[str, Any]]:
+        """Load MCP server configs from registry yaml files.
+
+        Each .yaml file in registry/mcp/ defines a server config.
+        Returns dict of {server_name: config_dict}.
+        """
+        import yaml
+
+        servers: dict[str, dict[str, Any]] = {}
+        for name in mcp_names:
+            try:
+                _validate_name(name)
+            except ValueError:
+                continue
+
+            # Try with and without extension
+            candidates = [mcp_dir / name]
+            if not name.endswith((".yaml", ".yml", ".json")):
+                candidates.extend([
+                    mcp_dir / f"{name}.yaml",
+                    mcp_dir / f"{name}.yml",
+                    mcp_dir / f"{name}.json",
+                ])
+
+            for path in candidates:
+                if path.exists() and path.is_file():
+                    try:
+                        data = yaml.safe_load(path.read_text())
+                        if isinstance(data, dict):
+                            server_name = path.stem
+                            servers[server_name] = data
+                    except Exception:
+                        pass
+                    break
+
+        return servers
 
     @staticmethod
     def _merge_mcp_json(

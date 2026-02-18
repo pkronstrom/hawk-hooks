@@ -381,6 +381,13 @@ def cmd_clean(args):
         print("\nAll hawk-managed items removed from tool configs.")
 
 
+def cmd_config(args):
+    """Open interactive config editor."""
+    from .v2_interactive.config_editor import run_config_editor
+
+    run_config_editor()
+
+
 def cmd_migrate(args):
     """Migrate v1 config to v2."""
     from .migration import run_migration
@@ -471,6 +478,10 @@ def build_parser() -> argparse.ArgumentParser:
     clean_p.add_argument("--dry-run", action="store_true", help="Show what would be removed")
     clean_p.add_argument("--global", dest="globals_only", action="store_true", help="Clean global only")
     clean_p.set_defaults(func=cmd_clean)
+
+    # config
+    config_p = subparsers.add_parser("config", help="Interactive settings editor")
+    config_p.set_defaults(func=cmd_config)
 
     # migrate
     migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")

@@ -321,6 +321,9 @@ def _compute_would_link(
             would_link.append(f"command:{cmd}")
     for hook in resolved.hooks:
         would_link.append(f"hook:{hook}")
+    for mcp in resolved.mcp:
+        if registry.has_from_name("mcp", mcp) or registry.has_from_name("mcp", f"{mcp}.yaml"):
+            would_link.append(f"mcp:{mcp}")
     return would_link
 
 

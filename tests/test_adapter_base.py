@@ -42,7 +42,7 @@ class TestAdapterRegistry:
 
     def test_list_adapters(self):
         adapters = list_adapters()
-        assert len(adapters) == 4
+        assert len(adapters) == 6
         assert Tool.CLAUDE in adapters
 
 

@@ -106,10 +106,12 @@ class Registry:
 
     def has(self, component_type: ComponentType, name: str) -> bool:
         """Check if a component exists in the registry."""
+        _validate_name(name)
         return (self._type_dir(component_type) / name).exists()
 
     def get_path(self, component_type: ComponentType, name: str) -> Path | None:
         """Get the path to a component, or None if not found."""
+        _validate_name(name)
         path = self._type_dir(component_type) / name
         if path.exists():
             return path
@@ -158,4 +160,5 @@ class Registry:
 
     def has_from_name(self, type_dir: str, name: str) -> bool:
         """Check if a name exists in a registry subdirectory by dir name."""
+        _validate_name(name)
         return (self.path / type_dir / name).exists()

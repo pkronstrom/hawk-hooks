@@ -157,6 +157,18 @@ class TestNameValidation:
         with pytest.raises(ValueError, match="path traversal"):
             registry.remove(ComponentType.SKILL, "../secret")
 
+    def test_has_rejects_traversal(self, registry):
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.has(ComponentType.SKILL, "../../etc/passwd")
+
+    def test_get_path_rejects_traversal(self, registry):
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.get_path(ComponentType.SKILL, "../secret")
+
+    def test_has_from_name_rejects_traversal(self, registry):
+        with pytest.raises(ValueError, match="path traversal"):
+            registry.has_from_name("skills", "../../etc/passwd")
+
 
 class TestClashDetection:
     def test_detects_clash(self, registry, tmp_path):

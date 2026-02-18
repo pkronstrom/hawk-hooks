@@ -12,9 +12,11 @@ class TestTool:
 
     def test_all(self):
         tools = Tool.all()
-        assert len(tools) == 4
+        assert len(tools) == 6
         assert Tool.CLAUDE in tools
         assert Tool.OPENCODE in tools
+        assert Tool.CURSOR in tools
+        assert Tool.ANTIGRAVITY in tools
 
     def test_str_enum(self):
         assert Tool.CLAUDE == "claude"

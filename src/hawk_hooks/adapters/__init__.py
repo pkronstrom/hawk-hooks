@@ -15,12 +15,16 @@ def get_adapter(tool: Tool) -> ToolAdapter:
     from .gemini import GeminiAdapter
     from .codex import CodexAdapter
     from .opencode import OpenCodeAdapter
+    from .cursor import CursorAdapter
+    from .antigravity import AntigravityAdapter
 
     adapters: dict[Tool, type[ToolAdapter]] = {
         Tool.CLAUDE: ClaudeAdapter,
         Tool.GEMINI: GeminiAdapter,
         Tool.CODEX: CodexAdapter,
         Tool.OPENCODE: OpenCodeAdapter,
+        Tool.CURSOR: CursorAdapter,
+        Tool.ANTIGRAVITY: AntigravityAdapter,
     }
 
     adapter_cls = adapters.get(tool)
