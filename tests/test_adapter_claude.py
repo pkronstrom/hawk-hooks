@@ -34,16 +34,21 @@ def setup_registry(tmp_path):
     commands_dir.mkdir(parents=True)
     (commands_dir / "deploy.md").write_text("# Deploy Command")
 
-    # Hooks (event directories with scripts)
-    hook_dir = registry / "hooks" / "pre_tool_use"
-    hook_dir.mkdir(parents=True)
-    (hook_dir / "file-guard.py").write_text("#!/usr/bin/env python3\nimport sys, json\nprint(json.dumps({'decision': 'approve'}))\n")
-    (hook_dir / "dangerous-cmd.sh").write_text("#!/bin/bash\nexit 0\n")
-
-    stop_dir = registry / "hooks" / "stop"
-    stop_dir.mkdir(parents=True)
-    (stop_dir / "notify.py").write_text("#!/usr/bin/env python3\nimport sys\nprint('')\n")
-    (stop_dir / "completion-check.stdout.md").write_text("# Completion check\n")
+    # Hooks (flat layout with hawk-hook headers)
+    hooks_dir = registry / "hooks"
+    hooks_dir.mkdir(parents=True)
+    (hooks_dir / "file-guard.py").write_text(
+        "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys, json\nprint(json.dumps({'decision': 'approve'}))\n"
+    )
+    (hooks_dir / "dangerous-cmd.sh").write_text(
+        "#!/bin/bash\n# hawk-hook: events=pre_tool_use\nexit 0\n"
+    )
+    (hooks_dir / "notify.py").write_text(
+        "#!/usr/bin/env python3\n# hawk-hook: events=stop\nimport sys\nprint('')\n"
+    )
+    (hooks_dir / "completion-check.md").write_text(
+        "---\nhawk-hook:\n  events: [stop]\n---\n# Completion check\n"
+    )
 
     # Prompts
     prompts_dir = registry / "prompts"
@@ -200,24 +205,24 @@ class TestClaudeSync:
         monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
 
         resolved = ResolvedSet(hooks=[
-            "pre_tool_use/file-guard.py",
-            "stop/notify.py",
+            "file-guard.py",
+            "notify.py",
         ])
         result = adapter.sync(resolved, target, setup_registry)
-        assert "hook:pre_tool_use/file-guard.py" in result.linked
-        assert "hook:stop/notify.py" in result.linked
+        assert "hook:file-guard.py" in result.linked
+        assert "hook:notify.py" in result.linked
 
-    def test_sync_hooks_without_slash_skipped(self, adapter, tmp_path, setup_registry, monkeypatch):
-        """Hook names without event/ prefix are silently skipped."""
+    def test_sync_hooks_without_metadata_skipped(self, adapter, tmp_path, setup_registry, monkeypatch):
+        """Hook names without hawk-hook metadata are silently skipped."""
         target = tmp_path / "claude"
         target.mkdir()
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
         monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
 
-        resolved = ResolvedSet(hooks=["bare-hook-name"])
+        resolved = ResolvedSet(hooks=["nonexistent-hook"])
         result = adapter.sync(resolved, target, setup_registry)
-        assert not any("bare-hook-name" in h for h in result.linked)
+        assert not any("nonexistent-hook" in h for h in result.linked)
 
 
 class TestClaudeHookWiring:
@@ -232,29 +237,27 @@ class TestClaudeHookWiring:
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
 
-        # pre_tool_use hooks
-        (hooks_dir / "pre_tool_use").mkdir(parents=True)
-        (hooks_dir / "pre_tool_use" / "file-guard.py").write_text(
-            "#!/usr/bin/env python3\nimport sys, json\nprint(json.dumps({'decision': 'approve'}))\n"
+        # pre_tool_use hooks (flat with hawk-hook headers)
+        (hooks_dir / "file-guard.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys, json\nprint(json.dumps({'decision': 'approve'}))\n"
         )
-        (hooks_dir / "pre_tool_use" / "dangerous-cmd.sh").write_text(
-            "#!/bin/bash\nexit 0\n"
+        (hooks_dir / "dangerous-cmd.sh").write_text(
+            "#!/bin/bash\n# hawk-hook: events=pre_tool_use\nexit 0\n"
         )
 
         # stop hooks
-        (hooks_dir / "stop").mkdir(parents=True)
-        (hooks_dir / "stop" / "notify.py").write_text(
-            "#!/usr/bin/env python3\nprint('')\n"
+        (hooks_dir / "notify.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=stop\nprint('')\n"
         )
-        (hooks_dir / "stop" / "completion-check.stdout.md").write_text(
-            "# Completion check\nDid you finish all tasks?\n"
+        (hooks_dir / "completion-check.md").write_text(
+            "---\nhawk-hook:\n  events: [stop]\n---\n# Completion check\nDid you finish all tasks?\n"
         )
 
         # session_start hooks
-        (hooks_dir / "session_start").mkdir(parents=True)
-        (hooks_dir / "session_start" / "greet.sh").write_text(
-            "#!/bin/bash\necho 'Hello'\n"
+        (hooks_dir / "greet.sh").write_text(
+            "#!/bin/bash\n# hawk-hook: events=session_start\necho 'Hello'\n"
         )
 
         target = tmp_path / "claude"
@@ -270,9 +273,9 @@ class TestClaudeHookWiring:
     def test_generates_runner_per_event(self, hook_env):
         adapter = ClaudeAdapter()
         hook_names = [
-            "pre_tool_use/file-guard.py",
-            "pre_tool_use/dangerous-cmd.sh",
-            "stop/notify.py",
+            "file-guard.py",
+            "dangerous-cmd.sh",
+            "notify.py",
         ]
         registered = adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
@@ -284,15 +287,15 @@ class TestClaudeHookWiring:
         # session_start not in hook_names, so no runner
         assert not (runners_dir / "session_start.sh").exists()
 
-        assert "pre_tool_use/file-guard.py" in registered
-        assert "pre_tool_use/dangerous-cmd.sh" in registered
-        assert "stop/notify.py" in registered
+        assert "file-guard.py" in registered
+        assert "dangerous-cmd.sh" in registered
+        assert "notify.py" in registered
 
     def test_runner_content_chains_hooks(self, hook_env):
         adapter = ClaudeAdapter()
         hook_names = [
-            "pre_tool_use/file-guard.py",
-            "pre_tool_use/dangerous-cmd.sh",
+            "file-guard.py",
+            "dangerous-cmd.sh",
         ]
         adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
@@ -309,23 +312,21 @@ class TestClaudeHookWiring:
         # Should capture INPUT
         assert 'INPUT=$(cat)' in content
 
-    def test_runner_handles_stdout_hooks(self, hook_env):
+    def test_runner_handles_content_hooks(self, hook_env):
         adapter = ClaudeAdapter()
-        hook_names = ["stop/completion-check.stdout.md"]
+        hook_names = ["completion-check.md"]
         adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
         )
 
         content = (hook_env["runners_dir"] / "stop.sh").read_text()
-        # Stdout hooks use cat, not echo "$INPUT" |
+        # Content hooks use cat
         assert "cat" in content
-        assert "completion-check.stdout.md" in content
-        # Should NOT pipe INPUT to stdout hooks
-        assert 'echo "$INPUT" | ' not in content.split("completion-check.stdout.md")[0].split("\n")[-1]
+        assert "completion-check.md" in content
 
     def test_runner_handles_py_hooks(self, hook_env):
         adapter = ClaudeAdapter()
-        hook_names = ["pre_tool_use/file-guard.py"]
+        hook_names = ["file-guard.py"]
         adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
         )
@@ -336,7 +337,7 @@ class TestClaudeHookWiring:
 
     def test_runner_handles_sh_hooks(self, hook_env):
         adapter = ClaudeAdapter()
-        hook_names = ["pre_tool_use/dangerous-cmd.sh"]
+        hook_names = ["dangerous-cmd.sh"]
         adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
         )
@@ -347,8 +348,8 @@ class TestClaudeHookWiring:
     def test_settings_json_registration(self, hook_env):
         adapter = ClaudeAdapter()
         hook_names = [
-            "pre_tool_use/file-guard.py",
-            "stop/notify.py",
+            "file-guard.py",
+            "notify.py",
         ]
         adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
@@ -372,12 +373,12 @@ class TestClaudeHookWiring:
         assert "Stop" in matchers
 
     def test_event_name_mapping(self, hook_env):
-        """Verify canonical snake_case → Claude PascalCase mapping."""
+        """Verify canonical snake_case -> Claude PascalCase mapping."""
         adapter = ClaudeAdapter()
         hook_names = [
-            "pre_tool_use/file-guard.py",
-            "stop/notify.py",
-            "session_start/greet.sh",
+            "file-guard.py",
+            "notify.py",
+            "greet.sh",
         ]
         adapter.register_hooks(
             hook_names, hook_env["target"], registry_path=hook_env["registry"]
@@ -405,7 +406,7 @@ class TestClaudeHookWiring:
 
         adapter = ClaudeAdapter()
         adapter.register_hooks(
-            ["pre_tool_use/file-guard.py"],
+            ["file-guard.py"],
             hook_env["target"],
             registry_path=hook_env["registry"],
         )
@@ -432,7 +433,7 @@ class TestClaudeHookWiring:
 
         # First: register hooks
         adapter.register_hooks(
-            ["pre_tool_use/file-guard.py"],
+            ["file-guard.py"],
             hook_env["target"],
             registry_path=hook_env["registry"],
         )
@@ -464,7 +465,7 @@ class TestClaudeHookWiring:
 
         # First: register pre_tool_use and stop
         adapter.register_hooks(
-            ["pre_tool_use/file-guard.py", "stop/notify.py"],
+            ["file-guard.py", "notify.py"],
             hook_env["target"],
             registry_path=hook_env["registry"],
         )
@@ -473,7 +474,7 @@ class TestClaudeHookWiring:
 
         # Now: only register pre_tool_use
         adapter.register_hooks(
-            ["pre_tool_use/file-guard.py"],
+            ["file-guard.py"],
             hook_env["target"],
             registry_path=hook_env["registry"],
         )
@@ -481,12 +482,12 @@ class TestClaudeHookWiring:
         assert not (hook_env["runners_dir"] / "stop.sh").exists()
 
     def test_per_hook_granularity(self, hook_env):
-        """Only enabled hooks appear in runner, not all hooks in event dir."""
+        """Only enabled hooks appear in runner, not all hooks in registry."""
         adapter = ClaudeAdapter()
 
         # Only enable file-guard, not dangerous-cmd
         adapter.register_hooks(
-            ["pre_tool_use/file-guard.py"],
+            ["file-guard.py"],
             hook_env["target"],
             registry_path=hook_env["registry"],
         )
@@ -500,7 +501,7 @@ class TestClaudeHookWiring:
         import stat
         adapter = ClaudeAdapter()
         adapter.register_hooks(
-            ["pre_tool_use/file-guard.py"],
+            ["file-guard.py"],
             hook_env["target"],
             registry_path=hook_env["registry"],
         )

@@ -87,13 +87,16 @@ class ClaudeAdapter(ToolAdapter):
         settings["hooks"] = user_hooks + hawk_entries
         self._save_json(settings_path, settings)
 
-        # Return only hooks that were actually registered in runners
+        # Return hook names that ended up in at least one runner
+        from ..hook_meta import parse_hook_meta
+        hooks_dir = registry_path / "hooks"
         registered = []
-        for ref in hook_names:
-            if "/" in ref:
-                event = ref.split("/", 1)[0]
-                if event in runners:
-                    registered.append(ref)
+        for name in hook_names:
+            hook_path = hooks_dir / name
+            if hook_path.is_file():
+                meta = parse_hook_meta(hook_path)
+                if any(event in runners for event in meta.events):
+                    registered.append(name)
         return registered
 
     def write_mcp_config(
