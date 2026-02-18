@@ -415,6 +415,55 @@ class TestClassifyFlatHooks:
         assert not any(i.name == "README.md" for i in hook_items)
 
 
+    def test_legacy_event_dir_skips_non_hooks(self, tmp_path):
+        """Non-hook files (README.md) in legacy event dirs are skipped."""
+        hooks_dir = tmp_path / "hooks" / "pre_tool_use"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "guard.py").write_text("#!/usr/bin/env python3\nimport sys\n")
+        (hooks_dir / "README.md").write_text("# Documentation\nNot a hook.\n")
+        (hooks_dir / "config.yaml").write_text("key: value\n")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        names = [i.name for i in hook_items]
+        assert "guard.py" in names
+        assert "README.md" not in names
+        assert "config.yaml" not in names
+
+
+class TestBatchDuplicateDetection:
+    """Test that check_clashes detects intra-batch duplicate filenames."""
+
+    def test_detects_duplicate_in_batch(self, registry, tmp_path):
+        """Two items with same type+name in one batch are flagged as clashes."""
+        source1 = tmp_path / "a" / "guard.py"
+        source1.parent.mkdir()
+        source1.write_text("v1")
+        source2 = tmp_path / "b" / "guard.py"
+        source2.parent.mkdir()
+        source2.write_text("v2")
+
+        items = [
+            ClassifiedItem(ComponentType.HOOK, "guard.py", source1),
+            ClassifiedItem(ComponentType.HOOK, "guard.py", source2),
+        ]
+        clashes = check_clashes(items, registry)
+        assert len(clashes) == 1
+        assert clashes[0].source_path == source2
+
+    def test_no_false_positive_different_types(self, registry, tmp_path):
+        """Same name but different types is not a clash."""
+        source = tmp_path / "item.md"
+        source.write_text("content")
+
+        items = [
+            ClassifiedItem(ComponentType.SKILL, "item.md", source),
+            ClassifiedItem(ComponentType.COMMAND, "item.md", source),
+        ]
+        clashes = check_clashes(items, registry)
+        assert len(clashes) == 0
+
+
 class TestScanDirectoryHooks:
     """Test scan_directory() hook detection with hawk-hook headers."""
 

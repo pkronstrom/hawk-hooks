@@ -267,6 +267,37 @@ class TestGenerateRunnersWithMeta:
         runners = adapter._generate_runners(["random.py"], registry, runners_dir)
         assert runners == {}
 
+    def test_invalid_event_names_rejected(self, tmp_path):
+        """Hooks with invalid/traversal event names are silently skipped."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "evil.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=../../etc\nimport sys\n")
+
+        runners = adapter._generate_runners(["evil.py"], registry, runners_dir)
+        assert runners == {}
+        # No runner files should exist
+        if runners_dir.exists():
+            assert list(runners_dir.iterdir()) == []
+
+    def test_unknown_event_names_rejected(self, tmp_path):
+        """Hooks with unknown event names are silently skipped."""
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "hook.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=made_up_event\nimport sys\n")
+
+        runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
+        assert runners == {}
+
     def test_stale_runners_cleaned(self, tmp_path):
         """Runners for events no longer in use are deleted."""
         adapter = get_adapter(Tool.CLAUDE)

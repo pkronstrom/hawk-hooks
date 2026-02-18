@@ -230,6 +230,7 @@ class ToolAdapter(ABC):
         from collections import defaultdict
         import shlex
         from ..generator import _get_interpreter_path, _atomic_write_executable
+        from ..events import EVENTS
         from ..hook_meta import parse_hook_meta
 
         # Resolve hooks and group by event
@@ -241,6 +242,10 @@ class ToolAdapter(ABC):
                 continue
             meta = parse_hook_meta(hook_path)
             for event in meta.events:
+                # Validate event name against canonical events to prevent
+                # path traversal (e.g. events=../../foo) and unknown events
+                if event not in EVENTS:
+                    continue
                 hooks_by_event[event].append(hook_path)
 
         runners: dict[str, Path] = {}

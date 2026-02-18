@@ -145,6 +145,9 @@ def _scan_typed_dir(
                 for sub in sorted(entry.iterdir()):
                     if sub.name.startswith(".") or sub.is_symlink() or not sub.is_file():
                         continue
+                    # Validate file is actually a hook (skip READMEs, configs, etc.)
+                    if not _is_hook_file(sub):
+                        continue
                     content.items.append(
                         ClassifiedItem(
                             component_type=component_type,
@@ -243,14 +246,17 @@ def _scan_top_level(directory: Path, content: ClassifiedContent) -> None:
 def check_clashes(
     items: list[ClassifiedItem], registry: Registry
 ) -> list[ClassifiedItem]:
-    """Check which items would clash with existing registry entries.
+    """Check which items would clash with existing registry entries or each other.
 
-    Returns list of items that have clashes.
+    Returns list of items that have clashes (registry or intra-batch duplicates).
     """
     clashes = []
+    seen: set[tuple[str, str]] = set()
     for item in items:
-        if registry.detect_clash(item.component_type, item.name):
+        key = (item.component_type.value, item.name)
+        if registry.detect_clash(item.component_type, item.name) or key in seen:
             clashes.append(item)
+        seen.add(key)
     return clashes
 
 
@@ -385,11 +391,16 @@ def _is_hook_file(path: Path) -> bool:
     if path.name.endswith((".stdout.md", ".stdout.txt")):
         return True
 
-    # .md/.txt only if they have hawk-hook frontmatter
+    # .md/.txt only if they have explicit hawk-hook metadata
+    # (not the parent-directory fallback, which would match any .md in an event dir)
     if suffix in (".md", ".txt"):
         try:
-            from .hook_meta import parse_hook_meta
-            meta = parse_hook_meta(path)
+            from .hook_meta import _parse_frontmatter, _parse_comment_headers
+            text = path.read_text(errors="replace")
+            meta = _parse_frontmatter(text)
+            if meta.events:
+                return True
+            meta = _parse_comment_headers(text)
             return bool(meta.events)
         except Exception:
             return False
