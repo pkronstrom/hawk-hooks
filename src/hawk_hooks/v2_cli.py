@@ -532,7 +532,7 @@ def cmd_download(args):
         if args.all:
             selected_items = content.items
         else:
-            selected_items = _interactive_select_items(content.items)
+            selected_items = _interactive_select_items(content.items, registry)
             if not selected_items:
                 print("\nNo components selected.")
                 return
@@ -599,24 +599,35 @@ def cmd_download(args):
         shutil.rmtree(clone_dir, ignore_errors=True)
 
 
-def _interactive_select_items(items):
+def _interactive_select_items(items, registry=None):
     """Show interactive multi-select for download items. Returns selected items."""
     from simple_term_menu import TerminalMenu
 
-    options = [f"[{item.component_type.value}] {item.name}" for item in items]
+    options = []
+    preselected = []
+    for i, item in enumerate(items):
+        exists = registry and registry.has(item.component_type, item.name)
+        label = f"[{item.component_type.value}] {item.name}"
+        if exists:
+            label += "  (already registered)"
+        else:
+            preselected.append(i)
+        options.append(label)
+
     menu = TerminalMenu(
         options,
         title=f"\nSelect components to add ({len(options)} found, space to toggle, enter to confirm):",
         multi_select=True,
-        preselected_entries=list(range(len(options))),
+        preselected_entries=preselected,
         multi_select_select_on_accept=False,
+        clear_screen=True,
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
         quit_keys=("q", "\x1b"),
         show_search_hint=True,
         search_key="/",
-        status_bar="Space: toggle  /: search  Enter: confirm  a: all  q: quit",
+        status_bar="Space: toggle  /: search  Enter: confirm  q: quit",
     )
     result = menu.show()
     if result is None:
@@ -650,20 +661,19 @@ def cmd_scan(args):
         print("No components found.")
         return
 
-    # Show what was found
+    # Show compact summary (avoid flooding terminal before interactive menu)
     by_type = content.by_type
-    print(f"\nFound {len(content.items)} component(s):")
-    for ct, items in sorted(by_type.items(), key=lambda x: x[0].value):
-        print(f"  {ct.value}: {len(items)}")
-        for item in items:
-            rel = item.source_path.relative_to(scan_path) if item.source_path.is_relative_to(scan_path) else item.source_path
-            print(f"    {item.name}  ({rel})")
+    type_counts = ", ".join(
+        f"{len(items)} {ct.value}{'s' if len(items) != 1 else ''}"
+        for ct, items in sorted(by_type.items(), key=lambda x: x[0].value)
+    )
+    print(f"\nFound {len(content.items)} component(s): {type_counts}")
 
     # Let user select (unless --all)
     if args.all:
         selected_items = content.items
     else:
-        selected_items = _interactive_select_items(content.items)
+        selected_items = _interactive_select_items(content.items, registry)
         if not selected_items:
             print("\nNo components selected.")
             return
