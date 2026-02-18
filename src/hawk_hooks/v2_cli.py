@@ -436,6 +436,104 @@ def _interactive_select_items(items):
     return [items[i] for i in indices]
 
 
+def cmd_scan(args):
+    """Scan a directory tree for hawk-compatible components and import selected ones."""
+    from .downloader import (
+        add_items_to_registry, check_clashes, scan_directory,
+    )
+    from .registry import Registry
+    from . import v2_config
+
+    scan_path = Path(args.path).resolve()
+    if not scan_path.is_dir():
+        print(f"Error: {scan_path} is not a directory.")
+        sys.exit(1)
+
+    registry = Registry(v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    # Scan
+    depth = getattr(args, "depth", 5)
+    print(f"Scanning {scan_path} (max depth {depth})...")
+    content = scan_directory(scan_path, max_depth=depth)
+
+    if not content.items:
+        print("No components found.")
+        return
+
+    # Show what was found
+    by_type = content.by_type
+    print(f"\nFound {len(content.items)} component(s):")
+    for ct, items in sorted(by_type.items(), key=lambda x: x[0].value):
+        print(f"  {ct.value}: {len(items)}")
+        for item in items:
+            rel = item.source_path.relative_to(scan_path) if item.source_path.is_relative_to(scan_path) else item.source_path
+            print(f"    {item.name}  ({rel})")
+
+    # Let user select (unless --all)
+    if args.all:
+        selected_items = content.items
+    else:
+        selected_items = _interactive_select_items(content.items)
+        if not selected_items:
+            print("\nNo components selected.")
+            return
+
+    # Check clashes
+    clashes = check_clashes(selected_items, registry)
+    if clashes:
+        print(f"\nClashes with existing registry entries:")
+        for item in clashes:
+            print(f"  {item.component_type.value}/{item.name}")
+
+    # Add to registry (copies files)
+    replace = args.replace
+    if clashes and not replace:
+        print("\nUse --replace to overwrite existing entries.")
+        clash_keys = {(c.component_type, c.name) for c in clashes}
+        items_to_add = [
+            i for i in selected_items
+            if (i.component_type, i.name) not in clash_keys
+        ]
+    else:
+        items_to_add = selected_items
+
+    if not items_to_add:
+        print("\nNo new components to add.")
+        return
+
+    added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+
+    # Enable in global config
+    if added and not args.no_enable:
+        cfg = v2_config.load_global_config()
+        global_section = cfg.get("global", {})
+        for item in items_to_add:
+            item_key = f"{item.component_type}/{item.name}"
+            if item_key in added:
+                field = item.component_type.registry_dir
+                enabled = global_section.get(field, [])
+                if item.name not in enabled:
+                    enabled.append(item.name)
+                global_section[field] = enabled
+        cfg["global"] = global_section
+        v2_config.save_global_config(cfg)
+        print(f"\nEnabled {len(added)} component(s) in global config.")
+
+    # Summary
+    if added:
+        print(f"\nAdded {len(added)} component(s):")
+        for name in added:
+            print(f"  + {name}")
+    if skipped:
+        print(f"\nSkipped {len(skipped)}:")
+        for name in skipped:
+            print(f"  - {name}")
+
+    if added:
+        print("\nRun 'hawk sync' to apply changes.")
+
+
 def cmd_packages(args):
     """List installed packages."""
     from . import v2_config
@@ -799,6 +897,15 @@ def build_parser() -> argparse.ArgumentParser:
     profile_show_p = profile_sub.add_parser("show", help="Show profile details")
     profile_show_p.add_argument("name", help="Profile name")
     profile_show_p.set_defaults(func=cmd_profile_show)
+
+    # scan
+    scan_p = subparsers.add_parser("scan", help="Scan directory for components to import")
+    scan_p.add_argument("path", nargs="?", default=".", help="Directory to scan (default: cwd)")
+    scan_p.add_argument("--all", action="store_true", help="Import all found components without prompting")
+    scan_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
+    scan_p.add_argument("--depth", type=int, default=5, help="Max scan depth (default: 5)")
+    scan_p.add_argument("--no-enable", action="store_true", help="Add to registry without enabling in config")
+    scan_p.set_defaults(func=cmd_scan)
 
     # download
     dl_p = subparsers.add_parser("download", help="Download components from git URL")

@@ -263,3 +263,126 @@ def add_items_to_registry(
             skipped.append(f"{item.component_type}/{item.name}: {e}")
 
     return added, skipped
+
+
+# Directories to skip during recursive scan
+_SCAN_SKIP_DIRS = {
+    ".git", ".hg", ".svn", "__pycache__", "node_modules", ".venv", "venv",
+    ".env", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+    "dist", "build", ".eggs", ".hawk", ".claude",
+}
+
+# File patterns that indicate a skill directory
+_SKILL_MARKERS = {"SKILL.md", "skill.md"}
+
+
+def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
+    """Recursively scan a directory tree for hawk-compatible components.
+
+    Unlike classify() which expects a well-structured repo layout,
+    scan_directory() walks the tree and uses heuristics to find
+    components at any depth:
+
+    - Directories containing SKILL.md → skill
+    - .md files in dirs named commands/ → command
+    - .md files in dirs named agents/ → agent
+    - .md files in dirs named prompts/ → prompt
+    - Scripts in dirs named hooks/ → hook
+    - .yaml/.json in dirs named mcp/ → mcp
+    - Standalone .md files with frontmatter → command (if has name/description)
+    - Standalone .md files → skill (fallback)
+
+    Args:
+        directory: Root directory to scan.
+        max_depth: Maximum recursion depth.
+
+    Returns:
+        ClassifiedContent with all discovered items.
+    """
+    content = ClassifiedContent()
+    seen_paths: set[Path] = set()  # avoid duplicates
+
+    def _walk(path: Path, depth: int) -> None:
+        if depth > max_depth:
+            return
+        if not path.is_dir():
+            return
+
+        try:
+            entries = sorted(path.iterdir())
+        except PermissionError:
+            return
+
+        # Check if this directory IS a skill (has SKILL.md)
+        entry_names = {e.name for e in entries if e.is_file()}
+        if entry_names & _SKILL_MARKERS:
+            if path not in seen_paths:
+                seen_paths.add(path)
+                content.items.append(ClassifiedItem(
+                    component_type=ComponentType.SKILL,
+                    name=path.name,
+                    source_path=path,
+                ))
+            return  # Don't recurse into skill dirs
+
+        # Classify based on parent directory name
+        parent_name = path.name.lower()
+
+        for entry in entries:
+            if entry.name.startswith(".") or entry.name.startswith("_"):
+                continue
+            if entry.is_symlink():
+                continue
+
+            if entry.is_dir():
+                if entry.name in _SCAN_SKIP_DIRS:
+                    continue
+                _walk(entry, depth + 1)
+
+            elif entry.is_file() and entry not in seen_paths:
+                item = _classify_file(entry, parent_name)
+                if item:
+                    seen_paths.add(entry)
+                    content.items.append(item)
+
+    _walk(directory.resolve(), 0)
+    return content
+
+
+def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
+    """Classify a single file based on its extension and parent directory."""
+    suffix = path.suffix.lower()
+    name = path.name
+
+    # MCP configs
+    if parent_dir_name == "mcp" and suffix in (".yaml", ".yml", ".json"):
+        return ClassifiedItem(ComponentType.MCP, name, path)
+
+    # Commands
+    if parent_dir_name == "commands" and suffix == ".md":
+        return ClassifiedItem(ComponentType.COMMAND, name, path)
+
+    # Agents
+    if parent_dir_name == "agents" and suffix == ".md":
+        return ClassifiedItem(ComponentType.AGENT, name, path)
+
+    # Prompts
+    if parent_dir_name == "prompts" and suffix == ".md":
+        return ClassifiedItem(ComponentType.PROMPT, name, path)
+
+    # Hooks
+    if parent_dir_name == "hooks" and suffix in (".py", ".sh", ".js", ".ts"):
+        return ClassifiedItem(ComponentType.HOOK, name, path)
+
+    # Markdown with frontmatter → try to classify as command
+    if suffix == ".md":
+        try:
+            head = path.read_text(errors="replace")[:500]
+            if head.startswith("---"):
+                # Has frontmatter — likely a command
+                if "name:" in head and "description:" in head:
+                    return ClassifiedItem(ComponentType.COMMAND, name, path)
+        except OSError:
+            pass
+
+    return None

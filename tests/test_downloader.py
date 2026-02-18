@@ -11,6 +11,7 @@ from hawk_hooks.downloader import (
     check_clashes,
     classify,
     get_head_commit,
+    scan_directory,
 )
 from hawk_hooks.registry import Registry
 from hawk_hooks.types import ComponentType
@@ -238,3 +239,127 @@ class TestGetHeadCommit:
     def test_returns_empty_for_non_repo(self, tmp_path):
         result = get_head_commit(tmp_path)
         assert result == ""
+
+
+class TestScanDirectory:
+    def test_finds_skill_dirs(self, tmp_path):
+        """Skill directories with SKILL.md are detected."""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# My Skill")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.SKILL
+        assert content.items[0].name == "my-skill"
+
+    def test_finds_nested_skill_dirs(self, tmp_path):
+        """Skills nested inside subdirectories are found."""
+        nested = tmp_path / "packages" / "frontend" / "my-skill"
+        nested.mkdir(parents=True)
+        (nested / "SKILL.md").write_text("# Nested Skill")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].name == "my-skill"
+
+    def test_finds_commands_in_commands_dir(self, tmp_path):
+        """Markdown files in commands/ directories are classified as commands."""
+        cmds = tmp_path / "commands"
+        cmds.mkdir()
+        (cmds / "deploy.md").write_text("---\nname: deploy\n---\nDeploy it.")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.COMMAND
+
+    def test_finds_agents(self, tmp_path):
+        agents = tmp_path / "agents"
+        agents.mkdir()
+        (agents / "reviewer.md").write_text("# Reviewer")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.AGENT
+
+    def test_finds_hooks(self, tmp_path):
+        hooks = tmp_path / "hooks"
+        hooks.mkdir()
+        (hooks / "pre_check.py").write_text("print('checking')")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.HOOK
+
+    def test_finds_mcp_configs(self, tmp_path):
+        mcp = tmp_path / "mcp"
+        mcp.mkdir()
+        (mcp / "server.yaml").write_text("command: npx server")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.MCP
+
+    def test_finds_prompts(self, tmp_path):
+        prompts = tmp_path / "prompts"
+        prompts.mkdir()
+        (prompts / "review.md").write_text("Review this code.")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.PROMPT
+
+    def test_skips_git_and_node_modules(self, tmp_path):
+        """Skipped directories are not scanned."""
+        git = tmp_path / ".git" / "commands"
+        git.mkdir(parents=True)
+        (git / "internal.md").write_text("git internal")
+
+        nm = tmp_path / "node_modules" / "commands"
+        nm.mkdir(parents=True)
+        (nm / "dep.md").write_text("dep command")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 0
+
+    def test_respects_max_depth(self, tmp_path):
+        deep = tmp_path / "a" / "b" / "c" / "d" / "e" / "f" / "commands"
+        deep.mkdir(parents=True)
+        (deep / "deep.md").write_text("# Deep")
+
+        content = scan_directory(tmp_path, max_depth=3)
+        assert len(content.items) == 0
+
+        content = scan_directory(tmp_path, max_depth=10)
+        assert len(content.items) == 1
+
+    def test_mixed_types(self, tmp_path):
+        """Multiple component types in one tree are all found."""
+        (tmp_path / "commands").mkdir()
+        (tmp_path / "commands" / "deploy.md").write_text("Deploy")
+
+        skill = tmp_path / "my-skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text("# Skill")
+
+        (tmp_path / "agents").mkdir()
+        (tmp_path / "agents" / "bot.md").write_text("# Bot")
+
+        content = scan_directory(tmp_path)
+        types = {item.component_type for item in content.items}
+        assert ComponentType.COMMAND in types
+        assert ComponentType.SKILL in types
+        assert ComponentType.AGENT in types
+
+    def test_empty_directory(self, tmp_path):
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 0
+
+    def test_frontmatter_md_detected_as_command(self, tmp_path):
+        """Standalone .md with name/description frontmatter → command."""
+        f = tmp_path / "custom.md"
+        f.write_text("---\nname: custom\ndescription: A custom command\n---\nDo the thing.")
+
+        content = scan_directory(tmp_path)
+        assert len(content.items) == 1
+        assert content.items[0].component_type == ComponentType.COMMAND

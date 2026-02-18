@@ -185,6 +185,32 @@ class TestArgParsing:
         assert args.main_dir == "/tmp/project"
         assert args.command is None
 
+    def test_scan_default(self):
+        args = self.parser.parse_args(["scan"])
+        assert args.command == "scan"
+        assert args.path == "."
+        assert args.all is False
+        assert args.replace is False
+        assert args.depth == 5
+        assert args.no_enable is False
+
+    def test_scan_with_path(self):
+        args = self.parser.parse_args(["scan", "/tmp/project"])
+        assert args.path == "/tmp/project"
+
+    def test_scan_all_replace(self):
+        args = self.parser.parse_args(["scan", ".", "--all", "--replace"])
+        assert args.all is True
+        assert args.replace is True
+
+    def test_scan_depth(self):
+        args = self.parser.parse_args(["scan", "--depth", "3"])
+        assert args.depth == 3
+
+    def test_scan_no_enable(self):
+        args = self.parser.parse_args(["scan", "--no-enable"])
+        assert args.no_enable is True
+
     def test_main_dir_flag_default(self):
         args = self.parser.parse_args([])
         assert args.main_dir is None
