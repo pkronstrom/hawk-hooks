@@ -1196,7 +1196,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         console.print("[dim]\u2500" * 50 + "[/dim]")
 
         options = _build_menu_options(state)
-        menu_labels = [label if action is not None else None for label, action in options]
+        menu_labels = [label for label, _ in options]
 
         menu = TerminalMenu(
             menu_labels,
