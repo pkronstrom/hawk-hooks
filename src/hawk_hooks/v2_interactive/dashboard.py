@@ -306,6 +306,15 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
     if len(scopes) == 1 and state.get("local_cfg") is None:
         hint = "Run 'hawk init' in a project directory to add a local scope"
 
+    # Delete callback
+    registry = state["registry"]
+
+    def _delete_item(name: str) -> bool:
+        if ct and registry.remove(ct, name):
+            state["contents"] = registry.list()
+            return True
+        return False
+
     # Start on innermost scope
     enabled_lists, changed = run_toggle_list(
         display_name,
@@ -319,6 +328,7 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         registry_items=registry_names_set,
         groups=toggle_groups,
         footer_hint=hint,
+        on_delete=_delete_item,
     )
 
     if changed:
@@ -579,7 +589,7 @@ def _handle_registry_browse(state: dict) -> None:
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
         lines.append("")
-        lines.append("[dim]\u2191\u2193/jk: navigate  v: view  e: edit  o: open  x: remove  q: done[/dim]")
+        lines.append("[dim]\u2191\u2193/jk: navigate  v: view  e: edit  o: open  d/x: delete  q: done[/dim]")
         return "\n".join(lines)
 
     def _get_item_path(idx: int) -> Path | None:
@@ -633,7 +643,7 @@ def _handle_registry_browse(state: dict) -> None:
                     _open_in_editor(path)
                     live.start()
 
-            elif key == "x":
+            elif key in ("x", "d"):
                 _, name, ct = rows[cursor]
                 if name and ct:
                     # Confirm removal
@@ -707,7 +717,7 @@ def _handle_packages(state: dict) -> bool:
             if i == cursor and url:
                 lines.append(f"[dim]    {url}[/dim]")
         lines.append("")
-        lines.append("[dim]Enter: toggle items  u: update  x: remove  U: update all  q: back[/dim]")
+        lines.append("[dim]Enter: toggle items  u: update  d/x: remove  U: update all  q: back[/dim]")
         return "\n".join(lines)
 
     with Live(Text.from_markup(_build_pkg_menu()), refresh_per_second=30, screen=True) as live:
@@ -752,7 +762,8 @@ def _handle_packages(state: dict) -> bool:
                 except SystemExit:
                     pass
                 console.print()
-                console.input("[dim]Press Enter to continue...[/dim]")
+                console.print("[dim]Press any key to continue...[/dim]")
+                readchar.readkey()
                 # Reload
                 packages = v2_config.load_packages()
                 pkg_list = sorted(packages.items())
@@ -776,7 +787,8 @@ def _handle_packages(state: dict) -> bool:
                 except SystemExit:
                     pass
                 console.print()
-                console.input("[dim]Press Enter to continue...[/dim]")
+                console.print("[dim]Press any key to continue...[/dim]")
+                readchar.readkey()
                 packages = v2_config.load_packages()
                 pkg_list = sorted(packages.items())
                 if not pkg_list:
@@ -784,12 +796,13 @@ def _handle_packages(state: dict) -> bool:
                 cursor = min(cursor, len(pkg_list) - 1)
                 live.start()
 
-            elif key == "x":
+            elif key in ("x", "d"):
                 pkg_name = pkg_list[cursor][0]
                 live.stop()
-                console.print(f"\n[yellow]Remove package '{pkg_name}'?[/yellow]")
-                confirm = console.input("[dim]Type 'yes' to confirm: [/dim]")
-                if confirm.strip().lower() == "yes":
+                console.print(f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ", end="")
+                confirm = readchar.readkey()
+                console.print()
+                if confirm.lower() == "y":
                     from ..v2_cli import cmd_remove_package
 
                     class _RmArgs:
@@ -800,8 +813,9 @@ def _handle_packages(state: dict) -> bool:
                     except SystemExit:
                         pass
                     dirty = True
-                console.print()
-                console.input("[dim]Press Enter to continue...[/dim]")
+                    console.print()
+                    console.print("[dim]Press any key to continue...[/dim]")
+                    readchar.readkey()
                 packages = v2_config.load_packages()
                 pkg_list = sorted(packages.items())
                 if not pkg_list:
@@ -910,10 +924,24 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
     # 3. Run toggle
     all_items = sorted(all_pkg_items)
     registry_path = v2_config.get_registry_path(state["cfg"])
+    registry = state["registry"]
 
     hint = None
     if len(scopes) == 1 and state.get("local_cfg") is None:
         hint = "Run 'hawk init' in a project directory to add a local scope"
+
+    # Delete callback — route to correct component type via item_field_map
+    field_to_ct = {f: c for _, f, c in COMPONENT_TYPES}
+
+    def _delete_pkg_item(name: str) -> bool:
+        field = item_field_map.get(name)
+        if not field:
+            return False
+        ct = field_to_ct.get(field)
+        if ct and registry.remove(ct, name):
+            state["contents"] = registry.list()
+            return True
+        return False
 
     enabled_lists, changed = run_toggle_list(
         f"\U0001f4e6 {pkg_name}",
@@ -923,6 +951,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
         registry_path=registry_path,
         groups=toggle_groups,
         footer_hint=hint,
+        on_delete=_delete_pkg_item,
     )
 
     # 4. Save changes — route per-type diffs to the correct config fields

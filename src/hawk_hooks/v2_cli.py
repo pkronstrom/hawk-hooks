@@ -13,6 +13,24 @@ from . import __version__
 from .types import ComponentType, Tool
 
 
+_console = None
+
+
+def _print(msg: str = "") -> None:
+    """Print with Rich markup support. Falls back to plain print."""
+    global _console
+    if _console is None:
+        try:
+            from rich.console import Console
+            _console = Console(highlight=False)
+        except ImportError:
+            _console = False
+    if _console:
+        _console.print(msg)
+    else:
+        print(msg)
+
+
 def cmd_init(args):
     """Initialize a directory for hawk management."""
     from . import v2_config
@@ -350,7 +368,7 @@ def cmd_add(args):
         component_type = _guess_component_type(source) if source else None
 
         if component_type:
-            print(f"Detected type: {component_type.value}")
+            _print(f"Detected type: [cyan]{component_type.value}[/cyan]")
             try:
                 confirm = input(f"Use '{component_type.value}'? [Y/n]: ").strip().lower()
                 if confirm and confirm != "y":
@@ -372,7 +390,7 @@ def cmd_add(args):
     else:
         # Auto-generate from content
         name = _name_from_content(stdin_content)
-        print(f"Auto-generated name: {name}")
+        _print(f"Auto-generated name: [cyan]{name}[/cyan]")
 
     # If stdin, write to temp file first
     if stdin_content is not None:
@@ -383,16 +401,16 @@ def cmd_add(args):
     # Add to registry
     if registry.detect_clash(component_type, name):
         if not args.force:
-            print(f"Error: {component_type.value}/{name} already exists. Use --force to replace.")
+            _print(f"[red]Error:[/red] {component_type.value}/{name} already exists. Use [cyan]--force[/cyan] to replace.")
             sys.exit(1)
         registry.remove(component_type, name)
 
     try:
         path = registry.add(component_type, name, source)
-        print(f"\nAdded {component_type.value}/{name}")
-        print(f"  -> {path}")
+        _print(f"\n[green]+[/green] Added [bold]{component_type.value}[/bold]/{name}")
+        _print(f"  [dim]->[/dim] {path}")
     except (FileNotFoundError, FileExistsError) as e:
-        print(f"Error: {e}")
+        _print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
     # Enable in global config
@@ -406,9 +424,9 @@ def cmd_add(args):
             global_section[field] = enabled
             cfg["global"] = global_section
             v2_config.save_global_config(cfg)
-            print(f"Enabled in global config ({field})")
+            _print(f"[green]+[/green] Enabled in global config [dim]({field})[/dim]")
 
-    print(f"\nRun 'hawk sync' to apply.")
+    _print(f"\n[dim]Run[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
 
 
 def cmd_remove(args):

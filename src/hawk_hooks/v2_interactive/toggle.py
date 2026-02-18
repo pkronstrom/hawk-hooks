@@ -276,6 +276,8 @@ def run_toggle_list(
     groups: list[ToggleGroup] | None = None,
     # Optional hint shown above keybinding footer
     footer_hint: str | None = None,
+    # Delete callback — called with item name, returns True if deleted
+    on_delete: Callable[[str], bool] | None = None,
 ) -> tuple[list[list[str]], bool]:
     """Run an interactive toggle list for a component type.
 
@@ -540,6 +542,8 @@ def run_toggle_list(
             hints += "  Tab: scope"
         if registry_path:
             hints += "  v: view  e: edit  o: open"
+        if on_delete:
+            hints += "  d: delete"
         lines.append(f"[dim]{hints}[/dim]")
 
         return "\n".join(lines)
@@ -687,6 +691,38 @@ def run_toggle_list(
                         live.start()
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
+
+            # Delete item from registry
+            elif key == "d":
+                name = _get_item_name_at_cursor()
+                if name and on_delete:
+                    live.stop()
+                    console.print(f"\n[yellow]Delete [bold]{name}[/bold] from registry?[/yellow] [dim](y/N)[/dim] ", end="")
+                    confirm = readchar.readkey()
+                    console.print()
+                    if confirm.lower() == "y":
+                        if on_delete(name):
+                            if name in items:
+                                items.remove(name)
+                            for cs in checked_sets:
+                                cs.discard(name)
+                            for ins in initial_sets:
+                                ins.discard(name)
+                            if groups:
+                                for g in groups:
+                                    if name in g.items:
+                                        g.items.remove(name)
+                                groups[:] = [g for g in groups if g.items]
+                            status_msg = f"Deleted {name}"
+                            _rebuild_rows()
+                            if row_list:
+                                cursor = min(cursor, len(row_list) - 1)
+                                if row_list[cursor][0] == ROW_SEPARATOR and cursor > 0:
+                                    cursor -= 1
+                            changed = True
+                        else:
+                            status_msg = f"Failed to delete {name}"
+                    live.start()
 
             # Quit / done
             elif key in ("q", "\x1b"):
