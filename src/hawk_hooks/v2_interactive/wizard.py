@@ -121,7 +121,7 @@ def run_wizard() -> None:
 
 
 def _offer_builtins_install(cfg: dict) -> None:
-    """Offer to install bundled agents & prompts."""
+    """Offer to install bundled agents, commands & hooks."""
     from ..downloader import add_items_to_registry, classify
     from ..registry import Registry
     from ..types import ComponentType
@@ -131,24 +131,25 @@ def _offer_builtins_install(cfg: dict) -> None:
         return
 
     content = classify(builtins_path)
-    # Filter out hooks (v2 hook sync is a stub)
-    content.items = [i for i in content.items if i.component_type != ComponentType.HOOK]
     if not content.items:
         return
 
     agent_count = sum(1 for i in content.items if i.component_type == ComponentType.AGENT)
-    prompt_count = sum(1 for i in content.items if i.component_type == ComponentType.PROMPT)
+    command_count = sum(1 for i in content.items if i.component_type == ComponentType.COMMAND)
+    hook_count = sum(1 for i in content.items if i.component_type == ComponentType.HOOK)
     parts = []
     if agent_count:
         parts.append(f"{agent_count} agents")
-    if prompt_count:
-        parts.append(f"{prompt_count} prompts")
+    if command_count:
+        parts.append(f"{command_count} commands")
+    if hook_count:
+        parts.append(f"{hook_count} hook groups")
     desc = ", ".join(parts) if parts else f"{len(content.items)} components"
 
     console.print()
     menu = TerminalMenu(
         [f"Yes, install starter components ({desc})", "No, start empty"],
-        title="Install bundled agents & prompts?",
+        title="Install bundled components?",
         cursor_index=0,
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),

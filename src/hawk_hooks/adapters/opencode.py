@@ -24,7 +24,7 @@ class OpenCodeAdapter(ToolAdapter):
     def get_project_dir(self, project: Path) -> Path:
         return project / ".opencode"
 
-    def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
+    def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """OpenCode hooks use JS plugin wrappers."""
         return list(hook_names)
 

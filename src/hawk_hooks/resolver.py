@@ -11,7 +11,7 @@ from typing import Any
 
 from .types import ComponentType, ResolvedSet, Tool
 
-COMPONENT_FIELDS = ["skills", "hooks", "commands", "agents", "mcp"]
+COMPONENT_FIELDS = ["skills", "hooks", "commands", "agents", "mcp", "prompts"]
 
 
 def _merge_list(base: list[str], add: list[str], remove: list[str]) -> list[str]:
@@ -102,6 +102,7 @@ def resolve(
         commands=list(global_section.get("commands", [])),
         agents=list(global_section.get("agents", [])),
         mcp=list(global_section.get("mcp", [])),
+        prompts=list(global_section.get("prompts", [])),
     )
 
     if dir_chain is not None:

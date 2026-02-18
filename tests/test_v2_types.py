@@ -49,12 +49,21 @@ class TestResolvedSet:
         assert rs.commands == []
         assert rs.agents == []
         assert rs.mcp == []
+        assert rs.prompts == []
 
     def test_get(self):
-        rs = ResolvedSet(skills=["tdd"], hooks=["block-secrets"])
+        rs = ResolvedSet(skills=["tdd"], hooks=["block-secrets"], prompts=["audit.md"])
         assert rs.get(ComponentType.SKILL) == ["tdd"]
         assert rs.get(ComponentType.HOOK) == ["block-secrets"]
         assert rs.get(ComponentType.COMMAND) == []
+        assert rs.get(ComponentType.PROMPT) == ["audit.md"]
+
+    def test_hash_key_includes_prompts(self):
+        rs1 = ResolvedSet(prompts=["a"])
+        rs2 = ResolvedSet(prompts=["b"])
+        assert rs1.hash_key() != rs2.hash_key()
+        rs3 = ResolvedSet(prompts=["a"])
+        assert rs1.hash_key() == rs3.hash_key()
 
     def test_hash_key_deterministic(self):
         rs1 = ResolvedSet(skills=["a", "b"], hooks=["c"])

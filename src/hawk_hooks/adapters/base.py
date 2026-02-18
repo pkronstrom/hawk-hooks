@@ -90,10 +90,27 @@ class ToolAdapter(ABC):
         dest = self.get_commands_dir(target_dir) / name
         return self._remove_link(dest)
 
+    # ── Prompt operations ──
+
+    def get_prompts_dir(self, target_dir: Path) -> Path:
+        """Get the prompts subdirectory within a target dir."""
+        return target_dir / "prompts"
+
+    def link_prompt(self, source: Path, target_dir: Path) -> Path:
+        """Symlink a prompt into the tool's prompts directory."""
+        dest = self.get_prompts_dir(target_dir) / source.name
+        self._create_symlink(source, dest)
+        return dest
+
+    def unlink_prompt(self, name: str, target_dir: Path) -> bool:
+        """Remove a prompt symlink. Returns True if removed."""
+        dest = self.get_prompts_dir(target_dir) / name
+        return self._remove_link(dest)
+
     # ── Hook operations ──
 
     @abstractmethod
-    def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
+    def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """Register hooks for this tool. Returns list of registered hook names."""
 
     # ── MCP operations ──
@@ -128,7 +145,7 @@ class ToolAdapter(ABC):
         result = SyncResult(tool=str(self.tool))
 
         # Ensure target subdirs exist
-        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_commands_dir]:
+        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_commands_dir, self.get_prompts_dir]:
             dir_getter(target_dir).mkdir(parents=True, exist_ok=True)
 
         # Sync skills
@@ -164,9 +181,20 @@ class ToolAdapter(ABC):
             result,
         )
 
+        # Sync prompts
+        self._sync_component(
+            resolved.prompts,
+            registry_path / "prompts",
+            target_dir,
+            self.link_prompt,
+            self.unlink_prompt,
+            self.get_prompts_dir,
+            result,
+        )
+
         # Register hooks
         try:
-            registered = self.register_hooks(resolved.hooks, target_dir)
+            registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
             result.linked.extend(f"hook:{h}" for h in registered)
         except Exception as e:
             result.errors.append(f"hooks: {e}")
@@ -182,6 +210,112 @@ class ToolAdapter(ABC):
                 result.errors.append(f"mcp: {e}")
 
         return result
+
+    # ── Runner generation ──
+
+    def _generate_runners(
+        self,
+        hook_names: list[str],
+        registry_path: Path,
+        runners_dir: Path,
+    ) -> dict[str, Path]:
+        """Generate bash runners from hook references.
+
+        Hook names use event/filename format (e.g. "pre_tool_use/file-guard.py").
+        Groups hooks by event, generates one runner per event that chains
+        all enabled hooks for that event.
+
+        Returns dict of {event_name: runner_path}.
+        """
+        from collections import defaultdict
+        import shlex
+        from ..generator import _get_interpreter_path, _atomic_write_executable
+
+        # Group by event
+        hooks_by_event: dict[str, list[Path]] = defaultdict(list)
+        hooks_dir = registry_path / "hooks"
+        for ref in hook_names:
+            if "/" not in ref:
+                continue
+            event, filename = ref.split("/", 1)
+            hook_path = hooks_dir / event / filename
+            if hook_path.is_file():
+                hooks_by_event[event].append(hook_path)
+
+        runners: dict[str, Path] = {}
+        runners_dir.mkdir(parents=True, exist_ok=True)
+
+        for event, scripts in hooks_by_event.items():
+            calls: list[str] = []
+            for script in scripts:
+                safe_path = shlex.quote(str(script))
+                suffix = script.suffix
+
+                if script.name.endswith((".stdout.md", ".stdout.txt")):
+                    # Stdout hook: cat the file
+                    try:
+                        cat_path = _get_interpreter_path("cat")
+                    except FileNotFoundError:
+                        cat_path = "cat"
+                    calls.append(f'[[ -f {safe_path} ]] && {cat_path} {safe_path}')
+                elif suffix == ".py":
+                    calls.append(
+                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | python3 {safe_path} || exit $?; }}'
+                    )
+                elif suffix == ".sh":
+                    try:
+                        bash_path = _get_interpreter_path("bash")
+                    except FileNotFoundError:
+                        bash_path = "bash"
+                    calls.append(
+                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {bash_path} {safe_path} || exit $?; }}'
+                    )
+                elif suffix == ".js":
+                    try:
+                        node_path = _get_interpreter_path("node")
+                    except FileNotFoundError:
+                        node_path = "node"
+                    calls.append(
+                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {node_path} {safe_path} || exit $?; }}'
+                    )
+                elif suffix == ".ts":
+                    try:
+                        bun_path = _get_interpreter_path("bun")
+                    except FileNotFoundError:
+                        bun_path = "bun"
+                    calls.append(
+                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {bun_path} run {safe_path} || exit $?; }}'
+                    )
+                else:
+                    # Assume executable
+                    calls.append(
+                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {safe_path} || exit $?; }}'
+                    )
+
+            hook_calls_str = "\n".join(calls)
+            content = f"""#!/usr/bin/env bash
+# Auto-generated by hawk v2 - do not edit manually
+# Event: {event}
+# Regenerate with: hawk sync --force
+
+set -euo pipefail
+
+INPUT=$(cat)
+
+{hook_calls_str}
+
+exit 0
+"""
+            runner_path = runners_dir / f"{event}.sh"
+            _atomic_write_executable(runner_path, content)
+            runners[event] = runner_path
+
+        # Clean up stale runners for events that no longer have hooks
+        for existing in runners_dir.iterdir():
+            if existing.suffix == ".sh" and existing.stem not in hooks_by_event:
+                existing.unlink()
+
+        return runners
 
     # ── Helpers ──
 

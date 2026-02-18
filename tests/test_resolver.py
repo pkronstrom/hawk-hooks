@@ -213,6 +213,42 @@ class TestResolveWithDirChain:
         assert result.skills == ["tdd", "local"]
 
 
+class TestResolvePrompts:
+    def test_prompts_from_global(self):
+        cfg = {
+            "global": {
+                "skills": [],
+                "hooks": [],
+                "commands": [],
+                "agents": [],
+                "mcp": [],
+                "prompts": ["code-audit.md", "review.md"],
+            }
+        }
+        result = resolve(cfg)
+        assert result.prompts == ["code-audit.md", "review.md"]
+
+    def test_prompts_with_dir_config(self):
+        cfg = {
+            "global": {
+                "skills": [],
+                "hooks": [],
+                "commands": [],
+                "agents": [],
+                "mcp": [],
+                "prompts": ["global-prompt.md"],
+            }
+        }
+        dir_cfg = {"prompts": {"enabled": ["local-prompt.md"], "disabled": []}}
+        result = resolve(cfg, dir_config=dir_cfg)
+        assert result.prompts == ["global-prompt.md", "local-prompt.md"]
+
+    def test_prompts_default_empty(self):
+        cfg = {"global": {"skills": ["x"]}}
+        result = resolve(cfg)
+        assert result.prompts == []
+
+
 class TestResolveFullStack:
     def test_all_layers(self):
         cfg = {

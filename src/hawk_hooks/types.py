@@ -61,6 +61,7 @@ class ResolvedSet:
     commands: list[str] = field(default_factory=list)
     agents: list[str] = field(default_factory=list)
     mcp: list[str] = field(default_factory=list)
+    prompts: list[str] = field(default_factory=list)
 
     def get(self, component_type: ComponentType) -> list[str]:
         """Get the list for a given component type."""
@@ -70,6 +71,7 @@ class ResolvedSet:
             ComponentType.COMMAND: self.commands,
             ComponentType.AGENT: self.agents,
             ComponentType.MCP: self.mcp,
+            ComponentType.PROMPT: self.prompts,
         }
         return mapping.get(component_type, [])
 
@@ -83,6 +85,7 @@ class ResolvedSet:
             ",".join(sorted(self.commands)),
             ",".join(sorted(self.agents)),
             ",".join(sorted(self.mcp)),
+            ",".join(sorted(self.prompts)),
         ]
         return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 

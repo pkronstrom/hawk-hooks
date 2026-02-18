@@ -305,6 +305,7 @@ def _compute_would_unlink(
         ("skill", adapter.get_skills_dir),
         ("agent", adapter.get_agents_dir),
         ("command", adapter.get_commands_dir),
+        ("prompt", adapter.get_prompts_dir),
     ]:
         comp_dir = get_dir_fn(target_dir)
         source_dir = registry_path / (comp_type + "s")
@@ -339,6 +340,9 @@ def _compute_would_link(
     for cmd in resolved.commands:
         if registry.has_from_name("commands", cmd):
             would_link.append(f"command:{cmd}")
+    for prompt in resolved.prompts:
+        if registry.has_from_name("prompts", prompt):
+            would_link.append(f"prompt:{prompt}")
     for hook in resolved.hooks:
         would_link.append(f"hook:{hook}")
     for mcp in resolved.mcp:

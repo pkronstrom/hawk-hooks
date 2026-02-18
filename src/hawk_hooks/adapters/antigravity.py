@@ -35,7 +35,7 @@ class AntigravityAdapter(ToolAdapter):
     def get_skills_dir(self, target_dir: Path) -> Path:
         return target_dir / "skills"
 
-    def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
+    def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """Antigravity hook support TBD — record names for now."""
         return list(hook_names)
 

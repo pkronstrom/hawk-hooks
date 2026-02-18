@@ -95,7 +95,7 @@ class GeminiAdapter(ToolAdapter):
                 return True
         return False
 
-    def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
+    def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """Register hooks in Gemini settings.json format."""
         return list(hook_names)
 

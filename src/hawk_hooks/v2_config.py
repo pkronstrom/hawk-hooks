@@ -32,6 +32,7 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
         "commands": [],
         "agents": [],
         "mcp": [],
+        "prompts": [],
     },
     "tools": {
         "claude": {"enabled": True, "global_dir": "~/.claude"},

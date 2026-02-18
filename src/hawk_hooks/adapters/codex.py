@@ -36,7 +36,7 @@ class CodexAdapter(ToolAdapter):
         """Codex doesn't have slash commands; commands become skills."""
         return target_dir / "agents"
 
-    def register_hooks(self, hook_names: list[str], target_dir: Path) -> list[str]:
+    def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """Codex hooks are limited to notify callbacks."""
         return list(hook_names)
 
