@@ -100,6 +100,14 @@ class TestArgParsing:
         args = self.parser.parse_args(["download", "https://github.com/user/repo", "--replace"])
         assert args.replace is True
 
+    def test_download_name(self):
+        args = self.parser.parse_args(["download", "https://github.com/user/repo", "--name", "my-pkg"])
+        assert args.name == "my-pkg"
+
+    def test_download_name_default(self):
+        args = self.parser.parse_args(["download", "https://github.com/user/repo"])
+        assert args.name is None
+
     def test_sync_force(self):
         args = self.parser.parse_args(["sync", "--force"])
         assert args.force is True
@@ -132,6 +140,45 @@ class TestArgParsing:
         args = self.parser.parse_args(["projects"])
         assert args.command == "projects"
         assert hasattr(args, "func")
+
+    def test_packages(self):
+        args = self.parser.parse_args(["packages"])
+        assert args.command == "packages"
+        assert hasattr(args, "func")
+
+    def test_update_all(self):
+        args = self.parser.parse_args(["update"])
+        assert args.command == "update"
+        assert args.package is None
+        assert args.check is False
+        assert args.force is False
+        assert args.prune is False
+
+    def test_update_specific(self):
+        args = self.parser.parse_args(["update", "my-pkg"])
+        assert args.package == "my-pkg"
+
+    def test_update_check(self):
+        args = self.parser.parse_args(["update", "--check"])
+        assert args.check is True
+
+    def test_update_force(self):
+        args = self.parser.parse_args(["update", "--force"])
+        assert args.force is True
+
+    def test_update_prune(self):
+        args = self.parser.parse_args(["update", "--prune"])
+        assert args.prune is True
+
+    def test_remove_package(self):
+        args = self.parser.parse_args(["remove-package", "my-pkg"])
+        assert args.command == "remove-package"
+        assert args.name == "my-pkg"
+        assert args.yes is False
+
+    def test_remove_package_yes(self):
+        args = self.parser.parse_args(["remove-package", "my-pkg", "-y"])
+        assert args.yes is True
 
     def test_main_dir_flag(self):
         args = self.parser.parse_args(["--dir", "/tmp/project"])

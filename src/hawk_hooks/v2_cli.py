@@ -307,7 +307,9 @@ def cmd_download(args):
     """Download components from a git URL."""
     import shutil
 
-    from .downloader import add_items_to_registry, check_clashes, classify, shallow_clone
+    from .downloader import (
+        add_items_to_registry, check_clashes, classify, get_head_commit, shallow_clone,
+    )
     from .registry import Registry
     from . import v2_config
 
@@ -324,6 +326,9 @@ def cmd_download(args):
         sys.exit(1)
 
     try:
+        # Get commit hash for package tracking
+        commit_hash = get_head_commit(clone_dir)
+
         # 2. Classify contents
         content = classify(clone_dir)
         if not content.items:
@@ -368,7 +373,26 @@ def cmd_download(args):
 
         added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
 
-        # 6. Summary
+        # 6. Record package in packages.yaml
+        if added:
+            pkg_name = getattr(args, "name", None) or v2_config.package_name_from_url(url)
+            registry_path = v2_config.get_registry_path()
+            pkg_items = []
+            for item in items_to_add:
+                item_key = f"{item.component_type}/{item.name}"
+                if item_key in added:
+                    item_path = registry_path / item.component_type.registry_dir / item.name
+                    item_hash = v2_config.hash_registry_item(item_path)
+                    pkg_items.append({
+                        "type": item.component_type.value,
+                        "name": item.name,
+                        "hash": item_hash,
+                    })
+            if pkg_items:
+                v2_config.record_package(pkg_name, url, commit_hash, pkg_items)
+                print(f"\nRecorded package: {pkg_name} ({len(pkg_items)} items)")
+
+        # 7. Summary
         if added:
             print(f"\nAdded {len(added)} component(s):")
             for name in added:
@@ -407,6 +431,261 @@ def _interactive_select_items(items):
         return []
     indices = list(result) if isinstance(result, tuple) else [result]
     return [items[i] for i in indices]
+
+
+def cmd_packages(args):
+    """List installed packages."""
+    from . import v2_config
+
+    packages = v2_config.load_packages()
+    if not packages:
+        print("No packages installed.")
+        print("Run 'hawk download <url>' to install a package.")
+        return
+
+    print("Packages:")
+    for name, data in sorted(packages.items()):
+        item_count = len(data.get("items", []))
+        installed = data.get("installed", "unknown")
+        url = data.get("url", "")
+        commit = data.get("commit", "")[:7]
+        print(f"  {name:<30} {item_count} items  installed {installed}")
+        if url:
+            suffix = f" @ {commit}" if commit else ""
+            print(f"    {url}{suffix}")
+
+
+def cmd_update(args):
+    """Update packages from their git sources."""
+    import shutil
+
+    from .downloader import (
+        add_items_to_registry, classify, get_head_commit, shallow_clone,
+    )
+    from .registry import Registry
+    from . import v2_config
+
+    packages = v2_config.load_packages()
+    if not packages:
+        print("No packages installed.")
+        return
+
+    registry = Registry(v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    # Filter to specific package if requested
+    target = getattr(args, "package", None)
+    if target:
+        if target not in packages:
+            print(f"Package not found: {target}")
+            print(f"Installed: {', '.join(sorted(packages.keys()))}")
+            sys.exit(1)
+        to_update = {target: packages[target]}
+    else:
+        to_update = packages
+
+    check_only = getattr(args, "check", False)
+    force = getattr(args, "force", False)
+    prune = getattr(args, "prune", False)
+
+    any_changes = False
+    up_to_date = []
+
+    for pkg_name, pkg_data in sorted(to_update.items()):
+        url = pkg_data.get("url", "")
+        if not url:
+            print(f"{pkg_name}: no URL recorded, skipping")
+            continue
+
+        print(f"\n{pkg_name}:")
+        print(f"  Cloning {url}...")
+
+        try:
+            clone_dir = shallow_clone(url)
+        except Exception as e:
+            print(f"  Error cloning: {e}")
+            continue
+
+        try:
+            new_commit = get_head_commit(clone_dir)
+            old_commit = pkg_data.get("commit", "")
+
+            if new_commit == old_commit and not force:
+                up_to_date.append(pkg_name)
+                print(f"  Up to date ({new_commit[:7]})")
+                continue
+
+            if check_only:
+                print(f"  Update available: {old_commit[:7]} -> {new_commit[:7]}")
+                any_changes = True
+                continue
+
+            # Re-classify and diff
+            content = classify(clone_dir)
+            old_items = {(i["type"], i["name"]): i.get("hash", "") for i in pkg_data.get("items", [])}
+            registry_path = v2_config.get_registry_path()
+
+            new_pkg_items = []
+            added_count = 0
+            updated_count = 0
+            unchanged_count = 0
+
+            for item in content.items:
+                item_key = (item.component_type.value, item.name)
+
+                # Add to registry (replace if exists)
+                if registry.detect_clash(item.component_type, item.name):
+                    registry.remove(item.component_type, item.name)
+
+                try:
+                    registry.add(item.component_type, item.name, item.source_path)
+                except (FileNotFoundError, FileExistsError, OSError) as e:
+                    print(f"  ! {item.name}: {e}")
+                    continue
+
+                item_path = registry_path / item.component_type.registry_dir / item.name
+                new_hash = v2_config.hash_registry_item(item_path)
+
+                new_pkg_items.append({
+                    "type": item.component_type.value,
+                    "name": item.name,
+                    "hash": new_hash,
+                })
+
+                old_hash = old_items.get(item_key, "")
+                if not old_hash:
+                    print(f"  + {item.name} (added)")
+                    added_count += 1
+                elif old_hash != new_hash:
+                    print(f"  ~ {item.name} (updated)")
+                    updated_count += 1
+                else:
+                    print(f"  = {item.name} (unchanged)")
+                    unchanged_count += 1
+
+            # Check for items removed upstream
+            new_keys = {(i["type"], i["name"]) for i in new_pkg_items}
+            for (t, n), _ in old_items.items():
+                if (t, n) not in new_keys:
+                    if prune:
+                        ct = ComponentType(t)
+                        registry.remove(ct, n)
+                        print(f"  - {n} (pruned)")
+                    else:
+                        print(f"  ? {n} (removed upstream, kept locally)")
+
+            # Update packages.yaml
+            v2_config.record_package(pkg_name, url, new_commit, new_pkg_items)
+
+            parts = []
+            if updated_count:
+                parts.append(f"{updated_count} updated")
+            if added_count:
+                parts.append(f"{added_count} new")
+            if parts:
+                print(f"  {', '.join(parts)}")
+                any_changes = True
+
+        finally:
+            shutil.rmtree(clone_dir, ignore_errors=True)
+
+    if up_to_date:
+        print(f"\nAll packages up to date: {', '.join(up_to_date)}")
+
+    if any_changes and not check_only:
+        from .v2_sync import sync_all
+        print("\nSyncing...")
+        sync_all(force=True)
+        print("Done.")
+
+
+def cmd_remove_package(args):
+    """Remove a package and all its items."""
+    from . import v2_config
+    from .registry import Registry
+
+    packages = v2_config.load_packages()
+    pkg_name = args.name
+
+    if pkg_name not in packages:
+        print(f"Package not found: {pkg_name}")
+        print(f"Installed: {', '.join(sorted(packages.keys())) or '(none)'}")
+        sys.exit(1)
+
+    pkg_data = packages[pkg_name]
+    items = pkg_data.get("items", [])
+
+    if not args.yes:
+        print(f"Package: {pkg_name}")
+        print(f"Items ({len(items)}):")
+        for item in items:
+            print(f"  [{item['type']}] {item['name']}")
+        print(f"\nThis will remove all items from the registry and config.")
+        confirm = input("Continue? [y/N] ").strip().lower()
+        if confirm not in ("y", "yes"):
+            print("Cancelled.")
+            return
+
+    registry = Registry(v2_config.get_registry_path())
+
+    # Remove items from registry
+    removed = 0
+    for item in items:
+        try:
+            ct = ComponentType(item["type"])
+            if registry.remove(ct, item["name"]):
+                removed += 1
+                print(f"  Removed {item['type']}/{item['name']}")
+        except (ValueError, KeyError):
+            pass
+
+    # Remove from enabled lists in global config
+    cfg = v2_config.load_global_config()
+    global_section = cfg.get("global", {})
+    item_names_by_field: dict[str, set[str]] = {}
+    for item in items:
+        field = ComponentType(item["type"]).registry_dir
+        item_names_by_field.setdefault(field, set()).add(item["name"])
+
+    for field, names in item_names_by_field.items():
+        enabled = global_section.get(field, [])
+        if isinstance(enabled, list):
+            new_enabled = [n for n in enabled if n not in names]
+            if len(new_enabled) != len(enabled):
+                global_section[field] = new_enabled
+
+    cfg["global"] = global_section
+    v2_config.save_global_config(cfg)
+
+    # Remove from all registered directory configs
+    dirs = v2_config.get_registered_directories()
+    for dir_path_str in dirs:
+        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
+        if not dir_cfg:
+            continue
+        dir_changed = False
+        for field, names in item_names_by_field.items():
+            section = dir_cfg.get(field, {})
+            if isinstance(section, dict):
+                enabled = section.get("enabled", [])
+                new_enabled = [n for n in enabled if n not in names]
+                if len(new_enabled) != len(enabled):
+                    section["enabled"] = new_enabled
+                    dir_cfg[field] = section
+                    dir_changed = True
+        if dir_changed:
+            v2_config.save_dir_config(Path(dir_path_str), dir_cfg)
+
+    # Remove package entry
+    v2_config.remove_package(pkg_name)
+
+    print(f"\nRemoved package '{pkg_name}' ({removed} items)")
+
+    # Sync
+    from .v2_sync import sync_all
+    print("Syncing...")
+    sync_all(force=True)
+    print("Done.")
 
 
 def cmd_clean(args):
@@ -523,7 +802,26 @@ def build_parser() -> argparse.ArgumentParser:
     dl_p.add_argument("url", help="Git URL to clone")
     dl_p.add_argument("--all", action="store_true", help="Add all components without prompting")
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
+    dl_p.add_argument("--name", help="Package name (default: derived from URL)")
     dl_p.set_defaults(func=cmd_download)
+
+    # packages
+    packages_p = subparsers.add_parser("packages", help="List installed packages")
+    packages_p.set_defaults(func=cmd_packages)
+
+    # update
+    update_p = subparsers.add_parser("update", help="Update packages from git")
+    update_p.add_argument("package", nargs="?", help="Specific package to update")
+    update_p.add_argument("--check", action="store_true", help="Check for updates without applying")
+    update_p.add_argument("--force", action="store_true", help="Update even if commit unchanged")
+    update_p.add_argument("--prune", action="store_true", help="Remove items deleted upstream")
+    update_p.set_defaults(func=cmd_update)
+
+    # remove-package
+    rmpkg_p = subparsers.add_parser("remove-package", help="Remove a package and all its items")
+    rmpkg_p.add_argument("name", help="Package name")
+    rmpkg_p.add_argument("-y", "--yes", action="store_true", help="Skip confirmation")
+    rmpkg_p.set_defaults(func=cmd_remove_package)
 
     # projects
     projects_p = subparsers.add_parser("projects", help="Interactive projects tree view")

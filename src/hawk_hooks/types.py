@@ -88,6 +88,26 @@ class ResolvedSet:
 
 
 @dataclass
+class ToggleScope:
+    """A scope layer for the toggle list."""
+
+    key: str  # "global" or absolute dir path
+    label: str  # "All projects" / "monorepo" / "This project: frontend"
+    enabled: list[str] = field(default_factory=list)
+    is_new: bool = False  # True if config doesn't exist yet (will be created on save)
+
+
+@dataclass
+class ToggleGroup:
+    """A group of items in the toggle list (e.g. a downloaded package)."""
+
+    key: str  # package name or "__ungrouped__"
+    label: str  # "📦 superpowers-marketplace" or "ungrouped"
+    items: list[str] = field(default_factory=list)
+    collapsed: bool = False
+
+
+@dataclass
 class SyncResult:
     """Result of syncing a resolved set to a tool."""
 

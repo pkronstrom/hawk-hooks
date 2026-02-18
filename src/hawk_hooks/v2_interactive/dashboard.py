@@ -11,8 +11,8 @@ from .. import __version__, v2_config
 from ..adapters import get_adapter
 from ..registry import Registry
 from ..resolver import resolve
-from ..types import ComponentType, Tool
-from .toggle import ToggleScope, run_toggle_list
+from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
+from .toggle import run_toggle_list
 
 console = Console()
 
@@ -136,6 +136,15 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
     options.append(("Download       Fetch from git URL", "download"))
+
+    # Packages count
+    packages = v2_config.load_packages()
+    pkg_count = len(packages)
+    if pkg_count > 0:
+        options.append((f"Packages       {pkg_count} installed, manage & update", "packages"))
+    else:
+        options.append(("Packages       (none installed)", "packages"))
+
     options.append(("Registry       Browse installed items", "registry"))
 
     # Tools summary
@@ -251,6 +260,42 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
     registry_path = v2_config.get_registry_path(state["cfg"])
     registry_dir = ct.registry_dir if ct else ""
 
+    # Build groups from packages
+    packages = v2_config.load_packages()
+    toggle_groups: list[ToggleGroup] | None = None
+
+    if packages:
+        toggle_groups = []
+        grouped_names: set[str] = set()
+        # field is e.g. "skills" -> item type is "skill"
+        item_type = field.rstrip("s") if field != "mcp" else "mcp"
+        all_names = set(registry_names)
+
+        for pkg_name, pkg_data in sorted(packages.items()):
+            pkg_items = [
+                item["name"] for item in pkg_data.get("items", [])
+                if item.get("type") == item_type
+                and item["name"] in all_names
+            ]
+            if pkg_items:
+                toggle_groups.append(ToggleGroup(
+                    key=pkg_name,
+                    label=f"\U0001f4e6 {pkg_name}",
+                    items=sorted(pkg_items),
+                ))
+                grouped_names.update(pkg_items)
+
+        ungrouped = sorted(all_names - grouped_names)
+        if ungrouped:
+            toggle_groups.append(ToggleGroup(
+                key="__ungrouped__",
+                label="\u2500\u2500 ungrouped \u2500\u2500",
+                items=ungrouped,
+            ))
+
+        if not toggle_groups:
+            toggle_groups = None  # No packages for this type, flat list
+
     # MCP gets an "Add" action
     on_add = None
     add_label = "Add new..."
@@ -269,6 +314,7 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         on_add=on_add,
         add_label=add_label,
         registry_items=registry_names_set,
+        groups=toggle_groups,
     )
 
     if changed:
@@ -636,6 +682,77 @@ def _handle_registry_browse(state: dict) -> None:
             live.update(Text.from_markup(_build_display()))
 
 
+def _handle_packages(state: dict) -> None:
+    """Interactive packages management."""
+    packages = v2_config.load_packages()
+
+    if not packages:
+        console.print("\n[dim]No packages installed.[/dim]")
+        console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
+        console.input("[dim]Press Enter to continue...[/dim]")
+        return
+
+    menu_entries = []
+    pkg_names = []
+    for name, data in sorted(packages.items()):
+        item_count = len(data.get("items", []))
+        menu_entries.append(f"\U0001f4e6 {name:<30} {item_count} items")
+        pkg_names.append(name)
+
+    menu_entries.append(None)  # separator
+    menu_entries.append("Update all")
+    menu_entries.append("Download new...")
+
+    menu = TerminalMenu(
+        menu_entries,
+        title="\nhawk packages\n" + "\u2500" * 40,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q",),
+        status_bar="[Enter: details]  [u: update]  [x: remove]  [q: back]",
+    )
+
+    while True:
+        choice = menu.show()
+        if choice is None:
+            break
+
+        if choice < len(pkg_names):
+            # Show package details
+            pkg_name = pkg_names[choice]
+            pkg_data = packages[pkg_name]
+            console.print(f"\n[bold]\U0001f4e6 {pkg_name}[/bold]")
+            console.print(f"  URL: {pkg_data.get('url', 'unknown')}")
+            console.print(f"  Commit: {pkg_data.get('commit', 'unknown')[:7]}")
+            console.print(f"  Installed: {pkg_data.get('installed', 'unknown')}")
+            console.print(f"\n  Items:")
+            for item in pkg_data.get("items", []):
+                console.print(f"    [{item['type']}] {item['name']}  ({item.get('hash', '?')})")
+            console.print()
+            console.input("[dim]Press Enter to continue...[/dim]")
+        elif menu_entries[choice] == "Update all":
+            console.print("\n[bold]Updating all packages...[/bold]")
+            import sys
+            from ..v2_cli import cmd_update
+
+            class Args:
+                package = None
+                check = False
+                force = False
+                prune = False
+            try:
+                cmd_update(Args())
+            except SystemExit:
+                pass
+            console.print()
+            console.input("[dim]Press Enter to continue...[/dim]")
+            break
+        elif menu_entries[choice] == "Download new...":
+            _handle_download()
+            break
+
+
 def _handle_projects(state: dict) -> None:
     """Interactive projects tree view."""
     _run_projects_tree()
@@ -875,6 +992,9 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "tools":
             if _handle_tools_toggle(state):
                 dirty = True
+
+        elif action == "packages":
+            _handle_packages(state)
 
         elif action == "registry":
             _handle_registry_browse(state)

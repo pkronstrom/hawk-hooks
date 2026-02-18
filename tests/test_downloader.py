@@ -10,6 +10,7 @@ from hawk_hooks.downloader import (
     add_items_to_registry,
     check_clashes,
     classify,
+    get_head_commit,
 )
 from hawk_hooks.registry import Registry
 from hawk_hooks.types import ComponentType
@@ -215,3 +216,25 @@ class TestAddToRegistry:
         added, skipped = add_items_to_registry(items, registry, replace=True)
         assert len(added) == 1
         assert registry.get_path(ComponentType.SKILL, "skill.md").read_text() == "v2"
+
+
+class TestGetHeadCommit:
+    def test_returns_hash_for_git_repo(self, tmp_path):
+        """Test with a real git repo."""
+        import subprocess
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo, capture_output=True, check=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, capture_output=True, check=True)
+        (repo / "file.txt").write_text("content")
+        subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo, capture_output=True, check=True)
+
+        result = get_head_commit(repo)
+        assert len(result) == 40
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_returns_empty_for_non_repo(self, tmp_path):
+        result = get_head_commit(tmp_path)
+        assert result == ""

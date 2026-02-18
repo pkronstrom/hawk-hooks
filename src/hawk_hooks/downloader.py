@@ -71,6 +71,26 @@ def shallow_clone(url: str, dest: Path | None = None) -> Path:
     return dest
 
 
+def get_head_commit(clone_dir: Path) -> str:
+    """Get the HEAD commit hash from a cloned repository.
+
+    Returns the full SHA hash, or empty string on failure.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(clone_dir),
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return ""
+
+
 def classify(directory: Path) -> ClassifiedContent:
     """Classify the contents of a directory into component types.
 

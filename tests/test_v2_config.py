@@ -278,6 +278,178 @@ class TestPruneStale:
         assert pruned == []
 
 
+class TestPackages:
+    def test_load_empty_when_no_file(self, v2_env):
+        assert v2_config.load_packages() == {}
+
+    def test_save_and_load(self, v2_env):
+        packages = {
+            "my-pkg": {
+                "url": "https://github.com/user/my-pkg",
+                "installed": "2026-02-18",
+                "commit": "abc123",
+                "items": [
+                    {"type": "skill", "name": "tdd", "hash": "deadbeef"},
+                ],
+            }
+        }
+        v2_config.save_packages(packages)
+        loaded = v2_config.load_packages()
+        assert "my-pkg" in loaded
+        assert loaded["my-pkg"]["url"] == "https://github.com/user/my-pkg"
+        assert loaded["my-pkg"]["items"][0]["name"] == "tdd"
+
+    def test_load_handles_corrupt_yaml(self, v2_env):
+        path = v2_config.get_packages_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(":::bad:::")
+        assert v2_config.load_packages() == {}
+
+    def test_get_package_for_item_found(self, v2_env):
+        v2_config.save_packages({
+            "pkg-a": {
+                "url": "u", "installed": "d", "commit": "c",
+                "items": [{"type": "skill", "name": "tdd", "hash": "h"}],
+            }
+        })
+        assert v2_config.get_package_for_item("skill", "tdd") == "pkg-a"
+
+    def test_get_package_for_item_not_found(self, v2_env):
+        v2_config.save_packages({
+            "pkg-a": {
+                "url": "u", "installed": "d", "commit": "c",
+                "items": [{"type": "skill", "name": "tdd", "hash": "h"}],
+            }
+        })
+        assert v2_config.get_package_for_item("skill", "other") is None
+
+    def test_list_package_items(self, v2_env):
+        v2_config.save_packages({
+            "pkg": {
+                "url": "u", "installed": "d", "commit": "c",
+                "items": [
+                    {"type": "skill", "name": "tdd", "hash": "h1"},
+                    {"type": "command", "name": "commit", "hash": "h2"},
+                ],
+            }
+        })
+        items = v2_config.list_package_items("pkg")
+        assert ("skill", "tdd") in items
+        assert ("command", "commit") in items
+
+    def test_list_package_items_missing_package(self, v2_env):
+        assert v2_config.list_package_items("nope") == []
+
+    def test_remove_package(self, v2_env):
+        v2_config.save_packages({
+            "pkg-a": {"url": "u", "installed": "d", "commit": "c", "items": []},
+            "pkg-b": {"url": "u", "installed": "d", "commit": "c", "items": []},
+        })
+        assert v2_config.remove_package("pkg-a") is True
+        loaded = v2_config.load_packages()
+        assert "pkg-a" not in loaded
+        assert "pkg-b" in loaded
+
+    def test_remove_package_not_found(self, v2_env):
+        assert v2_config.remove_package("nonexistent") is False
+
+    def test_record_package(self, v2_env):
+        v2_config.record_package(
+            name="my-pkg",
+            url="https://github.com/user/repo",
+            commit="abc123",
+            items=[{"type": "skill", "name": "tdd", "hash": "deadbeef"}],
+        )
+        loaded = v2_config.load_packages()
+        assert "my-pkg" in loaded
+        assert loaded["my-pkg"]["url"] == "https://github.com/user/repo"
+        assert loaded["my-pkg"]["commit"] == "abc123"
+        assert loaded["my-pkg"]["items"][0]["name"] == "tdd"
+        assert loaded["my-pkg"]["installed"]  # date string present
+
+    def test_record_package_updates_existing(self, v2_env):
+        v2_config.record_package("pkg", "url1", "c1", [])
+        v2_config.record_package("pkg", "url2", "c2", [{"type": "skill", "name": "new", "hash": "h"}])
+        loaded = v2_config.load_packages()
+        assert loaded["pkg"]["url"] == "url2"
+        assert loaded["pkg"]["commit"] == "c2"
+        assert len(loaded["pkg"]["items"]) == 1
+
+
+class TestPackageNameFromUrl:
+    def test_simple_url(self):
+        assert v2_config.package_name_from_url("https://github.com/user/my-repo") == "my-repo"
+
+    def test_url_with_git_suffix(self):
+        assert v2_config.package_name_from_url("https://github.com/user/my-repo.git") == "my-repo"
+
+    def test_url_with_trailing_slash(self):
+        assert v2_config.package_name_from_url("https://github.com/user/my-repo/") == "my-repo"
+
+    def test_ssh_url(self):
+        assert v2_config.package_name_from_url("git@github.com:user/my-repo.git") == "my-repo"
+
+
+class TestContentHashing:
+    def test_hash_file(self, tmp_path):
+        f = tmp_path / "test.md"
+        f.write_text("hello world")
+        result = v2_config.hash_registry_item(f)
+        assert len(result) == 8
+        assert all(c in "0123456789abcdef" for c in result)
+
+    def test_hash_file_deterministic(self, tmp_path):
+        f = tmp_path / "test.md"
+        f.write_text("hello world")
+        assert v2_config.hash_registry_item(f) == v2_config.hash_registry_item(f)
+
+    def test_hash_file_changes_with_content(self, tmp_path):
+        f = tmp_path / "test.md"
+        f.write_text("version 1")
+        h1 = v2_config.hash_registry_item(f)
+        f.write_text("version 2")
+        h2 = v2_config.hash_registry_item(f)
+        assert h1 != h2
+
+    def test_hash_dir(self, tmp_path):
+        d = tmp_path / "skill"
+        d.mkdir()
+        (d / "README.md").write_text("# Skill")
+        (d / "main.py").write_text("print('hi')")
+
+        result = v2_config.hash_registry_item(d)
+        assert len(result) == 8
+
+    def test_hash_dir_deterministic(self, tmp_path):
+        d = tmp_path / "skill"
+        d.mkdir()
+        (d / "a.md").write_text("a")
+        (d / "b.md").write_text("b")
+        assert v2_config.hash_registry_item(d) == v2_config.hash_registry_item(d)
+
+    def test_hash_dir_changes_with_content(self, tmp_path):
+        d = tmp_path / "skill"
+        d.mkdir()
+        (d / "a.md").write_text("v1")
+        h1 = v2_config.hash_registry_item(d)
+        (d / "a.md").write_text("v2")
+        h2 = v2_config.hash_registry_item(d)
+        assert h1 != h2
+
+    def test_hash_nonexistent(self, tmp_path):
+        result = v2_config.hash_registry_item(tmp_path / "nope")
+        assert result == "00000000"
+
+    def test_hash_dir_ignores_hidden_files(self, tmp_path):
+        d = tmp_path / "skill"
+        d.mkdir()
+        (d / "a.md").write_text("content")
+        h1 = v2_config.hash_registry_item(d)
+        (d / ".hidden").write_text("secret")
+        h2 = v2_config.hash_registry_item(d)
+        assert h1 == h2
+
+
 class TestEnsureDirs:
     def test_creates_registry_dirs(self, v2_env):
         v2_config.ensure_v2_dirs()

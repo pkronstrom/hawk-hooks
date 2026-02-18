@@ -169,6 +169,89 @@ class TestResolverIntegration:
         assert "claude-only" in resolved.skills
 
 
+class TestPackageRemoval:
+    """Test removing a package cleans up registry and config."""
+
+    def test_remove_package_cleans_everything(self, full_env, tmp_path):
+        registry = full_env["registry"]
+
+        # Record a package with items that are in the registry
+        v2_config.save_packages({
+            "test-pkg": {
+                "url": "https://github.com/test/pkg",
+                "installed": "2026-02-18",
+                "commit": "abc123",
+                "items": [
+                    {"type": "skill", "name": "tdd", "hash": "deadbeef"},
+                    {"type": "command", "name": "deploy.md", "hash": "cafebabe"},
+                ],
+            }
+        })
+
+        # Verify items exist
+        assert registry.has(ComponentType.SKILL, "tdd")
+        assert registry.has(ComponentType.COMMAND, "deploy.md")
+
+        # Verify global config has them enabled
+        cfg = v2_config.load_global_config()
+        assert "tdd" in cfg["global"]["skills"]
+        assert "deploy.md" in cfg["global"]["commands"]
+
+        # Create a directory config that also has them
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {
+            "skills": {"enabled": ["tdd"]},
+        })
+        v2_config.register_directory(project)
+
+        # Simulate remove-package logic (from cmd_remove_package)
+        packages = v2_config.load_packages()
+        pkg_data = packages["test-pkg"]
+        items = pkg_data.get("items", [])
+
+        # Remove from registry
+        for item in items:
+            ct = ComponentType(item["type"])
+            registry.remove(ct, item["name"])
+
+        # Remove from global config
+        cfg = v2_config.load_global_config()
+        global_section = cfg.get("global", {})
+        for item in items:
+            field = ComponentType(item["type"]).registry_dir
+            enabled = global_section.get(field, [])
+            global_section[field] = [n for n in enabled if n != item["name"]]
+        cfg["global"] = global_section
+        v2_config.save_global_config(cfg)
+
+        # Remove from dir configs
+        dir_cfg = v2_config.load_dir_config(project)
+        skills_section = dir_cfg.get("skills", {})
+        if isinstance(skills_section, dict):
+            skills_section["enabled"] = [
+                n for n in skills_section.get("enabled", []) if n != "tdd"
+            ]
+            dir_cfg["skills"] = skills_section
+        v2_config.save_dir_config(project, dir_cfg)
+
+        # Remove package entry
+        v2_config.remove_package("test-pkg")
+
+        # Verify cleanup
+        assert not registry.has(ComponentType.SKILL, "tdd")
+        assert not registry.has(ComponentType.COMMAND, "deploy.md")
+
+        cfg = v2_config.load_global_config()
+        assert "tdd" not in cfg["global"]["skills"]
+        assert "deploy.md" not in cfg["global"]["commands"]
+
+        dir_cfg = v2_config.load_dir_config(project)
+        assert "tdd" not in dir_cfg["skills"]["enabled"]
+
+        assert v2_config.load_packages() == {}
+
+
 class TestRegistryIntegration:
     def test_add_and_sync(self, full_env, tmp_path):
         registry = full_env["registry"]

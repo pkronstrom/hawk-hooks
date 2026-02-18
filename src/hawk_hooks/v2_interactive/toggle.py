@@ -20,6 +20,8 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from ..types import ToggleGroup, ToggleScope  # noqa: F401 — re-exported
+
 console = Console()
 
 # Actions appended after the item list
@@ -27,16 +29,6 @@ ACTION_SELECT_ALL = "__select_all__"
 ACTION_SELECT_NONE = "__select_none__"
 ACTION_ADD = "__add__"
 ACTION_DONE = "__done__"
-
-
-@dataclass
-class ToggleScope:
-    """A scope layer for the toggle list."""
-
-    key: str  # "global" or absolute dir path
-    label: str  # "All projects" / "monorepo" / "This project: frontend"
-    enabled: list[str]  # currently enabled items in this scope
-    is_new: bool = False  # True if config doesn't exist yet (will be created on save)
 
 
 def _get_terminal_height() -> int:
@@ -201,6 +193,8 @@ def run_toggle_list(
     start_scope_index: int = -1,
     # Optional: set of names that actually exist in registry (for missing hints)
     registry_items: set[str] | None = None,
+    # Package grouping — when provided, items are shown under collapsible headers
+    groups: list[ToggleGroup] | None = None,
 ) -> tuple[list[list[str]], bool]:
     """Run an interactive toggle list for a component type.
 
@@ -255,6 +249,12 @@ def run_toggle_list(
     items = list(registry_names)
     num_scopes = len(scopes)
 
+    # Row kinds for the virtual row model
+    ROW_GROUP_HEADER = "group_header"
+    ROW_ITEM = "item"
+    ROW_SEPARATOR = "separator"
+    ROW_ACTION = "action"
+
     def _get_actions() -> list[tuple[str, str]]:
         actions = [
             ("Select All", ACTION_SELECT_ALL),
@@ -265,30 +265,39 @@ def run_toggle_list(
         actions.append(("Done", ACTION_DONE))
         return actions
 
-    def _total_rows() -> int:
-        if not items:
-            return len(_get_actions())
-        return len(items) + 1 + len(_get_actions())
+    def _build_rows() -> list[tuple[str, str, int]]:
+        """Build the virtual row list: (kind, value, group_idx).
 
-    def _is_separator(idx: int) -> bool:
-        if not items:
-            return False
-        return idx == len(items)
+        value: item name for items, group key for headers, action id for actions.
+        group_idx: index into groups list, -1 for non-grouped rows.
+        """
+        rows: list[tuple[str, str, int]] = []
 
-    def _is_action(idx: int) -> bool:
-        if not items:
-            return idx >= 0
-        return idx > len(items)
-
-    def _action_id(idx: int) -> str:
-        if not items:
-            action_idx = idx
+        if groups:
+            for gi, group in enumerate(groups):
+                rows.append((ROW_GROUP_HEADER, group.key, gi))
+                if not group.collapsed:
+                    for name in group.items:
+                        rows.append((ROW_ITEM, name, gi))
         else:
-            action_idx = idx - len(items) - 1
-        actions = _get_actions()
-        if 0 <= action_idx < len(actions):
-            return actions[action_idx][1]
-        return ""
+            for name in items:
+                rows.append((ROW_ITEM, name, -1))
+
+        if not items and not groups:
+            pass  # empty state handled in display
+        else:
+            rows.append((ROW_SEPARATOR, "", -1))
+
+        for _, aid in _get_actions():
+            rows.append((ROW_ACTION, aid, -1))
+
+        return rows
+
+    row_list = _build_rows()
+
+    def _rebuild_rows() -> None:
+        nonlocal row_list
+        row_list = _build_rows()
 
     def _checked_set() -> set[str]:
         return checked_sets[scope_index]
@@ -318,17 +327,27 @@ def run_toggle_list(
             return True
         return False
 
-    def _toggle_item() -> None:
-        """Toggle the item at cursor position."""
+    def _toggle_item_by_name(name: str) -> None:
+        """Toggle an item by name."""
         nonlocal changed
-        if cursor < len(items):
-            name = items[cursor]
-            checked = _checked_set()
-            if name in checked:
-                checked.discard(name)
-            else:
-                checked.add(name)
-            changed = True
+        checked = _checked_set()
+        if name in checked:
+            checked.discard(name)
+        else:
+            checked.add(name)
+        changed = True
+
+    def _group_enabled_count(group: ToggleGroup) -> tuple[int, int]:
+        """Count (enabled, total) for a group in current scope."""
+        checked = _checked_set()
+        enabled = sum(1 for name in group.items if name in checked)
+        return enabled, len(group.items)
+
+    def _action_label(aid: str) -> str:
+        for label, a in _get_actions():
+            if a == aid:
+                return label
+        return ""
 
     def _build_display() -> str:
         """Build the display string for Rich."""
@@ -350,7 +369,7 @@ def run_toggle_list(
         lines.append(f"[bold]{component_type}[/bold] \u2014 {scope_label}    [dim]{tab_hint}[/dim]")
         lines.append("[dim]\u2500" * 50 + "[/dim]")
 
-        total = _total_rows()
+        total = len(row_list)
         max_visible = _get_terminal_height() - 7
         _, vis_start, vis_end = _calculate_visible_range(cursor, total, max_visible, scroll_offset)
 
@@ -361,18 +380,26 @@ def run_toggle_list(
         if vis_start > 0:
             lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
 
-        # Empty state within the list
-        if not items:
+        # Empty state
+        if not items and not groups:
             lines.append("  [dim](none in registry)[/dim]")
             lines.append("")
 
         for i in range(vis_start, vis_end):
+            kind, value, gi = row_list[i]
             is_cur = i == cursor
             prefix = "[cyan]\u276f[/cyan] " if is_cur else "  "
 
-            if i < len(items):
-                # Item row with change tracking
-                name = items[i]
+            if kind == ROW_GROUP_HEADER:
+                group = groups[gi]
+                en, tot = _group_enabled_count(group)
+                arrow = "\u25b6" if group.collapsed else "\u25bc"
+                style = "[bold]" if is_cur else ""
+                end_style = "[/bold]" if is_cur else ""
+                lines.append(f"{prefix}{style}{group.label}  ({en}/{tot} enabled)  {arrow}{end_style}")
+
+            elif kind == ROW_ITEM:
+                name = value
                 is_checked = name in checked
                 was_checked = name in initial
                 is_changed = is_checked != was_checked
@@ -389,7 +416,10 @@ def run_toggle_list(
                 style = "[bold]" if is_cur else ""
                 end_style = "[/bold]" if is_cur else ""
 
-                # Hints: show where item is enabled in parent scopes
+                # Indent items under groups
+                indent = "  " if groups else ""
+
+                # Hints
                 hint = ""
                 if registry_items is not None and name not in registry_items:
                     hint = "  [dim](not in registry)[/dim]"
@@ -400,20 +430,16 @@ def run_toggle_list(
                 if not hint and is_changed:
                     hint = "  [yellow]\u2022[/yellow]"
 
-                lines.append(f"{prefix}{mark} {style}{name}{end_style}{hint}")
-            elif _is_separator(i):
+                lines.append(f"{prefix}{indent}{mark} {style}{name}{end_style}{hint}")
+
+            elif kind == ROW_SEPARATOR:
                 lines.append("  [dim]\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500[/dim]")
-            elif _is_action(i):
-                if not items:
-                    action_idx = i
-                else:
-                    action_idx = i - len(items) - 1
-                actions = _get_actions()
-                if 0 <= action_idx < len(actions):
-                    label = actions[action_idx][0]
-                    style = "[cyan bold]" if is_cur else "[dim]"
-                    end = "[/cyan bold]" if is_cur else "[/dim]"
-                    lines.append(f"{prefix}{style}{label}{end}")
+
+            elif kind == ROW_ACTION:
+                label = _action_label(value)
+                style = "[cyan bold]" if is_cur else "[dim]"
+                end = "[/cyan bold]" if is_cur else "[/dim]"
+                lines.append(f"{prefix}{style}{label}{end}")
 
         # Scroll indicator (below)
         if vis_end < total:
@@ -435,6 +461,14 @@ def run_toggle_list(
 
         return "\n".join(lines)
 
+    def _get_item_name_at_cursor() -> str | None:
+        """Get the item name at the current cursor position, or None."""
+        if cursor < len(row_list):
+            kind, value, _ = row_list[cursor]
+            if kind == ROW_ITEM:
+                return value
+        return None
+
     # Main loop
     with Live("", console=console, refresh_per_second=15, transient=True) as live:
         live.update(Text.from_markup(_build_display()))
@@ -444,55 +478,89 @@ def run_toggle_list(
             except (KeyboardInterrupt, EOFError):
                 break
 
-            total = _total_rows()
+            total = len(row_list)
             status_msg = ""
 
-            # Navigation
+            # Navigation — skip separators but land on everything else
             if key in (readchar.key.UP, "k"):
                 cursor = (cursor - 1) % total
-                if _is_separator(cursor):
+                if row_list[cursor][0] == ROW_SEPARATOR:
                     cursor = (cursor - 1) % total
             elif key in (readchar.key.DOWN, "j"):
                 cursor = (cursor + 1) % total
-                if _is_separator(cursor):
+                if row_list[cursor][0] == ROW_SEPARATOR:
                     cursor = (cursor + 1) % total
 
-            # Toggle (Space)
+            # Toggle (Space) or collapse/expand
             elif key == " ":
-                if cursor < len(items):
-                    _toggle_item()
-                elif _is_action(cursor):
-                    aid = _action_id(cursor)
-                    if aid == ACTION_ADD and on_add:
+                kind, value, gi = row_list[cursor]
+                if kind == ROW_GROUP_HEADER and groups:
+                    groups[gi].collapsed = not groups[gi].collapsed
+                    _rebuild_rows()
+                    # Keep cursor on the header
+                    cursor = min(cursor, len(row_list) - 1)
+                elif kind == ROW_ITEM:
+                    _toggle_item_by_name(value)
+                elif kind == ROW_ACTION:
+                    if value == ACTION_ADD and on_add:
                         live.stop()
                         new_name = on_add()
                         if new_name:
                             items.append(new_name)
                             items.sort()
+                            # Add to ungrouped group if groups exist
+                            if groups:
+                                ungrouped = next((g for g in groups if g.key == "__ungrouped__"), None)
+                                if ungrouped:
+                                    ungrouped.items.append(new_name)
+                                    ungrouped.items.sort()
+                                else:
+                                    groups.append(ToggleGroup(
+                                        key="__ungrouped__",
+                                        label="\u2500\u2500 ungrouped \u2500\u2500",
+                                        items=[new_name],
+                                    ))
                             _checked_set().add(new_name)
                             changed = True
                             status_msg = f"Added {new_name}"
+                            _rebuild_rows()
                         live.start()
-                    elif _handle_action(aid):
+                    elif _handle_action(value):
                         break
 
-            # Enter — toggle item, or activate action
+            # Enter — same as Space
             elif key in ("\r", "\n", readchar.key.ENTER):
-                if cursor < len(items):
-                    _toggle_item()
-                elif _is_action(cursor):
-                    aid = _action_id(cursor)
-                    if aid == ACTION_ADD and on_add:
+                kind, value, gi = row_list[cursor]
+                if kind == ROW_GROUP_HEADER and groups:
+                    groups[gi].collapsed = not groups[gi].collapsed
+                    _rebuild_rows()
+                    cursor = min(cursor, len(row_list) - 1)
+                elif kind == ROW_ITEM:
+                    _toggle_item_by_name(value)
+                elif kind == ROW_ACTION:
+                    if value == ACTION_ADD and on_add:
                         live.stop()
                         new_name = on_add()
                         if new_name:
                             items.append(new_name)
                             items.sort()
+                            if groups:
+                                ungrouped = next((g for g in groups if g.key == "__ungrouped__"), None)
+                                if ungrouped:
+                                    ungrouped.items.append(new_name)
+                                    ungrouped.items.sort()
+                                else:
+                                    groups.append(ToggleGroup(
+                                        key="__ungrouped__",
+                                        label="\u2500\u2500 ungrouped \u2500\u2500",
+                                        items=[new_name],
+                                    ))
                             _checked_set().add(new_name)
                             changed = True
                             status_msg = f"Added {new_name}"
+                            _rebuild_rows()
                         live.start()
-                    elif _handle_action(aid):
+                    elif _handle_action(value):
                         break
 
             # Tab = cycle scope
@@ -502,8 +570,8 @@ def run_toggle_list(
 
             # View in terminal
             elif key == "v":
-                if cursor < len(items) and registry_path and registry_dir:
-                    name = items[cursor]
+                name = _get_item_name_at_cursor()
+                if name and registry_path and registry_dir:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
@@ -516,8 +584,8 @@ def run_toggle_list(
 
             # Open in Finder / file manager
             elif key == "o":
-                if cursor < len(items) and registry_path and registry_dir:
-                    name = items[cursor]
+                name = _get_item_name_at_cursor()
+                if name and registry_path and registry_dir:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
@@ -529,8 +597,8 @@ def run_toggle_list(
 
             # Edit in $EDITOR
             elif key == "e":
-                if cursor < len(items) and registry_path and registry_dir:
-                    name = items[cursor]
+                name = _get_item_name_at_cursor()
+                if name and registry_path and registry_dir:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
@@ -543,6 +611,7 @@ def run_toggle_list(
             elif key in ("q", "\x1b"):
                 break
 
+            _rebuild_rows()
             live.update(Text.from_markup(_build_display()))
 
     return [sorted(cs) for cs in checked_sets], changed
