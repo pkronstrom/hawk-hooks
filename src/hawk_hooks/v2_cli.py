@@ -426,7 +426,7 @@ def _interactive_select_items(items):
         menu_highlight_style=("fg_cyan", "bold"),
         quit_keys=("q",),
         show_search_hint=True,
-        search_key=None,  # search on any key press
+        search_key="/",
         status_bar="Space: toggle  /: search  Enter: confirm  a: all  q: quit",
     )
     result = menu.show()
