@@ -127,3 +127,17 @@ class TestArgParsing:
         args = self.parser.parse_args(["config"])
         assert args.command == "config"
         assert hasattr(args, "func")
+
+    def test_projects(self):
+        args = self.parser.parse_args(["projects"])
+        assert args.command == "projects"
+        assert hasattr(args, "func")
+
+    def test_main_dir_flag(self):
+        args = self.parser.parse_args(["--dir", "/tmp/project"])
+        assert args.main_dir == "/tmp/project"
+        assert args.command is None
+
+    def test_main_dir_flag_default(self):
+        args = self.parser.parse_args([])
+        assert args.main_dir is None

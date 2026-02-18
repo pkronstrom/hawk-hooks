@@ -120,6 +120,77 @@ class TestSyncDirectory:
         assert len(results) == 1
 
 
+class TestSyncDirectoryWithChain:
+    """Tests for sync_directory with hierarchical config chain."""
+
+    def test_sync_inherits_parent_config(self, v2_env, tmp_path, monkeypatch):
+        """Child dir should inherit skills from registered parent."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+        monkeypatch.setattr(ClaudeAdapter, "get_project_dir", lambda self, d: claude_dir)
+
+        # Set up monorepo structure
+        root = tmp_path / "monorepo"
+        root.mkdir()
+        child = root / "packages" / "frontend"
+        child.mkdir(parents=True)
+
+        # Root config enables tdd
+        v2_config.save_dir_config(root, {"skills": {"enabled": ["tdd"], "disabled": []}})
+        v2_config.register_directory(root)
+
+        # Child config adds react
+        v2_config.save_dir_config(child, {"skills": {"enabled": ["react"], "disabled": []}})
+        v2_config.register_directory(child)
+
+        # Add react to registry so it can be linked
+        registry_path = v2_env["registry_path"]
+        react_dir = tmp_path / "source" / "react"
+        react_dir.mkdir(parents=True)
+        (react_dir / "SKILL.md").write_text("# React")
+        v2_env["registry"].add(ComponentType.SKILL, "react", react_dir)
+
+        results = sync_directory(child, tools=[Tool.CLAUDE])
+        assert len(results) == 1
+        # Should have both tdd (from parent) and react (from child)
+        linked_names = [item.split(":")[-1] for item in results[0].linked]
+        assert "tdd" in linked_names
+        assert "react" in linked_names
+
+    def test_sync_child_can_disable_parent_skill(self, v2_env, tmp_path, monkeypatch):
+        """Child dir should be able to disable skills from parent."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+        monkeypatch.setattr(ClaudeAdapter, "get_project_dir", lambda self, d: claude_dir)
+
+        root = tmp_path / "monorepo"
+        root.mkdir()
+        child = root / "packages" / "backend"
+        child.mkdir(parents=True)
+
+        v2_config.save_dir_config(root, {"skills": {"enabled": ["tdd", "react"], "disabled": []}})
+        v2_config.register_directory(root)
+
+        # Child disables react
+        v2_config.save_dir_config(child, {"skills": {"enabled": [], "disabled": ["react"]}})
+        v2_config.register_directory(child)
+
+        # Add react to registry
+        react_dir = tmp_path / "source" / "react"
+        react_dir.mkdir(parents=True)
+        (react_dir / "SKILL.md").write_text("# React")
+        v2_env["registry"].add(ComponentType.SKILL, "react", react_dir)
+
+        results = sync_directory(child, tools=[Tool.CLAUDE])
+        linked_names = [item.split(":")[-1] for item in results[0].linked]
+        assert "tdd" in linked_names
+        assert "react" not in linked_names
+
+
 class TestSyncCache:
     def test_cache_key_global(self):
         key = _cache_key("global", Tool.CLAUDE)

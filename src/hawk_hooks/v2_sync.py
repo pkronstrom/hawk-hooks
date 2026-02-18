@@ -39,6 +39,20 @@ def _write_cached_hash(scope: str, tool: Tool, hash_val: str) -> None:
     (cache_dir / _cache_key(scope, tool)).write_text(hash_val)
 
 
+def _load_profile_for_dir(
+    dir_config: dict | None, project_dir: Path, cfg: dict
+) -> str | None:
+    """Determine the profile name for a directory from its config or global index."""
+    profile_name = None
+    if dir_config:
+        profile_name = dir_config.get("profile")
+    if not profile_name:
+        dirs = cfg.get("directories", {})
+        dir_entry = dirs.get(str(project_dir.resolve()), {})
+        profile_name = dir_entry.get("profile")
+    return profile_name
+
+
 def sync_directory(
     project_dir: Path,
     tools: list[Tool] | None = None,
@@ -46,6 +60,9 @@ def sync_directory(
     force: bool = False,
 ) -> list[SyncResult]:
     """Sync a single directory to all enabled tools.
+
+    Uses config chain for hierarchical resolution: registered parent dirs
+    are included outermost-first, each with their own profile.
 
     Args:
         project_dir: The project directory to sync.
@@ -57,20 +74,23 @@ def sync_directory(
         List of SyncResult, one per tool.
     """
     cfg = v2_config.load_global_config()
-    dir_config = v2_config.load_dir_config(project_dir)
 
-    # Load profile if specified
-    profile = None
-    profile_name = None
-    if dir_config:
-        profile_name = dir_config.get("profile")
-    if not profile_name:
-        # Check global directory index for profile
-        dirs = cfg.get("directories", {})
-        dir_entry = dirs.get(str(project_dir.resolve()), {})
-        profile_name = dir_entry.get("profile")
-    if profile_name:
-        profile = v2_config.load_profile(profile_name)
+    # Build dir_chain from config chain (hierarchical parent lookup)
+    config_chain = v2_config.get_config_chain(project_dir)
+    dir_chain: list[tuple[dict, dict | None]] = []
+    for chain_dir, chain_config in config_chain:
+        profile_name = _load_profile_for_dir(chain_config, chain_dir, cfg)
+        profile = v2_config.load_profile(profile_name) if profile_name else None
+        dir_chain.append((chain_config, profile))
+
+    # If no chain found, fall back to loading dir config directly
+    # (handles case where dir has config but isn't in the index)
+    if not dir_chain:
+        dir_config = v2_config.load_dir_config(project_dir)
+        if dir_config:
+            profile_name = _load_profile_for_dir(dir_config, project_dir, cfg)
+            profile = v2_config.load_profile(profile_name) if profile_name else None
+            dir_chain.append((dir_config, profile))
 
     # Determine which tools to sync
     enabled_tools = tools or v2_config.get_enabled_tools(cfg)
@@ -82,8 +102,8 @@ def sync_directory(
     for tool in enabled_tools:
         adapter = get_adapter(tool)
 
-        # Resolve the component set for this tool
-        resolved = resolve(cfg, profile=profile, dir_config=dir_config, tool=tool)
+        # Resolve using dir_chain for hierarchical layering
+        resolved = resolve(cfg, dir_chain=dir_chain, tool=tool)
 
         if dry_run:
             result = SyncResult(tool=str(tool))

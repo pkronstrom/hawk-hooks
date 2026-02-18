@@ -150,6 +150,134 @@ class TestToolGlobalDir:
         assert str(path) == "/custom/path"
 
 
+class TestConfigChain:
+    def test_empty_chain_when_no_dirs_registered(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        chain = v2_config.get_config_chain(project)
+        assert chain == []
+
+    def test_single_dir_in_chain(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {"skills": {"enabled": ["tdd"]}})
+        v2_config.register_directory(project)
+
+        chain = v2_config.get_config_chain(project)
+        assert len(chain) == 1
+        assert chain[0][0] == project.resolve()
+        assert chain[0][1]["skills"]["enabled"] == ["tdd"]
+
+    def test_nested_dirs_outermost_first(self, v2_env, tmp_path):
+        root = tmp_path / "monorepo"
+        root.mkdir()
+        child = root / "packages" / "frontend"
+        child.mkdir(parents=True)
+
+        v2_config.save_dir_config(root, {"profile": "fullstack"})
+        v2_config.register_directory(root)
+        v2_config.save_dir_config(child, {"skills": {"enabled": ["react"]}})
+        v2_config.register_directory(child)
+
+        chain = v2_config.get_config_chain(child)
+        assert len(chain) == 2
+        assert chain[0][0] == root.resolve()  # outermost first
+        assert chain[1][0] == child.resolve()
+
+    def test_unrelated_dirs_excluded(self, v2_env, tmp_path):
+        project_a = tmp_path / "project-a"
+        project_a.mkdir()
+        project_b = tmp_path / "project-b"
+        project_b.mkdir()
+
+        v2_config.save_dir_config(project_a, {"skills": {"enabled": ["a"]}})
+        v2_config.register_directory(project_a)
+        v2_config.save_dir_config(project_b, {"skills": {"enabled": ["b"]}})
+        v2_config.register_directory(project_b)
+
+        chain = v2_config.get_config_chain(project_a)
+        assert len(chain) == 1
+        assert chain[0][0] == project_a.resolve()
+
+    def test_subdir_without_own_config(self, v2_env, tmp_path):
+        """Subdir that isn't registered but is inside a registered parent."""
+        root = tmp_path / "monorepo"
+        root.mkdir()
+        child = root / "packages" / "backend"
+        child.mkdir(parents=True)
+
+        v2_config.save_dir_config(root, {"profile": "fullstack"})
+        v2_config.register_directory(root)
+
+        # child has no config, but is inside root
+        chain = v2_config.get_config_chain(child)
+        assert len(chain) == 1
+        assert chain[0][0] == root.resolve()
+
+
+class TestAutoRegister:
+    def test_auto_registers_when_config_exists(self, v2_env, tmp_path):
+        project = tmp_path / "cloned"
+        project.mkdir()
+        v2_config.save_dir_config(project, {"profile": "web"})
+
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) not in dirs
+
+        v2_config.auto_register_if_needed(project)
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) in dirs
+
+    def test_no_op_when_already_registered(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {})
+        v2_config.register_directory(project)
+
+        v2_config.auto_register_if_needed(project)
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) in dirs
+
+    def test_no_op_when_no_config(self, v2_env, tmp_path):
+        project = tmp_path / "bare"
+        project.mkdir()
+
+        v2_config.auto_register_if_needed(project)
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) not in dirs
+
+
+class TestPruneStale:
+    def test_removes_stale_entries(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {})
+        v2_config.register_directory(project)
+
+        # Delete the config
+        (project / ".hawk" / "config.yaml").unlink()
+
+        pruned = v2_config.prune_stale_directories()
+        assert str(project.resolve()) in pruned
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) not in dirs
+
+    def test_keeps_valid_entries(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {})
+        v2_config.register_directory(project)
+
+        pruned = v2_config.prune_stale_directories()
+        assert pruned == []
+        dirs = v2_config.get_registered_directories()
+        assert str(project.resolve()) in dirs
+
+    def test_prune_returns_empty_when_no_dirs(self, v2_env):
+        pruned = v2_config.prune_stale_directories()
+        assert pruned == []
+
+
 class TestEnsureDirs:
     def test_creates_registry_dirs(self, v2_env):
         v2_config.ensure_v2_dirs()

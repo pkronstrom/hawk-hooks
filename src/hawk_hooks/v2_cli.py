@@ -72,7 +72,12 @@ def cmd_init(args):
 
 def cmd_sync(args):
     """Sync components to tools."""
+    from . import v2_config
     from .v2_sync import format_sync_results, sync_all, sync_directory, sync_global
+
+    # Auto-register + prune on each sync
+    v2_config.auto_register_if_needed(Path.cwd())
+    v2_config.prune_stale_directories()
 
     tools = [Tool(args.tool)] if args.tool else None
 
@@ -115,11 +120,53 @@ def cmd_status(args):
     # Show resolved set (global or directory-scoped)
     if args.dir:
         project_dir = Path(args.dir).resolve()
-        dir_config = v2_config.load_dir_config(project_dir)
-        profile_name = dir_config.get("profile") if dir_config else None
-        profile = v2_config.load_profile(profile_name) if profile_name else None
-        resolved = resolve(cfg, profile=profile, dir_config=dir_config)
-        print(f"\nActive for {project_dir}:")
+
+        # Show config chain
+        config_chain = v2_config.get_config_chain(project_dir)
+        if config_chain:
+            chain_labels = ["global"] + [str(d) for d, _ in config_chain]
+            print(f"\nChain: {' -> '.join(chain_labels)}")
+
+            # Show per-layer breakdown
+            global_section = cfg.get("global", {})
+            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                g_items = global_section.get(field, [])
+                if g_items:
+                    print(f"  global:  {', '.join(g_items)}")
+                    break
+            # Show each layer's contributions
+            for chain_dir, chain_config in config_chain:
+                parts: list[str] = []
+                for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                    section = chain_config.get(field, {})
+                    if isinstance(section, dict):
+                        enabled = section.get("enabled", [])
+                        disabled = section.get("disabled", [])
+                        if enabled:
+                            parts.extend(f"+{e}" for e in enabled)
+                        if disabled:
+                            parts.extend(f"-{d}" for d in disabled)
+                    elif isinstance(section, list) and section:
+                        parts.extend(f"+{e}" for e in section)
+                if parts:
+                    dir_name = Path(chain_dir).name if isinstance(chain_dir, str) else chain_dir.name
+                    print(f"  {dir_name}:  {', '.join(parts)}")
+
+            # Build dir_chain for resolve
+            from .v2_sync import _load_profile_for_dir
+            dir_chain: list[tuple[dict, dict | None]] = []
+            for chain_dir, chain_config in config_chain:
+                profile_name = _load_profile_for_dir(chain_config, chain_dir, cfg)
+                profile = v2_config.load_profile(profile_name) if profile_name else None
+                dir_chain.append((chain_config, profile))
+            resolved = resolve(cfg, dir_chain=dir_chain)
+        else:
+            dir_config = v2_config.load_dir_config(project_dir)
+            profile_name = dir_config.get("profile") if dir_config else None
+            profile = v2_config.load_profile(profile_name) if profile_name else None
+            resolved = resolve(cfg, profile=profile, dir_config=dir_config)
+
+        print(f"\nResolved for {project_dir}:")
     else:
         resolved = resolve(cfg)
         print(f"\nGlobal active:")
@@ -156,6 +203,12 @@ def cmd_status(args):
             exists = Path(dir_path).exists()
             marker = "" if exists else " [missing]"
             print(f"  {dir_path}{suffix}{marker}")
+
+
+def cmd_projects(args):
+    """Show interactive projects tree view."""
+    from .v2_interactive.dashboard import _run_projects_tree
+    _run_projects_tree()
 
 
 def cmd_add(args):
@@ -410,6 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"hawk-hooks {__version__}")
+    parser.add_argument("--dir", dest="main_dir", help="Scope TUI to specific directory")
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -471,6 +525,10 @@ def build_parser() -> argparse.ArgumentParser:
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.set_defaults(func=cmd_download)
 
+    # projects
+    projects_p = subparsers.add_parser("projects", help="Interactive projects tree view")
+    projects_p.set_defaults(func=cmd_projects)
+
     # clean
     clean_p = subparsers.add_parser("clean", help="Remove all hawk-managed items from tools")
     clean_p.add_argument("--dir", help="Clean specific directory only")
@@ -499,7 +557,7 @@ def main_v2():
     if args.command is None:
         try:
             from .v2_interactive import v2_interactive_menu
-            v2_interactive_menu()
+            v2_interactive_menu(scope_dir=args.main_dir)
         except ImportError:
             parser.print_help()
     elif hasattr(args, "func"):

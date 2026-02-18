@@ -1,6 +1,8 @@
 """Resolve the active component set from config layers.
 
 Resolution order: global + profile + dir.enabled - dir.disabled + per-tool overrides
+
+Supports both single dir_config (backward compat) and dir_chain (hierarchical).
 """
 
 from __future__ import annotations
@@ -8,6 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from .types import ComponentType, ResolvedSet, Tool
+
+COMPONENT_FIELDS = ["skills", "hooks", "commands", "agents", "mcp"]
 
 
 def _merge_list(base: list[str], add: list[str], remove: list[str]) -> list[str]:
@@ -24,10 +28,52 @@ def _merge_list(base: list[str], add: list[str], remove: list[str]) -> list[str]
     return result
 
 
+def _apply_profile(result: ResolvedSet, profile: dict[str, Any]) -> None:
+    """Apply a profile layer to the result (adds only, no removes)."""
+    for field_name in COMPONENT_FIELDS:
+        current = getattr(result, field_name)
+        merged = _merge_list(current, profile.get(field_name, []), [])
+        setattr(result, field_name, merged)
+
+
+def _apply_dir_config(
+    result: ResolvedSet, dir_config: dict[str, Any], tool: Tool | None = None
+) -> None:
+    """Apply a directory config layer (enabled/disabled + per-tool overrides)."""
+    for field_name in COMPONENT_FIELDS:
+        section = dir_config.get(field_name, {})
+        if isinstance(section, dict):
+            enabled = section.get("enabled", [])
+            disabled = section.get("disabled", [])
+        elif isinstance(section, list):
+            enabled = section
+            disabled = []
+        else:
+            continue
+
+        current = getattr(result, field_name)
+        merged = _merge_list(current, enabled, disabled)
+        setattr(result, field_name, merged)
+
+    # Per-tool overrides within dir_config
+    if tool:
+        tool_overrides = dir_config.get("tools", {}).get(str(tool), {})
+        for field_name in COMPONENT_FIELDS:
+            tool_section = tool_overrides.get(field_name, {})
+            if not isinstance(tool_section, dict):
+                continue
+            extra = tool_section.get("extra", [])
+            exclude = tool_section.get("exclude", [])
+            current = getattr(result, field_name)
+            merged = _merge_list(current, extra, exclude)
+            setattr(result, field_name, merged)
+
+
 def resolve(
     global_config: dict[str, Any],
     profile: dict[str, Any] | None = None,
     dir_config: dict[str, Any] | None = None,
+    dir_chain: list[tuple[dict[str, Any], dict[str, Any] | None]] | None = None,
     tool: Tool | None = None,
 ) -> ResolvedSet:
     """Compute the resolved set of active components.
@@ -35,7 +81,13 @@ def resolve(
     Args:
         global_config: The global config dict (has a "global" key with component lists).
         profile: Optional profile dict (has component list keys directly).
+            Used with single dir_config for backward compat.
         dir_config: Optional per-directory config.
+            Used for backward compat when dir_chain is not provided.
+        dir_chain: Optional list of (config, profile) tuples for hierarchical resolution.
+            When provided, dir_config and profile are ignored.
+            Each tuple is (dir_config_dict, optional_profile_dict).
+            Order: outermost first.
         tool: Optional tool for per-tool overrides from dir_config.
 
     Returns:
@@ -52,43 +104,17 @@ def resolve(
         mcp=list(global_section.get("mcp", [])),
     )
 
-    # Layer in profile
-    if profile:
-        result.skills = _merge_list(result.skills, profile.get("skills", []), [])
-        result.hooks = _merge_list(result.hooks, profile.get("hooks", []), [])
-        result.commands = _merge_list(result.commands, profile.get("commands", []), [])
-        result.agents = _merge_list(result.agents, profile.get("agents", []), [])
-        result.mcp = _merge_list(result.mcp, profile.get("mcp", []), [])
-
-    # Layer in directory config (enabled/disabled)
-    if dir_config:
-        for field_name in ["skills", "hooks", "commands", "agents", "mcp"]:
-            section = dir_config.get(field_name, {})
-            if isinstance(section, dict):
-                enabled = section.get("enabled", [])
-                disabled = section.get("disabled", [])
-            elif isinstance(section, list):
-                # Simple list format means "these are enabled, nothing disabled"
-                enabled = section
-                disabled = []
-            else:
-                continue
-
-            current = getattr(result, field_name)
-            merged = _merge_list(current, enabled, disabled)
-            setattr(result, field_name, merged)
-
-        # Per-tool overrides within dir_config
-        if tool:
-            tool_overrides = dir_config.get("tools", {}).get(str(tool), {})
-            for field_name in ["skills", "hooks", "commands", "agents", "mcp"]:
-                tool_section = tool_overrides.get(field_name, {})
-                if not isinstance(tool_section, dict):
-                    continue
-                extra = tool_section.get("extra", [])
-                exclude = tool_section.get("exclude", [])
-                current = getattr(result, field_name)
-                merged = _merge_list(current, extra, exclude)
-                setattr(result, field_name, merged)
+    if dir_chain is not None:
+        # Hierarchical resolution: iterate layers outermost → innermost
+        for layer_config, layer_profile in dir_chain:
+            if layer_profile:
+                _apply_profile(result, layer_profile)
+            _apply_dir_config(result, layer_config, tool)
+    else:
+        # Backward compat: single profile + dir_config
+        if profile:
+            _apply_profile(result, profile)
+        if dir_config:
+            _apply_dir_config(result, dir_config, tool)
 
     return result

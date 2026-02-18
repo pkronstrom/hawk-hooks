@@ -1,8 +1,9 @@
-"""Toggle list component with scope switching.
+"""Toggle list component with N-scope switching.
 
 Renders a Rich Live panel with checkboxes for registry items.
-Supports Tab to switch between All-projects and This-project scopes.
+Supports Tab to cycle through arbitrary number of scopes (global, parent dirs, local).
 Shows change indicators (yellow) for items modified since the list opened.
+Shows "(enabled in <parent>)" hints when viewing inner scopes.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -23,9 +25,18 @@ console = Console()
 # Actions appended after the item list
 ACTION_SELECT_ALL = "__select_all__"
 ACTION_SELECT_NONE = "__select_none__"
-ACTION_SWITCH_SCOPE = "__switch_scope__"
 ACTION_ADD = "__add__"
 ACTION_DONE = "__done__"
+
+
+@dataclass
+class ToggleScope:
+    """A scope layer for the toggle list."""
+
+    key: str  # "global" or absolute dir path
+    label: str  # "All projects" / "monorepo" / "This project: frontend"
+    enabled: list[str]  # currently enabled items in this scope
+    is_new: bool = False  # True if config doesn't exist yet (will be created on save)
 
 
 def _get_terminal_height() -> int:
@@ -176,69 +187,79 @@ def _open_in_editor(path: Path) -> None:
 def run_toggle_list(
     component_type: str,
     registry_names: list[str],
-    global_enabled: list[str],
-    local_enabled: list[str] | None,
-    project_name: str | None,
+    global_enabled: list[str] | None = None,
+    local_enabled: list[str] | None = None,
+    project_name: str | None = None,
     start_scope: str = "local",
     registry_path: Path | None = None,
     registry_dir: str = "",
     local_is_new: bool = False,
     on_add: Callable[[], str | None] | None = None,
     add_label: str = "Add new...",
-) -> tuple[list[str], list[str] | None, bool]:
+    # N-scope API — when provided, the old 2-scope params are ignored
+    scopes: list[ToggleScope] | None = None,
+    start_scope_index: int = -1,
+    # Optional: set of names that actually exist in registry (for missing hints)
+    registry_items: set[str] | None = None,
+) -> tuple[list[list[str]], bool]:
     """Run an interactive toggle list for a component type.
 
-    Args:
-        component_type: Display name (e.g. "Skills", "Hooks")
-        registry_names: All items in registry for this type
-        global_enabled: Currently globally enabled items
-        local_enabled: Currently locally enabled items (None if no local scope)
-        project_name: Short project name for display (None if no local scope)
-        start_scope: "global" or "local"
-        registry_path: Path to hawk registry (for open/edit)
-        registry_dir: Subdirectory name in registry (e.g. "skills")
-        local_is_new: If True, local config doesn't exist yet (will be created on save)
-        on_add: Callback to add a new item. Returns name of added item, or None.
-        add_label: Label for the add action (e.g. "Add MCP server...")
+    Supports two calling conventions:
 
-    Returns:
-        Tuple of (new_global_enabled, new_local_enabled, changed)
-        new_local_enabled is None if no local scope.
+    **N-scope (new)**: Pass `scopes` list of ToggleScope objects.
+        Returns (list of enabled lists per scope, changed).
+
+    **2-scope (backward compat)**: Pass global_enabled + local_enabled.
+        Returns (list of enabled lists per scope, changed) where
+        scopes[0] = global, scopes[1] = local (if provided).
+
+    Tab cycles through scopes. Shows parent-scope hints.
     """
-    # Handle empty state — but if on_add is provided, still show the list
-    # so the user can use the "Add" action
-    if not registry_names and on_add is None:
-        _show_empty(component_type, project_name, start_scope)
-        return global_enabled, local_enabled, False
+    # Convert old API to N-scope API
+    if scopes is None:
+        scopes = [ToggleScope(
+            key="global",
+            label="\U0001f310 All projects",
+            enabled=list(global_enabled or []),
+        )]
+        if local_enabled is not None:
+            scopes.append(ToggleScope(
+                key="local",
+                label=f"\U0001f4cd This project: {project_name or 'local'}",
+                enabled=list(local_enabled),
+                is_new=local_is_new,
+            ))
+            if start_scope == "local":
+                start_scope_index = len(scopes) - 1
+            else:
+                start_scope_index = 0
+        else:
+            start_scope_index = 0
 
-    # Mutable state
-    global_checked = set(global_enabled)
-    local_checked = set(local_enabled) if local_enabled is not None else None
-    scope = start_scope if local_checked is not None else "global"
+    # Handle empty state — but if on_add is provided, still show the list
+    if not registry_names and on_add is None:
+        scope_idx = start_scope_index if start_scope_index >= 0 else len(scopes) - 1
+        _show_empty(component_type, scopes[scope_idx].label)
+        return [list(s.enabled) for s in scopes], False
+
+    # Mutable state: one checked set per scope
+    checked_sets: list[set[str]] = [set(s.enabled) for s in scopes]
+    initial_sets: list[set[str]] = [set(s.enabled) for s in scopes]
+
+    scope_index = start_scope_index if start_scope_index >= 0 else len(scopes) - 1
     cursor = 0
     scroll_offset = 0
     changed = False
     status_msg = ""
 
-    # Snapshot initial state for change tracking
-    initial_global = set(global_enabled)
-    initial_local = set(local_enabled) if local_enabled is not None else None
-
-    # Build the full list: items + separator + actions
     items = list(registry_names)
-    has_local = local_checked is not None
+    num_scopes = len(scopes)
 
     def _get_actions() -> list[tuple[str, str]]:
         actions = [
             ("Select All", ACTION_SELECT_ALL),
             ("Select None", ACTION_SELECT_NONE),
         ]
-        if has_local:
-            if scope == "local":
-                actions.append((f"Switch to \U0001f310 All projects", ACTION_SWITCH_SCOPE))
-            else:
-                label = f"Switch to \U0001f4cd This project: {project_name}"
-                actions.append((label, ACTION_SWITCH_SCOPE))
         if on_add is not None:
             actions.append((add_label, ACTION_ADD))
         actions.append(("Done", ACTION_DONE))
@@ -246,8 +267,8 @@ def run_toggle_list(
 
     def _total_rows() -> int:
         if not items:
-            return len(_get_actions())  # no items, no separator
-        return len(items) + 1 + len(_get_actions())  # items + separator + actions
+            return len(_get_actions())
+        return len(items) + 1 + len(_get_actions())
 
     def _is_separator(idx: int) -> bool:
         if not items:
@@ -270,24 +291,27 @@ def run_toggle_list(
         return ""
 
     def _checked_set() -> set[str]:
-        return local_checked if scope == "local" and local_checked is not None else global_checked
+        return checked_sets[scope_index]
 
     def _initial_set() -> set[str]:
-        if scope == "local" and initial_local is not None:
-            return initial_local
-        return initial_global
+        return initial_sets[scope_index]
+
+    def _find_parent_hint(name: str) -> str | None:
+        """Walk up from current scope to find nearest parent that enables an item."""
+        for i in range(scope_index - 1, -1, -1):
+            if name in checked_sets[i]:
+                return scopes[i].label
+        return None
 
     def _handle_action(aid: str) -> bool:
         """Handle an action. Returns True if should break loop."""
-        nonlocal scope, changed
+        nonlocal changed
         if aid == ACTION_SELECT_ALL:
             _checked_set().update(items)
             changed = True
         elif aid == ACTION_SELECT_NONE:
             _checked_set().clear()
             changed = True
-        elif aid == ACTION_SWITCH_SCOPE:
-            scope = "local" if scope == "global" else "global"
         elif aid == ACTION_ADD:
             return False  # Handled separately in the main loop
         elif aid == ACTION_DONE:
@@ -310,14 +334,18 @@ def run_toggle_list(
         """Build the display string for Rich."""
         lines: list[str] = []
 
-        # Header
-        if scope == "local" and project_name:
-            new_tag = " [yellow](new)[/yellow]" if local_is_new else ""
-            scope_label = f"\U0001f4cd This project: {project_name}{new_tag}"
-            tab_hint = "[Tab: switch to \U0001f310 All projects]"
+        # Header with scope label + Tab hint
+        current_scope = scopes[scope_index]
+        scope_label = current_scope.label
+        if current_scope.is_new:
+            scope_label += " [yellow](new)[/yellow]"
+
+        if num_scopes > 1:
+            next_idx = (scope_index + 1) % num_scopes
+            next_label = scopes[next_idx].label
+            tab_hint = f"[Tab: {next_label}]"
         else:
-            scope_label = "\U0001f310 All projects"
-            tab_hint = f"[Tab: switch to \U0001f4cd This project]" if has_local else ""
+            tab_hint = ""
 
         lines.append(f"[bold]{component_type}[/bold] \u2014 {scope_label}    [dim]{tab_hint}[/dim]")
         lines.append("[dim]\u2500" * 50 + "[/dim]")
@@ -350,27 +378,27 @@ def run_toggle_list(
                 is_changed = is_checked != was_checked
 
                 if is_checked and is_changed:
-                    # Just enabled — yellow checkmark
                     mark = "[yellow]\u2714[/yellow]"
                 elif is_checked:
-                    # Was enabled, still enabled — green
                     mark = "[green]\u2714[/green]"
                 elif is_changed:
-                    # Just disabled — yellow box
                     mark = "[yellow]\u2610[/yellow]"
                 else:
-                    # Was disabled, still disabled — dim
                     mark = "[dim]\u2610[/dim]"
 
                 style = "[bold]" if is_cur else ""
                 end_style = "[/bold]" if is_cur else ""
 
-                # Hints
+                # Hints: show where item is enabled in parent scopes
                 hint = ""
-                if scope == "local" and not is_checked and name in global_checked:
-                    hint = "  [dim](enabled globally)[/dim]"
-                elif is_changed:
-                    hint = "  [yellow]\u2022[/yellow]" if not is_cur else "  [yellow]\u2022[/yellow]"
+                if registry_items is not None and name not in registry_items:
+                    hint = "  [dim](not in registry)[/dim]"
+                elif scope_index > 0 and not is_checked:
+                    parent_label = _find_parent_hint(name)
+                    if parent_label:
+                        hint = f"  [dim](enabled in {parent_label})[/dim]"
+                if not hint and is_changed:
+                    hint = "  [yellow]\u2022[/yellow]"
 
                 lines.append(f"{prefix}{mark} {style}{name}{end_style}{hint}")
             elif _is_separator(i):
@@ -399,6 +427,8 @@ def run_toggle_list(
         # Footer
         lines.append("")
         hints = "Space/Enter: toggle  \u2191\u2193/jk: navigate  q: done"
+        if num_scopes > 1:
+            hints += "  Tab: scope"
         if registry_path:
             hints += "  v: view  e: edit  o: open"
         lines.append(f"[dim]{hints}[/dim]")
@@ -465,10 +495,10 @@ def run_toggle_list(
                     elif _handle_action(aid):
                         break
 
-            # Tab = switch scope
+            # Tab = cycle scope
             elif key == "\t":
-                if has_local:
-                    scope = "local" if scope == "global" else "global"
+                if num_scopes > 1:
+                    scope_index = (scope_index + 1) % num_scopes
 
             # View in terminal
             elif key == "v":
@@ -515,18 +545,11 @@ def run_toggle_list(
 
             live.update(Text.from_markup(_build_display()))
 
-    new_global = sorted(global_checked)
-    new_local = sorted(local_checked) if local_checked is not None else None
-    return new_global, new_local, changed
+    return [sorted(cs) for cs in checked_sets], changed
 
 
-def _show_empty(component_type: str, project_name: str | None, scope: str) -> None:
+def _show_empty(component_type: str, scope_label: str) -> None:
     """Show empty state for a component type."""
-    if scope == "local" and project_name:
-        scope_label = f"\U0001f4cd This project: {project_name}"
-    else:
-        scope_label = "\U0001f310 All projects"
-
     console.print(f"\n[bold]{component_type}[/bold] \u2014 {scope_label}")
     console.print("[dim]\u2500" * 40 + "[/dim]")
     console.print("  [dim](none in registry)[/dim]")

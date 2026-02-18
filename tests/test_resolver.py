@@ -125,6 +125,94 @@ class TestResolveWithToolOverrides:
         assert "claude-only" not in result.skills
 
 
+class TestResolveWithDirChain:
+    """Tests for hierarchical dir_chain resolution."""
+
+    def test_single_layer_chain(self):
+        cfg = {"global": {"skills": ["tdd"], "hooks": [], "commands": [], "agents": [], "mcp": []}}
+        dir_chain = [
+            ({"skills": {"enabled": ["react"], "disabled": []}}, None),
+        ]
+        result = resolve(cfg, dir_chain=dir_chain)
+        assert result.skills == ["tdd", "react"]
+
+    def test_multi_layer_chain_outermost_first(self):
+        cfg = {"global": {"skills": ["tdd"], "hooks": [], "commands": [], "agents": [], "mcp": []}}
+        dir_chain = [
+            # Outermost: monorepo root
+            ({"skills": {"enabled": ["typescript"], "disabled": []}}, None),
+            # Innermost: packages/frontend
+            ({"skills": {"enabled": ["react"], "disabled": ["typescript"]}}, None),
+        ]
+        result = resolve(cfg, dir_chain=dir_chain)
+        assert result.skills == ["tdd", "react"]
+        assert "typescript" not in result.skills
+
+    def test_chain_with_profiles(self):
+        cfg = {"global": {"skills": ["tdd"], "hooks": [], "commands": [], "agents": [], "mcp": []}}
+        profile_root = {"skills": ["shared-lint"], "hooks": ["format"]}
+        profile_child = {"skills": ["react-patterns"]}
+        dir_chain = [
+            ({"skills": {"enabled": [], "disabled": []}}, profile_root),
+            ({"skills": {"enabled": ["local"], "disabled": []}}, profile_child),
+        ]
+        result = resolve(cfg, dir_chain=dir_chain)
+        assert result.skills == ["tdd", "shared-lint", "react-patterns", "local"]
+        assert result.hooks == ["format"]
+
+    def test_chain_with_tool_overrides(self):
+        cfg = {"global": {"skills": ["tdd"], "hooks": [], "commands": [], "agents": [], "mcp": []}}
+        dir_chain = [
+            (
+                {
+                    "skills": {"enabled": ["mono-skill"], "disabled": []},
+                    "tools": {"claude": {"skills": {"extra": ["claude-root"]}}},
+                },
+                None,
+            ),
+            (
+                {
+                    "skills": {"enabled": ["child-skill"], "disabled": []},
+                    "tools": {"claude": {"skills": {"exclude": ["mono-skill"]}}},
+                },
+                None,
+            ),
+        ]
+        result = resolve(cfg, dir_chain=dir_chain, tool=Tool.CLAUDE)
+        assert "tdd" in result.skills
+        assert "claude-root" in result.skills
+        assert "child-skill" in result.skills
+        assert "mono-skill" not in result.skills
+
+    def test_dir_chain_overrides_dir_config_param(self):
+        """When dir_chain is provided, dir_config and profile params are ignored."""
+        cfg = {"global": {"skills": ["tdd"], "hooks": [], "commands": [], "agents": [], "mcp": []}}
+        profile = {"skills": ["ignored-profile-skill"]}
+        dir_config = {"skills": {"enabled": ["ignored-dir-skill"], "disabled": []}}
+        dir_chain = [
+            ({"skills": {"enabled": ["chain-skill"], "disabled": []}}, None),
+        ]
+        result = resolve(cfg, profile=profile, dir_config=dir_config, dir_chain=dir_chain)
+        assert "chain-skill" in result.skills
+        assert "ignored-profile-skill" not in result.skills
+        assert "ignored-dir-skill" not in result.skills
+
+    def test_empty_chain_equals_global_only(self):
+        cfg = {"global": {"skills": ["tdd"], "hooks": ["h"], "commands": [], "agents": [], "mcp": []}}
+        result_chain = resolve(cfg, dir_chain=[])
+        result_plain = resolve(cfg)
+        assert result_chain.skills == result_plain.skills
+        assert result_chain.hooks == result_plain.hooks
+
+    def test_backward_compat_unchanged(self):
+        """Existing single dir_config + profile usage still works."""
+        cfg = {"global": {"skills": ["tdd"], "hooks": [], "commands": [], "agents": [], "mcp": []}}
+        profile = {"skills": ["react"]}
+        dir_config = {"skills": {"enabled": ["local"], "disabled": ["react"]}}
+        result = resolve(cfg, profile=profile, dir_config=dir_config)
+        assert result.skills == ["tdd", "local"]
+
+
 class TestResolveFullStack:
     def test_all_layers(self):
         cfg = {

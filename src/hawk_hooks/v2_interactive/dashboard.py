@@ -12,7 +12,7 @@ from ..adapters import get_adapter
 from ..registry import Registry
 from ..resolver import resolve
 from ..types import ComponentType, Tool
-from .toggle import run_toggle_list
+from .toggle import ToggleScope, run_toggle_list
 
 console = Console()
 
@@ -26,14 +26,14 @@ COMPONENT_TYPES = [
 ]
 
 
-def _detect_scope() -> tuple[str, Path | None, str | None]:
+def _detect_scope(scope_dir: str | None = None) -> tuple[str, Path | None, str | None]:
     """Detect whether cwd is a hawk-initialized directory.
 
     Returns:
         (scope, project_dir, project_name)
         scope is "local" or "global"
     """
-    cwd = Path.cwd().resolve()
+    cwd = Path(scope_dir).resolve() if scope_dir else Path.cwd().resolve()
     dir_config = v2_config.load_dir_config(cwd)
     if dir_config is not None:
         return "local", cwd, cwd.name
@@ -47,13 +47,13 @@ def _detect_scope() -> tuple[str, Path | None, str | None]:
     return "global", None, None
 
 
-def _load_state() -> dict:
+def _load_state(scope_dir: str | None = None) -> dict:
     """Load all state needed for the dashboard."""
     cfg = v2_config.load_global_config()
     registry = Registry(v2_config.get_registry_path(cfg))
     contents = registry.list()
 
-    scope, project_dir, project_name = _detect_scope()
+    scope, project_dir, project_name = _detect_scope(scope_dir)
 
     # Load enabled lists
     global_cfg = cfg.get("global", {})
@@ -81,6 +81,7 @@ def _load_state() -> dict:
         "global_cfg": global_cfg,
         "local_cfg": local_cfg,
         "tools_status": tools_status,
+        "scope_dir": scope_dir,
     }
 
 
@@ -149,6 +150,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
             tool_parts.append(str(tool))
     tools_str = "  ".join(tool_parts)
     options.append((f"Tools          {tools_str}", "tools"))
+    options.append(("Projects       Manage registered directories", "projects"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
     options.append(("Settings       Editor, paths, behavior", "settings"))
@@ -156,6 +158,68 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     options.append(("Exit", "exit"))
 
     return options
+
+
+def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
+    """Build the list of ToggleScope objects for a component type.
+
+    Uses get_config_chain to find all parent configs between global and cwd.
+    """
+    scopes: list[ToggleScope] = []
+
+    # Global scope is always first
+    global_enabled = list(state["global_cfg"].get(field, []))
+    scopes.append(ToggleScope(
+        key="global",
+        label="\U0001f310 All projects",
+        enabled=global_enabled,
+    ))
+
+    # Get config chain for current project dir
+    project_dir = state.get("project_dir") or Path.cwd().resolve()
+    config_chain = v2_config.get_config_chain(project_dir)
+
+    if config_chain:
+        for chain_dir, chain_config in config_chain:
+            section = chain_config.get(field, {})
+            if isinstance(section, dict):
+                enabled = list(section.get("enabled", []))
+            elif isinstance(section, list):
+                enabled = list(section)
+            else:
+                enabled = []
+
+            # Label: innermost = "This project: name", parents = dir name
+            if chain_dir == project_dir.resolve():
+                label = f"\U0001f4cd This project: {chain_dir.name}"
+            else:
+                label = f"\U0001f4c1 {chain_dir.name}"
+
+            scopes.append(ToggleScope(
+                key=str(chain_dir),
+                label=label,
+                enabled=enabled,
+            ))
+    else:
+        # No config chain — use cwd as potential new local scope
+        local_cfg = state.get("local_cfg")
+        local_is_new = local_cfg is None
+
+        local_enabled: list[str] = []
+        if local_cfg is not None:
+            local_section = local_cfg.get(field, {})
+            if isinstance(local_section, dict):
+                local_enabled = list(local_section.get("enabled", []))
+
+        project_name = state.get("project_name") or project_dir.name
+        scopes.append(ToggleScope(
+            key=str(project_dir),
+            label=f"\U0001f4cd This project: {project_name}",
+            enabled=local_enabled,
+            is_new=local_is_new,
+        ))
+
+    return scopes
 
 
 def _handle_component_toggle(state: dict, field: str) -> bool:
@@ -172,23 +236,16 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         return False
 
     # Get registry items for this type
-    registry_names = sorted(state["contents"].get(ct, []))
+    registry_names_set = set(state["contents"].get(ct, []))
 
-    # Get current enabled lists
-    global_enabled = list(state["global_cfg"].get(field, []))
+    # Build N-scope list
+    scopes = _build_toggle_scopes(state, field)
 
-    # Always allow local scope — use cwd as project dir
-    project_dir = state.get("project_dir") or Path.cwd().resolve()
-    project_name = state.get("project_name") or project_dir.name
-    local_is_new = state["local_cfg"] is None
-
-    local_enabled: list[str] = []
-    if state["local_cfg"] is not None:
-        local_section = state["local_cfg"].get(field, {})
-        if isinstance(local_section, dict):
-            local_enabled = list(local_section.get("enabled", []))
-
-    start_scope = state["scope"]
+    # Include enabled items that aren't in the registry (orphaned references)
+    all_enabled = set()
+    for scope in scopes:
+        all_enabled.update(scope.enabled)
+    registry_names = sorted(registry_names_set | all_enabled)
 
     # Registry path for open/edit
     registry_path = v2_config.get_registry_path(state["cfg"])
@@ -201,46 +258,57 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         on_add = _make_mcp_add_callback(state)
         add_label = "Add MCP server..."
 
-    new_global, new_local, changed = run_toggle_list(
+    # Start on innermost scope
+    enabled_lists, changed = run_toggle_list(
         display_name,
         registry_names,
-        global_enabled,
-        local_enabled,
-        project_name,
-        start_scope,
+        scopes=scopes,
+        start_scope_index=len(scopes) - 1,
         registry_path=registry_path,
         registry_dir=registry_dir,
-        local_is_new=local_is_new,
         on_add=on_add,
         add_label=add_label,
+        registry_items=registry_names_set,
     )
 
     if changed:
-        # Update global config
-        state["global_cfg"][field] = new_global
-        cfg = state["cfg"]
-        cfg["global"] = state["global_cfg"]
-        v2_config.save_global_config(cfg)
+        # Save each scope that changed
+        for i, scope in enumerate(scopes):
+            new_enabled = enabled_lists[i]
+            old_enabled = scope.enabled
 
-        # Update local config (auto-create if new)
-        if new_local is not None:
-            if local_is_new:
-                # Auto-create .hawk/config.yaml and register directory
-                v2_config.save_dir_config(project_dir, {})
-                v2_config.register_directory(project_dir)
-                state["local_cfg"] = {}
-                state["project_dir"] = project_dir
-                state["project_name"] = project_name
-                state["scope"] = "local"
+            if sorted(new_enabled) == sorted(old_enabled):
+                continue
 
-            local_cfg = state["local_cfg"] or {}
-            local_section = local_cfg.get(field, {})
-            if not isinstance(local_section, dict):
-                local_section = {}
-            local_section["enabled"] = new_local
-            local_cfg[field] = local_section
-            state["local_cfg"] = local_cfg
-            v2_config.save_dir_config(project_dir, local_cfg)
+            if scope.key == "global":
+                state["global_cfg"][field] = new_enabled
+                cfg = state["cfg"]
+                cfg["global"] = state["global_cfg"]
+                v2_config.save_global_config(cfg)
+            else:
+                dir_path = Path(scope.key)
+
+                if scope.is_new:
+                    # Auto-create .hawk/config.yaml and register
+                    v2_config.save_dir_config(dir_path, {})
+                    v2_config.register_directory(dir_path)
+                    state["local_cfg"] = {}
+                    state["project_dir"] = dir_path
+                    state["project_name"] = dir_path.name
+                    state["scope"] = "local"
+
+                dir_cfg = v2_config.load_dir_config(dir_path) or {}
+                section = dir_cfg.get(field, {})
+                if not isinstance(section, dict):
+                    section = {}
+                section["enabled"] = new_enabled
+                dir_cfg[field] = section
+                v2_config.save_dir_config(dir_path, dir_cfg)
+
+                # Update local_cfg in state if this is cwd
+                project_dir = state.get("project_dir")
+                if project_dir and dir_path == project_dir.resolve() if isinstance(project_dir, Path) else dir_path == Path(str(project_dir)):
+                    state["local_cfg"] = dir_cfg
 
     return changed
 
@@ -568,6 +636,131 @@ def _handle_registry_browse(state: dict) -> None:
             live.update(Text.from_markup(_build_display()))
 
 
+def _handle_projects(state: dict) -> None:
+    """Interactive projects tree view."""
+    _run_projects_tree()
+
+
+def _run_projects_tree() -> None:
+    """Show interactive tree of all registered directories."""
+    dirs = v2_config.get_registered_directories()
+
+    if not dirs:
+        console.print("\n[dim]No directories registered.[/dim]")
+        console.print("[dim]Run [cyan]hawk init[/cyan] in a project directory to register it.[/dim]\n")
+        console.input("[dim]Press Enter to continue...[/dim]")
+        return
+
+    # Build tree structure: group by parent-child relationships
+    dir_paths = sorted(dirs.keys())
+    tree_entries: list[tuple[str, int, str]] = []  # (path, indent, label)
+
+    # Find root dirs (not children of any other registered dir)
+    roots: list[str] = []
+    for dp in dir_paths:
+        dp_path = Path(dp)
+        is_child = False
+        for other in dir_paths:
+            if other != dp:
+                try:
+                    if dp_path.is_relative_to(Path(other)):
+                        is_child = True
+                        break
+                except (ValueError, TypeError):
+                    continue
+        if not is_child:
+            roots.append(dp)
+
+    def _add_tree(parent: str, indent: int) -> None:
+        p = Path(parent)
+        entry = dirs.get(parent, {})
+        profile = entry.get("profile", "")
+
+        # Count enabled items
+        dir_config = v2_config.load_dir_config(p)
+        parts: list[str] = []
+        if profile:
+            parts.append(f"profile: {profile}")
+        if dir_config:
+            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                section = dir_config.get(field, {})
+                if isinstance(section, dict):
+                    count = len(section.get("enabled", []))
+                elif isinstance(section, list):
+                    count = len(section)
+                else:
+                    count = 0
+                if count:
+                    parts.append(f"+{count} {field}")
+
+        suffix = f"  {', '.join(parts)}" if parts else ""
+        exists = p.exists()
+        marker = " [missing]" if not exists else ""
+
+        if indent == 0:
+            label = f"\U0001f4c1 {parent}{suffix}{marker}"
+        else:
+            label = f"{'   ' * indent}\U0001f4c1 {p.name}{suffix}{marker}"
+
+        tree_entries.append((parent, indent, label))
+
+        # Find children
+        children = [
+            dp for dp in dir_paths
+            if dp != parent and dp.startswith(parent + "/")
+            and not any(
+                other != parent and other != dp
+                and dp.startswith(other + "/")
+                and other.startswith(parent + "/")
+                for other in dir_paths
+            )
+        ]
+        for child in sorted(children):
+            _add_tree(child, indent + 1)
+
+    for root in sorted(roots):
+        _add_tree(root, 0)
+
+    # Add global entry at top
+    cfg = v2_config.load_global_config()
+    global_section = cfg.get("global", {})
+    global_parts: list[str] = []
+    for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+        count = len(global_section.get(field, []))
+        if count:
+            global_parts.append(f"{count} {field}")
+    global_suffix = f"  {', '.join(global_parts)}" if global_parts else ""
+
+    menu_entries = [f"\U0001f30e Global{global_suffix}"] + [e[2] for e in tree_entries]
+    menu_paths = ["global"] + [e[0] for e in tree_entries]
+
+    menu = TerminalMenu(
+        menu_entries,
+        title="\nhawk projects\n" + "\u2500" * 40,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q",),
+        status_bar="[Enter: edit]  [q: quit]",
+    )
+
+    while True:
+        choice = menu.show()
+        if choice is None:
+            break
+
+        selected_path = menu_paths[choice]
+        if selected_path == "global":
+            # Show global config editor or toggle
+            console.print(f"\n[dim]Global config: {v2_config.get_global_config_path()}[/dim]")
+            console.input("[dim]Press Enter to continue...[/dim]")
+        else:
+            # Open dashboard scoped to that directory
+            from . import v2_interactive_menu
+            v2_interactive_menu(scope_dir=selected_path)
+            break
+
+
 def _handle_sync(state: dict) -> None:
     """Run sync and show results."""
     from ..v2_sync import format_sync_results, sync_all
@@ -630,12 +823,16 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
         console.print(formatted or "  No changes.")
 
 
-def run_dashboard() -> None:
-    """Run the main dashboard loop."""
+def run_dashboard(scope_dir: str | None = None) -> None:
+    """Run the main dashboard loop.
+
+    Args:
+        scope_dir: Optional directory to scope the TUI to.
+    """
     dirty = False
 
     while True:
-        state = _load_state()
+        state = _load_state(scope_dir)
 
         console.clear()
         header = _build_header(state)
@@ -643,7 +840,7 @@ def run_dashboard() -> None:
         console.print("[dim]\u2500" * 50 + "[/dim]")
 
         options = _build_menu_options(state)
-        menu_labels = [label for label, _ in options]
+        menu_labels = [label if action is not None else None for label, action in options]
 
         menu = TerminalMenu(
             menu_labels,
@@ -681,6 +878,9 @@ def run_dashboard() -> None:
 
         elif action == "registry":
             _handle_registry_browse(state)
+
+        elif action == "projects":
+            _handle_projects(state)
 
         elif action == "sync":
             _handle_sync(state)

@@ -212,6 +212,62 @@ def get_enabled_tools(cfg: dict[str, Any] | None = None) -> list[Tool]:
     return enabled
 
 
+def get_config_chain(from_dir: Path) -> list[tuple[Path, dict[str, Any]]]:
+    """Find registered dirs that are parents of from_dir, plus from_dir itself.
+
+    Uses directory index (no filesystem walk-up). Returns outermost-first.
+    Each entry is (dir_path, dir_config).
+    """
+    dirs = get_registered_directories()
+    chain: list[tuple[Path, dict[str, Any]]] = []
+    from_resolved = from_dir.resolve()
+
+    for dir_path_str in dirs:
+        dir_path = Path(dir_path_str)
+        try:
+            if from_resolved.is_relative_to(dir_path):
+                config = load_dir_config(dir_path)
+                if config is not None:
+                    chain.append((dir_path, config))
+        except (ValueError, TypeError):
+            continue
+
+    # Sort outermost first (fewest path parts)
+    chain.sort(key=lambda x: len(x[0].parts))
+    return chain
+
+
+def auto_register_if_needed(cwd: Path) -> None:
+    """If cwd has .hawk/config.yaml but isn't registered, register it."""
+    cwd = cwd.resolve()
+    config_path = get_dir_config_path(cwd)
+    if not config_path.exists():
+        return
+
+    dirs = get_registered_directories()
+    if str(cwd) not in dirs:
+        register_directory(cwd)
+
+
+def prune_stale_directories() -> list[str]:
+    """Remove entries where .hawk/config.yaml no longer exists. Returns pruned paths."""
+    dirs = get_registered_directories()
+    stale: list[str] = []
+
+    for dir_path_str in list(dirs.keys()):
+        config_path = get_dir_config_path(Path(dir_path_str))
+        if not config_path.exists():
+            stale.append(dir_path_str)
+
+    if stale:
+        cfg = load_global_config()
+        for path in stale:
+            cfg.get("directories", {}).pop(path, None)
+        save_global_config(cfg)
+
+    return stale
+
+
 def get_tool_global_dir(tool: Tool, cfg: dict[str, Any] | None = None) -> Path:
     """Get the global directory for a tool."""
     if cfg is None:
