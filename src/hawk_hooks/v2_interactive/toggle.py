@@ -118,6 +118,85 @@ def _pick_file(path: Path) -> Path | None:
     return files[choice]
 
 
+def _browse_files(path: Path, initial_action: str = "view") -> None:
+    """Browse files in a directory with view/edit/open support.
+
+    For single files, performs the initial_action directly.
+    For directories with multiple files, shows a persistent file picker
+    with v/e/o keys that loops until the user presses q.
+    """
+    def _do_action(target: Path, action: str = initial_action) -> None:
+        if action == "edit":
+            editor = os.environ.get("EDITOR", "vim")
+            subprocess.run([editor, str(target)], check=False)
+        else:
+            _view_in_terminal(target)
+
+    if path.is_file():
+        _do_action(path)
+        return
+
+    if not path.is_dir():
+        return
+
+    files = sorted(
+        f for f in path.iterdir()
+        if f.is_file() and not f.name.startswith(".")
+    )
+
+    if not files:
+        return
+    if len(files) == 1:
+        _do_action(files[0])
+        return
+
+    # Multiple files — interactive loop with readchar
+    from rich.live import Live as FileLive
+    from rich.text import Text as FileText
+
+    cursor = 0
+
+    def _build() -> str:
+        lines = [f"[bold]{path.name}/[/bold] \u2014 {len(files)} files"]
+        lines.append("[dim]\u2500" * 40 + "[/dim]")
+        for i, f in enumerate(files):
+            prefix = "\u276f " if i == cursor else "  "
+            style = "bold cyan" if i == cursor else ""
+            lines.append(f"[{style}]{prefix}{f.name}[/{style}]")
+        lines.append("")
+        lines.append("[dim]v/Enter: view  e: edit  o: open in finder  q: back[/dim]")
+        return "\n".join(lines)
+
+    with FileLive(FileText.from_markup(_build()), refresh_per_second=30, screen=True) as live:
+        while True:
+            key = readchar.readkey()
+
+            if key in ("q", readchar.key.ESCAPE, "\x1b"):
+                break
+
+            elif key in (readchar.key.UP, "k"):
+                cursor = max(0, cursor - 1)
+
+            elif key in (readchar.key.DOWN, "j"):
+                cursor = min(len(files) - 1, cursor + 1)
+
+            elif key in ("v", readchar.key.ENTER, "\r", "\n"):
+                live.stop()
+                _view_in_terminal(files[cursor])
+                live.start()
+
+            elif key == "e":
+                live.stop()
+                editor = os.environ.get("EDITOR", "vim")
+                subprocess.run([editor, str(files[cursor])], check=False)
+                live.start()
+
+            elif key == "o":
+                _open_in_finder(files[cursor])
+
+            live.update(FileText.from_markup(_build()))
+
+
 def _view_in_terminal(path: Path) -> None:
     """View a file in the terminal with syntax highlighting, piped through less."""
     from io import StringIO
@@ -572,16 +651,14 @@ def run_toggle_list(
                 if num_scopes > 1:
                     scope_index = (scope_index + 1) % num_scopes
 
-            # View in terminal
+            # View in terminal (browse files for directories)
             elif key == "v":
                 name = _get_item_name_at_cursor()
                 if name and registry_path and registry_dir:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
-                        target = _pick_file(item_path)
-                        if target:
-                            _view_in_terminal(target)
+                        _browse_files(item_path, initial_action="view")
                         live.start()
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
@@ -599,14 +676,14 @@ def run_toggle_list(
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
 
-            # Edit in $EDITOR
+            # Edit in $EDITOR (browse files for directories)
             elif key == "e":
                 name = _get_item_name_at_cursor()
                 if name and registry_path and registry_dir:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
-                        _open_in_editor(item_path)
+                        _browse_files(item_path, initial_action="edit")
                         live.start()
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
