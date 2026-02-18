@@ -688,56 +688,128 @@ def _handle_packages(state: dict) -> bool:
 
     dirty = False
 
-    menu_entries = []
-    pkg_names = []
-    for name, data in sorted(packages.items()):
-        item_count = len(data.get("items", []))
-        menu_entries.append(f"\U0001f4e6 {name:<30} {item_count} items")
-        pkg_names.append(name)
+    import readchar
+    from rich.live import Live
+    from rich.text import Text
 
-    menu_entries.append(None)  # separator
-    menu_entries.append("Update all")
-    menu_entries.append("Download new...")
+    pkg_list = sorted(packages.items())
+    cursor = 0
 
-    menu = TerminalMenu(
-        menu_entries,
-        title="\nhawk packages\n" + "\u2500" * 40,
-        menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q",),
-        status_bar="[Enter: toggle items]  [q: back]",
-    )
+    def _build_pkg_menu() -> str:
+        lines = ["[bold]hawk packages[/bold]"]
+        lines.append("[dim]" + "\u2500" * 40 + "[/dim]")
+        for i, (name, data) in enumerate(pkg_list):
+            item_count = len(data.get("items", []))
+            url = data.get("url", "")
+            prefix = "\u276f " if i == cursor else "  "
+            style = "bold cyan" if i == cursor else ""
+            lines.append(f"[{style}]{prefix}\U0001f4e6 {name:<30} {item_count} items[/{style}]")
+            if i == cursor and url:
+                lines.append(f"[dim]    {url}[/dim]")
+        lines.append("")
+        lines.append("[dim]Enter: toggle items  u: update  x: remove  U: update all  q: back[/dim]")
+        return "\n".join(lines)
 
-    while True:
-        choice = menu.show()
-        if choice is None:
-            break
+    with Live(Text.from_markup(_build_pkg_menu()), refresh_per_second=30, screen=True) as live:
+        while True:
+            key = readchar.readkey()
 
-        if choice < len(pkg_names):
-            pkg_name = pkg_names[choice]
-            pkg_data = packages[pkg_name]
-            if _handle_package_toggle(state, pkg_name, pkg_data):
-                dirty = True
-        elif menu_entries[choice] == "Update all":
-            console.print("\n[bold]Updating all packages...[/bold]")
-            from ..v2_cli import cmd_update
+            if key in ("q", readchar.key.ESCAPE, "\x1b"):
+                break
 
-            class Args:
-                package = None
-                check = False
-                force = False
-                prune = False
-            try:
-                cmd_update(Args())
-            except SystemExit:
-                pass
-            console.print()
-            console.input("[dim]Press Enter to continue...[/dim]")
-            break
-        elif menu_entries[choice] == "Download new...":
-            _handle_download()
-            break
+            elif key in (readchar.key.UP, "k"):
+                cursor = max(0, cursor - 1)
+
+            elif key in (readchar.key.DOWN, "j"):
+                cursor = min(len(pkg_list) - 1, cursor + 1)
+
+            elif key in (readchar.key.ENTER, "\r", "\n"):
+                pkg_name, pkg_data = pkg_list[cursor]
+                live.stop()
+                if _handle_package_toggle(state, pkg_name, pkg_data):
+                    dirty = True
+                # Reload packages in case toggle changed things
+                packages = v2_config.load_packages()
+                pkg_list = sorted(packages.items())
+                if not pkg_list:
+                    break
+                cursor = min(cursor, len(pkg_list) - 1)
+                live.start()
+
+            elif key == "u":
+                pkg_name = pkg_list[cursor][0]
+                live.stop()
+                console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
+                from ..v2_cli import cmd_update
+
+                class _Args:
+                    package = pkg_name
+                    check = False
+                    force = False
+                    prune = False
+                try:
+                    cmd_update(_Args())
+                except SystemExit:
+                    pass
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                # Reload
+                packages = v2_config.load_packages()
+                pkg_list = sorted(packages.items())
+                if not pkg_list:
+                    break
+                cursor = min(cursor, len(pkg_list) - 1)
+                live.start()
+
+            elif key == "U":
+                live.stop()
+                console.print("\n[bold]Updating all packages...[/bold]")
+                from ..v2_cli import cmd_update
+
+                class _ArgsAll:
+                    package = None
+                    check = False
+                    force = False
+                    prune = False
+                try:
+                    cmd_update(_ArgsAll())
+                except SystemExit:
+                    pass
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                packages = v2_config.load_packages()
+                pkg_list = sorted(packages.items())
+                if not pkg_list:
+                    break
+                cursor = min(cursor, len(pkg_list) - 1)
+                live.start()
+
+            elif key == "x":
+                pkg_name = pkg_list[cursor][0]
+                live.stop()
+                console.print(f"\n[yellow]Remove package '{pkg_name}'?[/yellow]")
+                confirm = console.input("[dim]Type 'yes' to confirm: [/dim]")
+                if confirm.strip().lower() == "yes":
+                    from ..v2_cli import cmd_remove_package
+
+                    class _RmArgs:
+                        name = pkg_name
+                        yes = True
+                    try:
+                        cmd_remove_package(_RmArgs())
+                    except SystemExit:
+                        pass
+                    dirty = True
+                console.print()
+                console.input("[dim]Press Enter to continue...[/dim]")
+                packages = v2_config.load_packages()
+                pkg_list = sorted(packages.items())
+                if not pkg_list:
+                    break
+                cursor = min(cursor, len(pkg_list) - 1)
+                live.start()
+
+            live.update(Text.from_markup(_build_pkg_menu()))
 
     return dirty
 
