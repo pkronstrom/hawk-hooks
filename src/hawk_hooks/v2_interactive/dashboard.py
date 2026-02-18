@@ -714,7 +714,7 @@ def _handle_packages(state: dict) -> bool:
         while True:
             key = readchar.readkey()
 
-            if key in ("q", readchar.key.ESCAPE, "\x1b"):
+            if key in ("q", "\x1b"):
                 break
 
             elif key in (readchar.key.UP, "k"):

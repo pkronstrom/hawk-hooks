@@ -171,7 +171,7 @@ def _browse_files(path: Path, initial_action: str = "view") -> None:
         while True:
             key = readchar.readkey()
 
-            if key in ("q", readchar.key.ESCAPE, "\x1b"):
+            if key in ("q", "\x1b"):
                 break
 
             elif key in (readchar.key.UP, "k"):
