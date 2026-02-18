@@ -279,6 +279,7 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
                     key=pkg_name,
                     label=f"\U0001f4e6 {pkg_name}",
                     items=sorted(pkg_items),
+                    collapsed=True,
                 ))
                 grouped_names.update(pkg_items)
 
