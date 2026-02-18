@@ -22,7 +22,7 @@ from rich.text import Text
 
 from ..types import ToggleGroup, ToggleScope  # noqa: F401 — re-exported
 
-console = Console()
+console = Console(highlight=False)
 
 # Actions appended after the item list
 ACTION_SELECT_ALL = "__select_all__"
@@ -445,7 +445,7 @@ def run_toggle_list(
         if num_scopes > 1:
             next_idx = (scope_index + 1) % num_scopes
             next_label = scopes[next_idx].label
-            tab_hint = f"[Tab: {next_label}]"
+            tab_hint = f"\\[Tab: {next_label}]"
         else:
             tab_hint = ""
 
@@ -489,20 +489,20 @@ def run_toggle_list(
                 is_changed = is_checked != was_checked
 
                 if is_checked and is_changed:
-                    mark = "[yellow]\u2714[/yellow]"
+                    mark = "[yellow]\u25cf[/yellow]"
                 elif is_checked:
-                    mark = "[green]\u2714[/green]"
+                    mark = "[green]\u25cf[/green]"
                 elif is_changed:
-                    mark = "[yellow]\u2610[/yellow]"
+                    mark = "[yellow]\u25cb[/yellow]"
                 else:
-                    mark = "[dim]\u2610[/dim]"
+                    mark = "[dim]\u25cb[/dim]"
 
                 if is_cur:
                     style, end_style = "[bold]", "[/bold]"
-                elif not is_checked and not is_changed:
-                    style, end_style = "[dim]", "[/dim]"
-                else:
+                elif is_checked:
                     style, end_style = "", ""
+                else:
+                    style, end_style = "[dim]", "[/dim]"
 
                 # Indent items under groups
                 indent = "  " if groups else ""

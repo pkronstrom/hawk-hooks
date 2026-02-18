@@ -14,7 +14,7 @@ from ..resolver import resolve
 from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
 from .toggle import run_toggle_list
 
-console = Console()
+console = Console(highlight=False)
 
 # Component types shown in the menu, in order
 COMPONENT_TYPES = [
@@ -139,7 +139,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     else:
         options.append(("Packages       (none installed)", "packages"))
 
-    options.append(("Registry       Browse installed items", "registry"))
+    options.append(("Browse         View, edit & delete all items", "registry"))
 
     # Tools summary
     tool_parts = []
@@ -482,6 +482,9 @@ def _handle_tools_toggle(state: dict) -> bool:
         multi_select=True,
         preselected_entries=preselected,
         multi_select_select_on_accept=False,
+        multi_select_cursor="(\u25cf) ",
+        multi_select_cursor_brackets_style=("fg_green",),
+        multi_select_cursor_style=("fg_green",),
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
