@@ -516,7 +516,7 @@ def run_toggle_list(
                     if parent_label:
                         hint = f"  [dim](enabled in {parent_label})[/dim]"
                 if not hint and is_changed:
-                    hint = "  [yellow]\u2022[/yellow]"
+                    hint = "  [bold yellow]*[/bold yellow]"
 
                 lines.append(f"{prefix}{indent}{mark} {style}{name}{end_style}{hint}")
 
