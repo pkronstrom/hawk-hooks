@@ -180,7 +180,7 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
     global_enabled = list(state["global_cfg"].get(field, []))
     scopes.append(ToggleScope(
         key="global",
-        label="\U0001f310 All projects",
+        label="\U0001f310 Global (default)",
         enabled=global_enabled,
     ))
 
@@ -787,7 +787,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
                 global_enabled.append(name)
     scopes.append(ToggleScope(
         key="global",
-        label="\U0001f310 All projects",
+        label="\U0001f310 Global (default)",
         enabled=global_enabled,
     ))
 

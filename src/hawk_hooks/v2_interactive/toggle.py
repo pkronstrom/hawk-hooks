@@ -215,7 +215,7 @@ def run_toggle_list(
     if scopes is None:
         scopes = [ToggleScope(
             key="global",
-            label="\U0001f310 All projects",
+            label="\U0001f310 Global (default)",
             enabled=list(global_enabled or []),
         )]
         if local_enabled is not None:
