@@ -21,7 +21,8 @@ def v2_interactive_menu(scope_dir: str | None = None) -> None:
 
     # First-run: guided wizard
     if not v2_config.get_global_config_path().exists():
-        run_wizard()
+        if not run_wizard():
+            return
 
     # Auto-register cwd if it has .hawk/config.yaml
     cwd = Path(scope_dir).resolve() if scope_dir else Path.cwd().resolve()

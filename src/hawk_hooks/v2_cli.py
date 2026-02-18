@@ -613,7 +613,7 @@ def _interactive_select_items(items):
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q",),
+        quit_keys=("q", "\x1b"),
         show_search_hint=True,
         search_key="/",
         status_bar="Space: toggle  /: search  Enter: confirm  a: all  q: quit",
@@ -1159,13 +1159,23 @@ def main_v2():
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command is None:
-        try:
-            from .v2_interactive import v2_interactive_menu
-            v2_interactive_menu(scope_dir=args.main_dir)
-        except ImportError:
+    # Warn if top-level --dir used with a subcommand (ambiguous)
+    if args.command is not None and args.main_dir is not None:
+        print(f"Warning: --dir before subcommand scopes the TUI, not '{args.command}'.")
+        print(f"  Use: hawk {args.command} --dir {args.main_dir}")
+        sys.exit(1)
+
+    try:
+        if args.command is None:
+            try:
+                from .v2_interactive import v2_interactive_menu
+                v2_interactive_menu(scope_dir=args.main_dir)
+            except ImportError:
+                parser.print_help()
+        elif hasattr(args, "func"):
+            args.func(args)
+        else:
             parser.print_help()
-    elif hasattr(args, "func"):
-        args.func(args)
-    else:
-        parser.print_help()
+    except KeyboardInterrupt:
+        print()
+        sys.exit(130)

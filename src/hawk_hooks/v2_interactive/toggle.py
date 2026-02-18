@@ -110,7 +110,7 @@ def _pick_file(path: Path) -> Path | None:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q",),
+        quit_keys=("q", "\x1b"),
     )
     choice = menu.show()
     if choice is None:

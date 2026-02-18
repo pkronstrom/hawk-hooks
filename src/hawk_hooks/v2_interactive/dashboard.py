@@ -139,7 +139,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     else:
         options.append(("Packages       (none installed)", "packages"))
 
-    options.append(("Browse         View, edit & delete all items", "registry"))
+    options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
     # Tools summary
     tool_parts = []
@@ -154,8 +154,6 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     tools_str = "  ".join(tool_parts)
     options.append((f"Tools          {tools_str}", "tools"))
     options.append(("Projects       Manage registered directories", "projects"))
-
-    options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
     options.append(("Settings       Editor, paths, behavior", "settings"))
     options.append(("Sync           Apply changes to tools", "sync"))
     options.append(("Exit", "exit"))
@@ -376,46 +374,49 @@ def _make_mcp_add_callback(state: dict):
         console.print("\n[bold]Add MCP Server[/bold]")
         console.print("[dim]" + "\u2500" * 40 + "[/dim]")
 
-        # Name
-        name = console.input("\n[cyan]Server name[/cyan] (e.g. github, postgres): ").strip()
-        if not name:
-            console.print("[dim]Cancelled.[/dim]")
+        try:
+            # Name
+            name = console.input("\n[cyan]Server name[/cyan] (e.g. github, postgres): ").strip()
+            if not name:
+                console.print("[dim]Cancelled.[/dim]")
+                return None
+
+            # Validate name
+            if "/" in name or ".." in name or name.startswith("."):
+                console.print("[red]Invalid name.[/red]")
+                console.input("[dim]Press Enter to continue...[/dim]")
+                return None
+
+            # Check clash
+            if registry.has(ComponentType.MCP, name + ".yaml"):
+                console.print(f"[red]Already exists: mcp/{name}.yaml[/red]")
+                console.input("[dim]Press Enter to continue...[/dim]")
+                return None
+
+            # Command
+            command = console.input("[cyan]Command[/cyan] (e.g. npx, uvx, node, docker): ").strip()
+            if not command:
+                console.print("[dim]Cancelled.[/dim]")
+                return None
+
+            # Args
+            args_str = console.input("[cyan]Arguments[/cyan] (space-separated, e.g. -y @modelcontextprotocol/server-github): ").strip()
+            args = args_str.split() if args_str else []
+
+            # Env vars (optional)
+            console.print("[dim]Environment variables (one per line, KEY=VALUE, empty line to finish):[/dim]")
+            env: dict[str, str] = {}
+            while True:
+                line = console.input("  ").strip()
+                if not line:
+                    break
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip()
+                else:
+                    console.print(f"  [dim]Skipping (no '='): {line}[/dim]")
+        except KeyboardInterrupt:
             return None
-
-        # Validate name
-        if "/" in name or ".." in name or name.startswith("."):
-            console.print("[red]Invalid name.[/red]")
-            console.input("[dim]Press Enter to continue...[/dim]")
-            return None
-
-        # Check clash
-        if registry.has(ComponentType.MCP, name + ".yaml"):
-            console.print(f"[red]Already exists: mcp/{name}.yaml[/red]")
-            console.input("[dim]Press Enter to continue...[/dim]")
-            return None
-
-        # Command
-        command = console.input("[cyan]Command[/cyan] (e.g. npx, uvx, node, docker): ").strip()
-        if not command:
-            console.print("[dim]Cancelled.[/dim]")
-            return None
-
-        # Args
-        args_str = console.input("[cyan]Arguments[/cyan] (space-separated, e.g. -y @modelcontextprotocol/server-github): ").strip()
-        args = args_str.split() if args_str else []
-
-        # Env vars (optional)
-        console.print("[dim]Environment variables (one per line, KEY=VALUE, empty line to finish):[/dim]")
-        env: dict[str, str] = {}
-        while True:
-            line = console.input("  ").strip()
-            if not line:
-                break
-            if "=" in line:
-                k, v = line.split("=", 1)
-                env[k.strip()] = v.strip()
-            else:
-                console.print(f"  [dim]Skipping (no '='): {line}[/dim]")
 
         # Build config
         mcp_config: dict = {"command": command}
@@ -488,7 +489,8 @@ def _handle_tools_toggle(state: dict) -> bool:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q",),
+        quit_keys=("q", "\x1b"),
+        status_bar="Space: toggle  Enter: confirm  q/Esc: back",
     )
     result = menu.show()
     if result is None:
@@ -515,172 +517,6 @@ def _handle_tools_toggle(state: dict) -> bool:
         v2_config.save_global_config(cfg)
 
     return changed
-
-
-def _handle_registry_browse(state: dict) -> None:
-    """Interactive registry browser with sections, view, edit, remove."""
-    import readchar
-    from rich.live import Live
-    from rich.text import Text
-
-    from .toggle import (
-        _get_terminal_height, _calculate_visible_range,
-        _pick_file, _view_in_terminal, _open_in_finder, _open_in_editor,
-    )
-
-    registry = state["registry"]
-    registry_path = v2_config.get_registry_path(state["cfg"])
-
-    # Build flat list with section headers
-    rows: list[tuple[str, str | None, ComponentType | None]] = []  # (label, name, ct)
-    for ct, names in state["contents"].items():
-        if names:
-            rows.append((f"[bold]{ct.registry_dir}/[/bold]", None, None))  # section header
-            for name in sorted(names):
-                rows.append((name, name, ct))
-
-    if not rows:
-        console.print("\n[dim]Registry is empty. Run [cyan]hawk download <url>[/cyan] to add components.[/dim]\n")
-        console.input("[dim]Press Enter to continue...[/dim]")
-        return
-
-    cursor = 0
-    # Start on first non-header item
-    if rows[0][1] is None and len(rows) > 1:
-        cursor = 1
-    status_msg = ""
-
-    def _is_header(idx: int) -> bool:
-        return rows[idx][1] is None
-
-    def _build_display() -> str:
-        lines: list[str] = []
-        total = len(rows)
-        total_items = sum(len(n) for n in state["contents"].values())
-        lines.append(f"[bold]Registry[/bold] \u2014 {total_items} components")
-        lines.append("[dim]\u2500" * 50 + "[/dim]")
-
-        max_visible = _get_terminal_height() - 7
-        _, vis_start, vis_end = _calculate_visible_range(cursor, total, max_visible, 0)
-
-        if vis_start > 0:
-            lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
-
-        for i in range(vis_start, vis_end):
-            is_cur = i == cursor
-            label, name, ct = rows[i]
-
-            if name is None:
-                # Section header
-                lines.append(f"\n  {label}")
-            else:
-                prefix = "[cyan]\u276f[/cyan] " if is_cur else "    "
-                style = "[bold]" if is_cur else ""
-                end = "[/bold]" if is_cur else ""
-                lines.append(f"{prefix}{style}{name}{end}")
-
-        if vis_end < total:
-            lines.append(f"[dim]  \u2193 {total - vis_end} more[/dim]")
-
-        if status_msg:
-            lines.append(f"\n[dim]{status_msg}[/dim]")
-
-        lines.append("")
-        lines.append("[dim]\u2191\u2193/jk: navigate  v: view  e: edit  o: open  d/x: delete  q: done[/dim]")
-        return "\n".join(lines)
-
-    def _get_item_path(idx: int) -> Path | None:
-        _, name, ct = rows[idx]
-        if name and ct:
-            p = registry_path / ct.registry_dir / name
-            return p if p.exists() else None
-        return None
-
-    with Live("", console=console, refresh_per_second=15, transient=True) as live:
-        live.update(Text.from_markup(_build_display()))
-        while True:
-            try:
-                key = readchar.readkey()
-            except (KeyboardInterrupt, EOFError):
-                break
-
-            status_msg = ""
-            total = len(rows)
-
-            if key in (readchar.key.UP, "k"):
-                cursor = (cursor - 1) % total
-                if _is_header(cursor):
-                    cursor = (cursor - 1) % total
-            elif key in (readchar.key.DOWN, "j"):
-                cursor = (cursor + 1) % total
-                if _is_header(cursor):
-                    cursor = (cursor + 1) % total
-
-            elif key == "v":
-                path = _get_item_path(cursor)
-                if path:
-                    live.stop()
-                    target = _pick_file(path)
-                    if target:
-                        _view_in_terminal(target)
-                    live.start()
-
-            elif key == "o":
-                path = _get_item_path(cursor)
-                if path:
-                    live.stop()
-                    _open_in_finder(path)
-                    status_msg = f"Opened {rows[cursor][1]}"
-                    live.start()
-
-            elif key == "e":
-                path = _get_item_path(cursor)
-                if path:
-                    live.stop()
-                    _open_in_editor(path)
-                    live.start()
-
-            elif key in ("x", "d"):
-                _, name, ct = rows[cursor]
-                if name and ct:
-                    # Confirm removal
-                    live.stop()
-                    confirm_menu = TerminalMenu(
-                        ["No", "Yes, remove"],
-                        title=f"\nRemove {ct.value}/{name} from registry?",
-                        cursor_index=0,
-                        menu_cursor="\u276f ",
-                        menu_cursor_style=("fg_cyan", "bold"),
-                        menu_highlight_style=("fg_cyan", "bold"),
-                    )
-                    result = confirm_menu.show()
-                    if result == 1:
-                        if registry.remove(ct, name):
-                            status_msg = f"Removed {ct.value}/{name}"
-                            # Rebuild rows
-                            state["contents"] = registry.list()
-                            rows.clear()
-                            for rct, rnames in state["contents"].items():
-                                if rnames:
-                                    rows.append((f"[bold]{rct.registry_dir}/[/bold]", None, None))
-                                    for rn in sorted(rnames):
-                                        rows.append((rn, rn, rct))
-                            if not rows:
-                                live.start()
-                                break
-                            cursor = min(cursor, len(rows) - 1)
-                            if _is_header(cursor) and cursor + 1 < len(rows):
-                                cursor += 1
-                            elif _is_header(cursor) and cursor > 0:
-                                cursor -= 1
-                        else:
-                            status_msg = f"Failed to remove {name}"
-                    live.start()
-
-            elif key in ("q", "\x1b"):
-                break
-
-            live.update(Text.from_markup(_build_display()))
 
 
 def _handle_packages(state: dict) -> bool:
@@ -1102,8 +938,8 @@ def _run_projects_tree() -> None:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q",),
-        status_bar="[Enter: edit]  [q: quit]",
+        quit_keys=("q", "\x1b"),
+        status_bar="Enter: open  q/Esc: back",
     )
 
     while True:
@@ -1113,9 +949,9 @@ def _run_projects_tree() -> None:
 
         selected_path = menu_paths[choice]
         if selected_path == "global":
-            # Show global config editor or toggle
-            console.print(f"\n[dim]Global config: {v2_config.get_global_config_path()}[/dim]")
-            console.input("[dim]Press Enter to continue...[/dim]")
+            # Open settings editor for global config
+            from .config_editor import run_config_editor
+            run_config_editor()
         else:
             # Open dashboard scoped to that directory
             from . import v2_interactive_menu
@@ -1138,7 +974,10 @@ def _handle_sync(state: dict) -> None:
 def _handle_download() -> None:
     """Run download flow."""
     console.print("\n[bold]Download components from git[/bold]")
-    url = console.input("[cyan]URL:[/cyan] ")
+    try:
+        url = console.input("[cyan]URL:[/cyan] ")
+    except KeyboardInterrupt:
+        return
     if not url or not url.strip():
         return
 
@@ -1163,10 +1002,26 @@ def _handle_download() -> None:
 
 
 def _prompt_sync_on_exit(dirty: bool) -> None:
-    """If changes were made, prompt to sync."""
+    """If changes were made, sync based on sync_on_exit setting."""
     if not dirty:
         return
 
+    cfg = v2_config.load_global_config()
+    preference = cfg.get("sync_on_exit", "ask")
+
+    if preference == "never":
+        return
+
+    if preference == "always":
+        from ..v2_sync import format_sync_results, sync_all
+
+        console.print("\n[bold]Syncing...[/bold]")
+        all_results = sync_all(force=True)
+        formatted = format_sync_results(all_results)
+        console.print(formatted or "  No changes.")
+        return
+
+    # "ask" (default)
     menu = TerminalMenu(
         ["Yes", "No"],
         title="\nChanges made. Sync to tools now?",
@@ -1174,6 +1029,7 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
     )
     result = menu.show()
     if result == 0:
@@ -1212,7 +1068,8 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             menu_cursor_style=("fg_cyan", "bold"),
             menu_highlight_style=("fg_cyan", "bold"),
             accept_keys=("enter", " "),
-            quit_keys=("q",),
+            quit_keys=("q", "\x1b"),
+            status_bar="\u2191\u2193: navigate  Space/Enter: select  q/Esc: quit",
         )
         choice = menu.show()
         if choice is not None:
@@ -1246,9 +1103,6 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "packages":
             if _handle_packages(state):
                 dirty = True
-
-        elif action == "registry":
-            _handle_registry_browse(state)
 
         elif action == "projects":
             _handle_projects(state)

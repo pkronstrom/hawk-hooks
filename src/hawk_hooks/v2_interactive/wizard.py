@@ -27,8 +27,8 @@ def _get_builtins_path() -> Path | None:
     return None
 
 
-def run_wizard() -> None:
-    """Guided first-time setup."""
+def run_wizard() -> bool:
+    """Guided first-time setup. Returns True if completed, False if cancelled."""
     console.clear()
     console.print(f"\n[bold]\U0001f985 Welcome to hawk v{__version__}[/bold]")
     console.print("[dim]Multi-agent CLI package manager for AI tools[/dim]\n")
@@ -55,11 +55,12 @@ def run_wizard() -> None:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
     )
     result = menu.show()
     if result != 0:
         console.print("[dim]Setup cancelled.[/dim]")
-        return
+        return False
 
     # Create config
     v2_config.ensure_v2_dirs()
@@ -89,10 +90,14 @@ def run_wizard() -> None:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
     )
     result = menu.show()
     if result == 0:
-        url = console.input("\n[cyan]Git URL:[/cyan] ")
+        try:
+            url = console.input("\n[cyan]Git URL:[/cyan] ")
+        except KeyboardInterrupt:
+            return
         if url and url.strip():
             from ..v2_cli import cmd_download
 
@@ -118,6 +123,7 @@ def run_wizard() -> None:
     console.print("  [cyan]hawk[/cyan]                   Open interactive menu")
     console.print()
     console.input("[dim]Press Enter to continue to the menu...[/dim]")
+    return True
 
 
 def _offer_builtins_install(cfg: dict) -> None:
@@ -154,6 +160,7 @@ def _offer_builtins_install(cfg: dict) -> None:
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
     )
     result = menu.show()
     if result != 0:
