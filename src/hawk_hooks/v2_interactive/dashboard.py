@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import readchar
 from rich.console import Console
 from simple_term_menu import TerminalMenu
 
@@ -121,51 +120,44 @@ def _build_header(state: dict) -> str:
 
 
 def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
-    """Build main menu options with counts.
-
-    Uses ANSI escape codes for color since TerminalMenu doesn't support Rich markup.
-    """
-    # ANSI helpers
-    DIM = "\033[2m"
-    GREEN = "\033[32m"
-    RED = "\033[31m"
-    RESET = "\033[0m"
-
+    """Build main menu options with counts."""
     options: list[tuple[str, str | None]] = []
 
     for display_name, field, ct in COMPONENT_TYPES:
         count_str = _count_enabled(state, field)
-        label = f"{display_name:<14} {DIM}{count_str}{RESET}"
+        label = f"{display_name:<14} {count_str}"
         options.append((label, field))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
-    options.append((f"Download       {DIM}Fetch from git URL{RESET}", "download"))
+    options.append(("Download       Fetch from git URL", "download"))
 
     # Packages count
     packages = v2_config.load_packages()
     pkg_count = len(packages)
     if pkg_count > 0:
-        options.append((f"Packages       {DIM}{pkg_count} installed, manage & update{RESET}", "packages"))
+        options.append((f"Packages       {pkg_count} installed, manage & update", "packages"))
     else:
-        options.append((f"Packages       {DIM}(none installed){RESET}", "packages"))
+        options.append(("Packages       (none installed)", "packages"))
+
+    options.append(("Registry       Browse installed items", "registry"))
 
     # Tools summary
     tool_parts = []
     for tool in Tool.all():
         ts = state["tools_status"][tool]
         if ts["installed"] and ts["enabled"]:
-            tool_parts.append(f"{GREEN}{tool} \u2714{RESET}")
+            tool_parts.append(f"{tool} \u2714")
         elif ts["installed"]:
-            tool_parts.append(f"{RED}{tool} \u2716{RESET}")
+            tool_parts.append(f"{tool} \u2716")
         else:
-            tool_parts.append(f"{DIM}{tool}{RESET}")
+            tool_parts.append(str(tool))
     tools_str = "  ".join(tool_parts)
     options.append((f"Tools          {tools_str}", "tools"))
-    options.append((f"Projects       {DIM}Manage registered directories{RESET}", "projects"))
+    options.append(("Projects       Manage registered directories", "projects"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
-    options.append((f"Settings       {DIM}Editor, paths, behavior{RESET}", "settings"))
-    options.append((f"Sync           {DIM}Apply changes to tools{RESET}", "sync"))
+    options.append(("Settings       Editor, paths, behavior", "settings"))
+    options.append(("Sync           Apply changes to tools", "sync"))
     options.append(("Exit", "exit"))
 
     return options
@@ -393,15 +385,13 @@ def _make_mcp_add_callback(state: dict):
         # Validate name
         if "/" in name or ".." in name or name.startswith("."):
             console.print("[red]Invalid name.[/red]")
-            console.print("[dim]Press any key to continue...[/dim]")
-            readchar.readkey()
+            console.input("[dim]Press Enter to continue...[/dim]")
             return None
 
         # Check clash
         if registry.has(ComponentType.MCP, name + ".yaml"):
             console.print(f"[red]Already exists: mcp/{name}.yaml[/red]")
-            console.print("[dim]Press any key to continue...[/dim]")
-            readchar.readkey()
+            console.input("[dim]Press Enter to continue...[/dim]")
             return None
 
         # Command
@@ -443,10 +433,16 @@ def _make_mcp_add_callback(state: dict):
                 console.print(f"    {k}={display_v}")
 
         # Confirm
-        console.print(f"\n[yellow]Add this MCP server?[/yellow] [dim](Y/n)[/dim] ", end="")
-        confirm = readchar.readkey()
-        console.print()
-        if confirm.lower() == "n":
+        confirm_menu = TerminalMenu(
+            ["Yes, add to registry", "Cancel"],
+            title="\nAdd this MCP server?",
+            cursor_index=0,
+            menu_cursor="\u276f ",
+            menu_cursor_style=("fg_cyan", "bold"),
+            menu_highlight_style=("fg_cyan", "bold"),
+        )
+        result = confirm_menu.show()
+        if result != 0:
             console.print("[dim]Cancelled.[/dim]")
             return None
 
@@ -520,6 +516,7 @@ def _handle_tools_toggle(state: dict) -> bool:
 
 def _handle_registry_browse(state: dict) -> None:
     """Interactive registry browser with sections, view, edit, remove."""
+    import readchar
     from rich.live import Live
     from rich.text import Text
 
@@ -541,8 +538,7 @@ def _handle_registry_browse(state: dict) -> None:
 
     if not rows:
         console.print("\n[dim]Registry is empty. Run [cyan]hawk download <url>[/cyan] to add components.[/dim]\n")
-        console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+        console.input("[dim]Press Enter to continue...[/dim]")
         return
 
     cursor = 0
@@ -587,7 +583,7 @@ def _handle_registry_browse(state: dict) -> None:
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
         lines.append("")
-        lines.append("[dim]\u2191\u2193/jk: navigate  v: view  e: edit  o: open  d/x: delete  q: back[/dim]")
+        lines.append("[dim]\u2191\u2193/jk: navigate  v: view  e: edit  o: open  d/x: delete  q: done[/dim]")
         return "\n".join(lines)
 
     def _get_item_path(idx: int) -> Path | None:
@@ -631,7 +627,7 @@ def _handle_registry_browse(state: dict) -> None:
                 if path:
                     live.stop()
                     _open_in_finder(path)
-                    status_msg = f"Opened {rows[cursor][1]} in file manager"
+                    status_msg = f"Opened {rows[cursor][1]}"
                     live.start()
 
             elif key == "e":
@@ -644,13 +640,20 @@ def _handle_registry_browse(state: dict) -> None:
             elif key in ("x", "d"):
                 _, name, ct = rows[cursor]
                 if name and ct:
+                    # Confirm removal
                     live.stop()
-                    console.print(f"\n[yellow]Delete [bold]{name}[/bold] from registry?[/yellow] [dim](y/N)[/dim] ", end="")
-                    confirm = readchar.readkey()
-                    console.print()
-                    if confirm.lower() == "y":
+                    confirm_menu = TerminalMenu(
+                        ["No", "Yes, remove"],
+                        title=f"\nRemove {ct.value}/{name} from registry?",
+                        cursor_index=0,
+                        menu_cursor="\u276f ",
+                        menu_cursor_style=("fg_cyan", "bold"),
+                        menu_highlight_style=("fg_cyan", "bold"),
+                    )
+                    result = confirm_menu.show()
+                    if result == 1:
                         if registry.remove(ct, name):
-                            status_msg = f"Deleted {ct.value}/{name}"
+                            status_msg = f"Removed {ct.value}/{name}"
                             # Rebuild rows
                             state["contents"] = registry.list()
                             rows.clear()
@@ -668,7 +671,7 @@ def _handle_registry_browse(state: dict) -> None:
                             elif _is_header(cursor) and cursor > 0:
                                 cursor -= 1
                         else:
-                            status_msg = f"Failed to delete {name}"
+                            status_msg = f"Failed to remove {name}"
                     live.start()
 
             elif key in ("q", "\x1b"):
@@ -684,12 +687,12 @@ def _handle_packages(state: dict) -> bool:
     if not packages:
         console.print("\n[dim]No packages installed.[/dim]")
         console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
-        console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+        console.input("[dim]Press Enter to continue...[/dim]")
         return False
 
     dirty = False
 
+    import readchar
     from rich.live import Live
     from rich.text import Text
 
@@ -850,8 +853,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
 
     if not toggle_groups:
         console.print(f"\n[dim]No items in package {pkg_name}.[/dim]")
-        console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+        console.input("[dim]Press Enter to continue...[/dim]")
         return False
 
     # 2. Build scopes — collect enabled items across ALL types for this package
@@ -1005,8 +1007,7 @@ def _run_projects_tree() -> None:
     if not dirs:
         console.print("\n[dim]No directories registered.[/dim]")
         console.print("[dim]Run [cyan]hawk init[/cyan] in a project directory to register it.[/dim]\n")
-        console.print("[dim]Press any key to continue...[/dim]")
-        readchar.readkey()
+        console.input("[dim]Press Enter to continue...[/dim]")
         return
 
     # Build tree structure: group by parent-child relationships
@@ -1099,7 +1100,7 @@ def _run_projects_tree() -> None:
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
         quit_keys=("q",),
-        status_bar="Enter: edit  q: back",
+        status_bar="[Enter: edit]  [q: quit]",
     )
 
     while True:
@@ -1111,8 +1112,7 @@ def _run_projects_tree() -> None:
         if selected_path == "global":
             # Show global config editor or toggle
             console.print(f"\n[dim]Global config: {v2_config.get_global_config_path()}[/dim]")
-            console.print("[dim]Press any key to continue...[/dim]")
-            readchar.readkey()
+            console.input("[dim]Press Enter to continue...[/dim]")
         else:
             # Open dashboard scoped to that directory
             from . import v2_interactive_menu
@@ -1129,8 +1129,7 @@ def _handle_sync(state: dict) -> None:
     formatted = format_sync_results(all_results)
     console.print(formatted or "  No changes.")
     console.print()
-    console.print("[dim]Press any key to continue...[/dim]")
-    readchar.readkey()
+    console.input("[dim]Press Enter to continue...[/dim]")
 
 
 def _handle_download() -> None:
@@ -1157,8 +1156,7 @@ def _handle_download() -> None:
         pass
 
     console.print()
-    console.print("[dim]Press any key to continue...[/dim]")
-    readchar.readkey()
+    console.input("[dim]Press Enter to continue...[/dim]")
 
 
 def _prompt_sync_on_exit(dirty: bool) -> None:
@@ -1166,10 +1164,16 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
     if not dirty:
         return
 
-    console.print(f"\n[yellow]Sync changes to tools?[/yellow] [dim](Y/n)[/dim] ", end="")
-    key = readchar.readkey()
-    console.print()
-    if key.lower() != "n":
+    menu = TerminalMenu(
+        ["Yes", "No"],
+        title="\nChanges made. Sync to tools now?",
+        cursor_index=0,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+    )
+    result = menu.show()
+    if result == 0:
         from ..v2_sync import format_sync_results, sync_all
 
         console.print("[bold]Syncing...[/bold]")
@@ -1239,6 +1243,9 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "packages":
             if _handle_packages(state):
                 dirty = True
+
+        elif action == "registry":
+            _handle_registry_browse(state)
 
         elif action == "projects":
             _handle_projects(state)
