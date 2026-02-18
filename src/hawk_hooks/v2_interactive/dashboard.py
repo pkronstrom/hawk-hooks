@@ -1195,6 +1195,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         scope_dir: Optional directory to scope the TUI to.
     """
     dirty = False
+    last_cursor = 0
 
     while True:
         state = _load_state(scope_dir)
@@ -1209,6 +1210,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
 
         menu = TerminalMenu(
             menu_labels,
+            cursor_index=last_cursor,
             menu_cursor="\u276f ",
             menu_cursor_style=("fg_cyan", "bold"),
             menu_highlight_style=("fg_cyan", "bold"),
@@ -1216,6 +1218,8 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             quit_keys=("q",),
         )
         choice = menu.show()
+        if choice is not None:
+            last_cursor = choice
 
         if choice is None:
             # q pressed
