@@ -103,7 +103,7 @@ def run_config_editor() -> None:
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
         lines.append("")
-        lines.append("[dim]Space/Enter: change  \u2191\u2193/jk: navigate  q: done[/dim]")
+        lines.append("[dim]Space/Enter: change  \u2191\u2193/jk: navigate  q: back[/dim]")
         return "\n".join(lines)
 
     def _handle_change(idx: int) -> str:
@@ -141,7 +141,9 @@ def run_config_editor() -> None:
         return ""
 
     def _handle_text_edit(idx: int) -> str:
-        """Handle editing a text setting. Returns status message."""
+        """Handle editing a text setting via $EDITOR or inline fallback."""
+        import tempfile
+
         if idx >= len(items):
             return ""
 
@@ -149,16 +151,48 @@ def run_config_editor() -> None:
         if setting_type != "text":
             return ""
 
-        current = _get_value(cfg, key, default)
+        current = str(_get_value(cfg, key, default))
+        editor = os.environ.get("EDITOR", "vim")
+
+        # Write current value to a temp file, open in editor
         try:
-            new_val = console.input(f"\n[cyan]{label}[/cyan] [{current}]: ").strip()
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", prefix=f"hawk-{key}-", delete=False
+            ) as f:
+                f.write(current)
+                tmp_path = f.name
+
+            import subprocess
+            result = subprocess.run([editor, tmp_path], check=False)
+
+            if result.returncode == 0:
+                new_val = open(tmp_path).read().strip()
+                if new_val and new_val != current:
+                    cfg[key] = new_val
+                    v2_config.save_global_config(cfg)
+                    return f"{label} \u2192 {new_val}"
+                elif not new_val and current:
+                    # Cleared the value — reset to default
+                    cfg.pop(key, None)
+                    v2_config.save_global_config(cfg)
+                    return f"{label} \u2192 (default)"
         except (KeyboardInterrupt, EOFError):
             return "Cancelled"
-
-        if new_val:
-            cfg[key] = new_val
-            v2_config.save_global_config(cfg)
-            return f"{label} \u2192 {new_val}"
+        except OSError:
+            # Editor not found — fall back to inline
+            try:
+                new_val = console.input(f"\n[cyan]{label}[/cyan] [{current}]: ").strip()
+            except (KeyboardInterrupt, EOFError):
+                return "Cancelled"
+            if new_val:
+                cfg[key] = new_val
+                v2_config.save_global_config(cfg)
+                return f"{label} \u2192 {new_val}"
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except (OSError, UnboundLocalError):
+                pass
         return ""
 
     with Live("", console=console, refresh_per_second=15, transient=True) as live:

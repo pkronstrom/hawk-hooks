@@ -55,10 +55,22 @@ def _calculate_visible_range(
 
 
 def _resolve_item_path(registry_path: Path, registry_dir: str, name: str) -> Path | None:
-    """Resolve the filesystem path of a registry item."""
-    item_path = registry_path / registry_dir / name
-    if item_path.exists():
-        return item_path
+    """Resolve the filesystem path of a registry item.
+
+    If registry_dir is provided, looks there directly.
+    If empty, searches all known registry subdirectories.
+    """
+    if registry_dir:
+        item_path = registry_path / registry_dir / name
+        if item_path.exists():
+            return item_path
+        return None
+
+    # Search all known subdirectories
+    for subdir in ("skills", "hooks", "commands", "agents", "mcp", "prompts"):
+        item_path = registry_path / subdir / name
+        if item_path.exists():
+            return item_path
     return None
 
 
@@ -209,7 +221,8 @@ def _view_in_terminal(path: Path) -> None:
         content = path.read_text()
     except OSError:
         console.print(f"[red]Cannot read: {path}[/red]")
-        console.input("[dim]Press Enter to go back...[/dim]")
+        console.print("[dim]Press any key to continue...[/dim]")
+        readchar.readkey()
         return
 
     # Render to string with ANSI codes
@@ -537,13 +550,13 @@ def run_toggle_list(
         if footer_hint:
             lines.append(f"\n[dim italic]{footer_hint}[/dim italic]")
         lines.append("")
-        hints = "Space/Enter: toggle  \u2191\u2193/jk: navigate  q: done"
+        hints = "Space/Enter: toggle  \u2191\u2193/jk: navigate  q: back"
         if num_scopes > 1:
             hints += "  Tab: scope"
         if registry_path:
             hints += "  v: view  e: edit  o: open"
         if on_delete:
-            hints += "  d: delete"
+            hints += "  d/x: delete"
         lines.append(f"[dim]{hints}[/dim]")
 
         return "\n".join(lines)
@@ -658,19 +671,19 @@ def run_toggle_list(
             # View in terminal (browse files for directories)
             elif key == "v":
                 name = _get_item_name_at_cursor()
-                if name and registry_path and registry_dir:
+                if name and registry_path:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
                         _browse_files(item_path, initial_action="view")
                         live.start()
                     else:
-                        status_msg = f"Not found: {registry_dir}/{name}"
+                        status_msg = f"Not found: {name}"
 
             # Open in Finder / file manager
             elif key == "o":
                 name = _get_item_name_at_cursor()
-                if name and registry_path and registry_dir:
+                if name and registry_path:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
@@ -678,22 +691,22 @@ def run_toggle_list(
                         status_msg = f"Opened {name} in file manager"
                         live.start()
                     else:
-                        status_msg = f"Not found: {registry_dir}/{name}"
+                        status_msg = f"Not found: {name}"
 
             # Edit in $EDITOR (browse files for directories)
             elif key == "e":
                 name = _get_item_name_at_cursor()
-                if name and registry_path and registry_dir:
+                if name and registry_path:
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
                         _browse_files(item_path, initial_action="edit")
                         live.start()
                     else:
-                        status_msg = f"Not found: {registry_dir}/{name}"
+                        status_msg = f"Not found: {name}"
 
             # Delete item from registry
-            elif key == "d":
+            elif key in ("d", "x"):
                 name = _get_item_name_at_cursor()
                 if name and on_delete:
                     live.stop()
