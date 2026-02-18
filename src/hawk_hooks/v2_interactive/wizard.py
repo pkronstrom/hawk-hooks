@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from rich.console import Console
 from simple_term_menu import TerminalMenu
 
@@ -10,6 +12,19 @@ from ..adapters import get_adapter
 from ..types import Tool
 
 console = Console()
+
+
+def _get_builtins_path() -> Path | None:
+    """Find the bundled builtins directory."""
+    # Installed wheel location (src/hawk_hooks/builtins)
+    p = Path(__file__).parent.parent / "builtins"
+    if p.exists():
+        return p
+    # Editable install (repo root/builtins)
+    p = Path(__file__).parent.parent.parent.parent / "builtins"
+    if p.exists():
+        return p
+    return None
 
 
 def run_wizard() -> None:
@@ -62,11 +77,14 @@ def run_wizard() -> None:
 
     console.print(f"\n[green]\u2714[/green] Config created at [cyan]{v2_config.get_global_config_path()}[/cyan]")
 
-    # Step 3: Bootstrap - offer to download
+    # Step 3a: Install bundled builtins
+    _offer_builtins_install(cfg)
+
+    # Step 3b: Offer git download
     console.print()
     menu = TerminalMenu(
-        ["Yes, download components", "No, I'll add them later"],
-        title="Your registry is empty. Download starter components?",
+        ["Yes, download more", "No, I'm done"],
+        title="Download additional components from git?",
         cursor_index=1,
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
@@ -100,3 +118,62 @@ def run_wizard() -> None:
     console.print("  [cyan]hawk[/cyan]                   Open interactive menu")
     console.print()
     console.input("[dim]Press Enter to continue to the menu...[/dim]")
+
+
+def _offer_builtins_install(cfg: dict) -> None:
+    """Offer to install bundled agents & prompts."""
+    from ..downloader import add_items_to_registry, classify
+    from ..registry import Registry
+    from ..types import ComponentType
+
+    builtins_path = _get_builtins_path()
+    if not builtins_path:
+        return
+
+    content = classify(builtins_path)
+    # Filter out hooks (v2 hook sync is a stub)
+    content.items = [i for i in content.items if i.component_type != ComponentType.HOOK]
+    if not content.items:
+        return
+
+    agent_count = sum(1 for i in content.items if i.component_type == ComponentType.AGENT)
+    prompt_count = sum(1 for i in content.items if i.component_type == ComponentType.PROMPT)
+    parts = []
+    if agent_count:
+        parts.append(f"{agent_count} agents")
+    if prompt_count:
+        parts.append(f"{prompt_count} prompts")
+    desc = ", ".join(parts) if parts else f"{len(content.items)} components"
+
+    console.print()
+    menu = TerminalMenu(
+        [f"Yes, install starter components ({desc})", "No, start empty"],
+        title="Install bundled agents & prompts?",
+        cursor_index=0,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+    )
+    result = menu.show()
+    if result != 0:
+        return
+
+    registry = Registry(v2_config.get_registry_path(cfg))
+    registry.ensure_dirs()
+    added, skipped = add_items_to_registry(content.items, registry, replace=False)
+
+    # Enable in global config
+    if added:
+        global_section = cfg.get("global", {})
+        for item_str in added:
+            ct_str, name = item_str.split("/", 1)
+            field = ct_str + "s" if ct_str != "mcp" else "mcp"
+            existing = global_section.get(field, [])
+            if name not in existing:
+                existing.append(name)
+            global_section[field] = existing
+        cfg["global"] = global_section
+        v2_config.save_global_config(cfg)
+        console.print(f"  [green]\u2714[/green] Installed {len(added)} components")
+    if skipped:
+        console.print(f"  [dim]Skipped {len(skipped)} (already in registry)[/dim]")

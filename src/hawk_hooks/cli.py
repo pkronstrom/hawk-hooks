@@ -135,19 +135,19 @@ def cmd_sync_examples(args):
     import shutil
     from pathlib import Path
 
-    # Try installed location first (package/examples), then editable location (project root)
-    examples_base = Path(__file__).parent / "examples"
+    # Try installed location first (package/builtins), then editable location (project root)
+    examples_base = Path(__file__).parent / "builtins"
     if not examples_base.exists():
         # Editable install: go from src/hawk_hooks/ to project root
-        examples_base = Path(__file__).parent.parent.parent / "examples"
+        examples_base = Path(__file__).parent.parent.parent / "builtins"
 
     copied = 0
     skipped = 0
 
     if not examples_base.exists():
-        print("Error: Examples directory not found")
-        print(f"Searched: {Path(__file__).parent / 'examples'}")
-        print(f"      and: {Path(__file__).parent.parent.parent / 'examples'}")
+        print("Error: Builtins directory not found")
+        print(f"Searched: {Path(__file__).parent / 'builtins'}")
+        print(f"      and: {Path(__file__).parent.parent.parent / 'builtins'}")
         return
 
     # Sync hooks

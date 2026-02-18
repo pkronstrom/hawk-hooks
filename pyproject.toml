@@ -45,7 +45,7 @@ hawk = "hawk_hooks.v2_cli:main_v2"
 packages = ["src/hawk_hooks", "src/rich_menu"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"examples" = "hawk_hooks/examples"
+"builtins" = "hawk_hooks/builtins"
 
 [tool.ruff]
 line-length = 100
