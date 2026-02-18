@@ -1212,7 +1212,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             menu_cursor="\u276f ",
             menu_cursor_style=("fg_cyan", "bold"),
             menu_highlight_style=("fg_cyan", "bold"),
-            accept_keys=("enter", "space"),
+            accept_keys=("enter", " "),
             quit_keys=("q",),
         )
         choice = menu.show()
