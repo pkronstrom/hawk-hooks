@@ -210,23 +210,20 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
                 enabled=enabled,
             ))
     else:
-        # No config chain — use cwd as potential new local scope
+        # No config chain — only add local scope if config already exists
         local_cfg = state.get("local_cfg")
-        local_is_new = local_cfg is None
-
-        local_enabled: list[str] = []
         if local_cfg is not None:
+            local_enabled: list[str] = []
             local_section = local_cfg.get(field, {})
             if isinstance(local_section, dict):
                 local_enabled = list(local_section.get("enabled", []))
 
-        project_name = state.get("project_name") or project_dir.name
-        scopes.append(ToggleScope(
-            key=str(project_dir),
-            label=f"\U0001f4cd This project: {project_name}",
-            enabled=local_enabled,
-            is_new=local_is_new,
-        ))
+            project_name = state.get("project_name") or project_dir.name
+            scopes.append(ToggleScope(
+                key=str(project_dir),
+                label=f"\U0001f4cd This project: {project_name}",
+                enabled=local_enabled,
+            ))
 
     return scopes
 
@@ -303,6 +300,11 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         on_add = _make_mcp_add_callback(state)
         add_label = "Add MCP server..."
 
+    # Hint when no local config exists
+    hint = None
+    if len(scopes) == 1 and state.get("local_cfg") is None:
+        hint = "Run 'hawk init' in a project directory to add a local scope"
+
     # Start on innermost scope
     enabled_lists, changed = run_toggle_list(
         display_name,
@@ -315,6 +317,7 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         add_label=add_label,
         registry_items=registry_names_set,
         groups=toggle_groups,
+        footer_hint=hint,
     )
 
     if changed:
@@ -333,16 +336,6 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
                 v2_config.save_global_config(cfg)
             else:
                 dir_path = Path(scope.key)
-
-                if scope.is_new:
-                    # Auto-create .hawk/config.yaml and register
-                    v2_config.save_dir_config(dir_path, {})
-                    v2_config.register_directory(dir_path)
-                    state["local_cfg"] = {}
-                    state["project_dir"] = dir_path
-                    state["project_name"] = dir_path.name
-                    state["scope"] = "local"
-
                 dir_cfg = v2_config.load_dir_config(dir_path) or {}
                 section = dir_cfg.get(field, {})
                 if not isinstance(section, dict):
@@ -823,10 +816,10 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
 
             scopes.append(ToggleScope(key=str(chain_dir), label=label, enabled=enabled))
     else:
-        # No chain — offer cwd as potential local scope
+        # No chain — only add local scope if config already exists
         local_cfg = state.get("local_cfg")
-        local_enabled = []
-        if local_cfg:
+        if local_cfg is not None:
+            local_enabled = []
             for field in ["skills", "hooks", "commands", "agents", "mcp"]:
                 section = local_cfg.get(field, {})
                 if isinstance(section, dict):
@@ -834,17 +827,20 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
                         if name in all_pkg_items:
                             local_enabled.append(name)
 
-        project_name = state.get("project_name") or project_dir.name
-        scopes.append(ToggleScope(
-            key=str(project_dir),
-            label=f"\U0001f4cd This project: {project_name}",
-            enabled=local_enabled,
-            is_new=local_cfg is None,
-        ))
+            project_name = state.get("project_name") or project_dir.name
+            scopes.append(ToggleScope(
+                key=str(project_dir),
+                label=f"\U0001f4cd This project: {project_name}",
+                enabled=local_enabled,
+            ))
 
     # 3. Run toggle
     all_items = sorted(all_pkg_items)
     registry_path = v2_config.get_registry_path(state["cfg"])
+
+    hint = None
+    if len(scopes) == 1 and state.get("local_cfg") is None:
+        hint = "Run 'hawk init' in a project directory to add a local scope"
 
     enabled_lists, changed = run_toggle_list(
         f"\U0001f4e6 {pkg_name}",
@@ -853,6 +849,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
         start_scope_index=len(scopes) - 1,
         registry_path=registry_path,
         groups=toggle_groups,
+        footer_hint=hint,
     )
 
     # 4. Save changes — route per-type diffs to the correct config fields
@@ -888,11 +885,6 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
                     v2_config.save_global_config(cfg)
                 else:
                     dir_path = Path(scope.key)
-
-                    if scope.is_new:
-                        v2_config.save_dir_config(dir_path, {})
-                        v2_config.register_directory(dir_path)
-
                     dir_cfg = v2_config.load_dir_config(dir_path) or {}
                     section = dir_cfg.get(field, {})
                     if not isinstance(section, dict):

@@ -195,6 +195,8 @@ def run_toggle_list(
     registry_items: set[str] | None = None,
     # Package grouping — when provided, items are shown under collapsible headers
     groups: list[ToggleGroup] | None = None,
+    # Optional hint shown above keybinding footer
+    footer_hint: str | None = None,
 ) -> tuple[list[list[str]], bool]:
     """Run an interactive toggle list for a component type.
 
@@ -451,6 +453,8 @@ def run_toggle_list(
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
         # Footer
+        if footer_hint:
+            lines.append(f"\n[dim italic]{footer_hint}[/dim italic]")
         lines.append("")
         hints = "Space/Enter: toggle  \u2191\u2193/jk: navigate  q: done"
         if num_scopes > 1:
