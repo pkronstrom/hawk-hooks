@@ -278,6 +278,27 @@ def _ask_component_type() -> ComponentType | None:
     return None
 
 
+def _name_from_content(text: str, suffix: str = ".md") -> str:
+    """Generate a slug name from the first few words of content."""
+    import re
+    # Strip frontmatter
+    clean = text.strip()
+    if clean.startswith("---"):
+        end = clean.find("---", 3)
+        if end > 0:
+            clean = clean[end + 3:].strip()
+    # Strip markdown heading markers
+    clean = re.sub(r"^#+\s*", "", clean, count=1)
+    # Take first 3 words
+    words = re.findall(r"[a-zA-Z0-9]+", clean)[:3]
+    if not words:
+        return f"unnamed{suffix}"
+    slug = "-".join(w.lower() for w in words)
+    if not slug.endswith(suffix):
+        slug += suffix
+    return slug
+
+
 def cmd_add(args):
     """Add a component to the registry."""
     import tempfile
@@ -285,10 +306,13 @@ def cmd_add(args):
     from .registry import Registry
     from . import v2_config
 
-    # Handle "hawk add /path/to/file.md" (argparse puts path in args.type)
+    # --type flag takes priority over positional type
     valid_types = {ct.value for ct in ComponentType}
+    if getattr(args, "type_flag", None):
+        args.type = args.type_flag
+
+    # Handle "hawk add /path/to/file.md" (argparse puts path in args.type)
     if args.type and args.type not in valid_types and args.path is None:
-        # args.type is actually a path, not a type
         args.path = args.type
         args.type = None
 
@@ -305,23 +329,21 @@ def cmd_add(args):
             print(f"Error: {source} does not exist.")
             sys.exit(1)
     elif not sys.stdin.isatty():
-        # Reading from stdin
         stdin_content = sys.stdin.read()
         if not stdin_content.strip():
             print("Error: no content received from stdin.")
             sys.exit(1)
     else:
         print("Usage: hawk add [type] <path>")
-        print("       echo 'content' | hawk add [type] --name myfile.md")
+        print("       echo 'content' | hawk add --type skill --name my-skill.md")
         sys.exit(1)
 
     # Determine component type
     if args.type and args.type in valid_types:
         component_type = ComponentType(args.type)
     elif stdin_content is not None:
-        # Can't prompt interactively when stdin is a pipe
-        print("Error: type is required when reading from stdin.")
-        print("  echo 'content' | hawk add skill --name my-skill.md")
+        print("Error: --type is required when reading from stdin.")
+        print("  echo 'content' | hawk add --type skill --name my-skill.md")
         sys.exit(1)
     else:
         # Try to auto-detect from file
@@ -348,18 +370,9 @@ def cmd_add(args):
     elif source:
         name = source.name
     else:
-        # Stdin — need a name (can't prompt if stdin is a pipe)
-        if stdin_content is not None:
-            print("Error: --name is required when reading from stdin.")
-            print("  echo 'content' | hawk add skill --name my-skill.md")
-            sys.exit(1)
-        try:
-            name = input("Name for this component (e.g. my-skill.md): ").strip()
-        except (KeyboardInterrupt, EOFError):
-            return
-        if not name:
-            print("Error: name is required.")
-            sys.exit(1)
+        # Auto-generate from content
+        name = _name_from_content(stdin_content)
+        print(f"Auto-generated name: {name}")
 
     # If stdin, write to temp file first
     if stdin_content is not None:
@@ -1031,7 +1044,10 @@ def build_parser() -> argparse.ArgumentParser:
     add_p.add_argument("type", nargs="?", default=None,
                        help="Component type: skill, hook, command, agent, mcp, prompt (auto-detected if omitted)")
     add_p.add_argument("path", nargs="?", help="Path to component (reads stdin if omitted)")
-    add_p.add_argument("--name", help="Name in registry (default: filename)")
+    add_p.add_argument("--type", dest="type_flag",
+                       choices=[ct.value for ct in ComponentType],
+                       help="Component type (alternative to positional)")
+    add_p.add_argument("--name", help="Name in registry (default: filename or auto-generated)")
     add_p.add_argument("--force", action="store_true", help="Replace existing")
     add_p.add_argument("--enable", action="store_true", default=True,
                        help="Enable in global config (default)")

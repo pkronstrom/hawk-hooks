@@ -2,7 +2,7 @@
 
 import pytest
 
-from hawk_hooks.v2_cli import build_parser
+from hawk_hooks.v2_cli import _name_from_content, build_parser
 
 
 class TestArgParsing:
@@ -225,6 +225,35 @@ class TestArgParsing:
         args = self.parser.parse_args(["scan", "--no-enable"])
         assert args.no_enable is True
 
+    def test_add_type_flag(self):
+        args = self.parser.parse_args(["add", "--type", "skill", "--name", "foo.md"])
+        assert args.type_flag == "skill"
+        assert args.name == "foo.md"
+
     def test_main_dir_flag_default(self):
         args = self.parser.parse_args([])
         assert args.main_dir is None
+
+
+class TestNameFromContent:
+    def test_simple_text(self):
+        assert _name_from_content("Hello world today") == "hello-world-today.md"
+
+    def test_markdown_heading(self):
+        assert _name_from_content("# My Cool Skill\nDoes stuff.") == "my-cool-skill.md"
+
+    def test_frontmatter(self):
+        result = _name_from_content("---\nname: deploy\n---\nDeploy the app now.")
+        assert result == "deploy-the-app.md"
+
+    def test_empty_content(self):
+        assert _name_from_content("") == "unnamed.md"
+
+    def test_short_content(self):
+        assert _name_from_content("Hi") == "hi.md"
+
+    def test_special_chars_stripped(self):
+        assert _name_from_content("## Fix: the bug!") == "fix-the-bug.md"
+
+    def test_custom_suffix(self):
+        assert _name_from_content("test hook", suffix=".py") == "test-hook.py"
