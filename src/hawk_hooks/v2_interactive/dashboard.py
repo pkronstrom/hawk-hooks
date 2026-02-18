@@ -682,15 +682,17 @@ def _handle_registry_browse(state: dict) -> None:
             live.update(Text.from_markup(_build_display()))
 
 
-def _handle_packages(state: dict) -> None:
-    """Interactive packages management."""
+def _handle_packages(state: dict) -> bool:
+    """Interactive packages management. Returns True if changes were made."""
     packages = v2_config.load_packages()
 
     if not packages:
         console.print("\n[dim]No packages installed.[/dim]")
         console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
         console.input("[dim]Press Enter to continue...[/dim]")
-        return
+        return False
+
+    dirty = False
 
     menu_entries = []
     pkg_names = []
@@ -710,7 +712,7 @@ def _handle_packages(state: dict) -> None:
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
         quit_keys=("q",),
-        status_bar="[Enter: details]  [u: update]  [x: remove]  [q: back]",
+        status_bar="[Enter: toggle items]  [q: back]",
     )
 
     while True:
@@ -719,21 +721,12 @@ def _handle_packages(state: dict) -> None:
             break
 
         if choice < len(pkg_names):
-            # Show package details
             pkg_name = pkg_names[choice]
             pkg_data = packages[pkg_name]
-            console.print(f"\n[bold]\U0001f4e6 {pkg_name}[/bold]")
-            console.print(f"  URL: {pkg_data.get('url', 'unknown')}")
-            console.print(f"  Commit: {pkg_data.get('commit', 'unknown')[:7]}")
-            console.print(f"  Installed: {pkg_data.get('installed', 'unknown')}")
-            console.print(f"\n  Items:")
-            for item in pkg_data.get("items", []):
-                console.print(f"    [{item['type']}] {item['name']}  ({item.get('hash', '?')})")
-            console.print()
-            console.input("[dim]Press Enter to continue...[/dim]")
+            if _handle_package_toggle(state, pkg_name, pkg_data):
+                dirty = True
         elif menu_entries[choice] == "Update all":
             console.print("\n[bold]Updating all packages...[/bold]")
-            import sys
             from ..v2_cli import cmd_update
 
             class Args:
@@ -751,6 +744,167 @@ def _handle_packages(state: dict) -> None:
         elif menu_entries[choice] == "Download new...":
             _handle_download()
             break
+
+    return dirty
+
+
+def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
+    """Toggle items within a single package, grouped by component type.
+
+    Shows all component types from the package in one toggle view.
+    Routes saves to the correct config field per type.
+    Returns True if changes were made.
+    """
+    from pathlib import Path
+
+    # 1. Build groups by component type + track item->field mapping
+    toggle_groups: list[ToggleGroup] = []
+    item_field_map: dict[str, str] = {}  # item name -> config field ("skills", "commands", etc.)
+    all_pkg_items: set[str] = set()
+
+    for display_name, field, ct in COMPONENT_TYPES:
+        type_items = [
+            item["name"] for item in pkg_data.get("items", [])
+            if item.get("type") == ct.value
+        ]
+        if type_items:
+            toggle_groups.append(ToggleGroup(
+                key=field,
+                label=display_name,
+                items=sorted(type_items),
+            ))
+            for name in type_items:
+                item_field_map[name] = field
+                all_pkg_items.add(name)
+
+    if not toggle_groups:
+        console.print(f"\n[dim]No items in package {pkg_name}.[/dim]")
+        console.input("[dim]Press Enter to continue...[/dim]")
+        return False
+
+    # 2. Build scopes — collect enabled items across ALL types for this package
+    scopes: list[ToggleScope] = []
+
+    # Global scope
+    global_cfg = state["global_cfg"]
+    global_enabled = []
+    for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+        for name in global_cfg.get(field, []):
+            if name in all_pkg_items:
+                global_enabled.append(name)
+    scopes.append(ToggleScope(
+        key="global",
+        label="\U0001f310 All projects",
+        enabled=global_enabled,
+    ))
+
+    # Dir scopes from config chain
+    project_dir = state.get("project_dir") or Path.cwd().resolve()
+    config_chain = v2_config.get_config_chain(project_dir)
+
+    if config_chain:
+        for chain_dir, chain_config in config_chain:
+            enabled = []
+            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                section = chain_config.get(field, {})
+                if isinstance(section, dict):
+                    for name in section.get("enabled", []):
+                        if name in all_pkg_items:
+                            enabled.append(name)
+                elif isinstance(section, list):
+                    for name in section:
+                        if name in all_pkg_items:
+                            enabled.append(name)
+
+            if chain_dir == project_dir.resolve():
+                label = f"\U0001f4cd This project: {chain_dir.name}"
+            else:
+                label = f"\U0001f4c1 {chain_dir.name}"
+
+            scopes.append(ToggleScope(key=str(chain_dir), label=label, enabled=enabled))
+    else:
+        # No chain — offer cwd as potential local scope
+        local_cfg = state.get("local_cfg")
+        local_enabled = []
+        if local_cfg:
+            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                section = local_cfg.get(field, {})
+                if isinstance(section, dict):
+                    for name in section.get("enabled", []):
+                        if name in all_pkg_items:
+                            local_enabled.append(name)
+
+        project_name = state.get("project_name") or project_dir.name
+        scopes.append(ToggleScope(
+            key=str(project_dir),
+            label=f"\U0001f4cd This project: {project_name}",
+            enabled=local_enabled,
+            is_new=local_cfg is None,
+        ))
+
+    # 3. Run toggle
+    all_items = sorted(all_pkg_items)
+    registry_path = v2_config.get_registry_path(state["cfg"])
+
+    enabled_lists, changed = run_toggle_list(
+        f"\U0001f4e6 {pkg_name}",
+        all_items,
+        scopes=scopes,
+        start_scope_index=len(scopes) - 1,
+        registry_path=registry_path,
+        groups=toggle_groups,
+    )
+
+    # 4. Save changes — route per-type diffs to the correct config fields
+    if changed:
+        for i, scope in enumerate(scopes):
+            new_enabled = set(enabled_lists[i])
+            old_enabled = set(scope.enabled)
+
+            if new_enabled == old_enabled:
+                continue
+
+            # Diff per field
+            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                field_items = {name for name, f in item_field_map.items() if f == field}
+                if not field_items:
+                    continue
+
+                old_field = old_enabled & field_items
+                new_field = new_enabled & field_items
+                if old_field == new_field:
+                    continue
+
+                added = new_field - old_field
+                removed = old_field - new_field
+
+                if scope.key == "global":
+                    current = list(state["global_cfg"].get(field, []))
+                    updated = [n for n in current if n not in removed]
+                    updated.extend(sorted(added - set(current)))
+                    state["global_cfg"][field] = updated
+                    cfg = state["cfg"]
+                    cfg["global"] = state["global_cfg"]
+                    v2_config.save_global_config(cfg)
+                else:
+                    dir_path = Path(scope.key)
+
+                    if scope.is_new:
+                        v2_config.save_dir_config(dir_path, {})
+                        v2_config.register_directory(dir_path)
+
+                    dir_cfg = v2_config.load_dir_config(dir_path) or {}
+                    section = dir_cfg.get(field, {})
+                    if not isinstance(section, dict):
+                        section = {"enabled": list(section) if isinstance(section, list) else []}
+                    current = list(section.get("enabled", []))
+                    updated = [n for n in current if n not in removed]
+                    updated.extend(sorted(added - set(current)))
+                    section["enabled"] = updated
+                    dir_cfg[field] = section
+                    v2_config.save_dir_config(dir_path, dir_cfg)
+
+    return changed
 
 
 def _handle_projects(state: dict) -> None:
@@ -994,7 +1148,8 @@ def run_dashboard(scope_dir: str | None = None) -> None:
                 dirty = True
 
         elif action == "packages":
-            _handle_packages(state)
+            if _handle_packages(state):
+                dirty = True
 
         elif action == "registry":
             _handle_registry_browse(state)

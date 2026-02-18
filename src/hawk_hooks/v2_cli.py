@@ -417,7 +417,7 @@ def _interactive_select_items(items):
     options = [f"[{item.component_type.value}] {item.name}" for item in items]
     menu = TerminalMenu(
         options,
-        title="\nSelect components to add (space to toggle, enter to confirm):",
+        title=f"\nSelect components to add ({len(options)} found, space to toggle, enter to confirm):",
         multi_select=True,
         preselected_entries=list(range(len(options))),
         multi_select_select_on_accept=False,
@@ -425,6 +425,9 @@ def _interactive_select_items(items):
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
         quit_keys=("q",),
+        show_search_hint=True,
+        search_key=None,  # search on any key press
+        status_bar="Space: toggle  /: search  Enter: confirm  a: all  q: quit",
     )
     result = menu.show()
     if result is None:
