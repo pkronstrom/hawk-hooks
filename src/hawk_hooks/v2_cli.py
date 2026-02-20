@@ -537,7 +537,9 @@ def cmd_download(args):
         commit_hash = get_head_commit(clone_dir)
 
         # 2. Classify contents
-        content = classify(clone_dir)
+        # Extract repo name from URL for synthetic hook naming
+        repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+        content = classify(clone_dir, repo_name=repo_name)
         if not content.items:
             print("No components found in repository.")
             return
@@ -620,6 +622,41 @@ def cmd_download(args):
     finally:
         # Clean up temp dir
         shutil.rmtree(clone_dir, ignore_errors=True)
+
+
+def _view_source_in_terminal(path: Path) -> None:
+    """View a source file with syntax highlighting, piped through less."""
+    import subprocess
+    from io import StringIO
+    from rich.console import Console as RichConsole
+    from rich.syntax import Syntax
+
+    LEXERS = {
+        ".py": "python", ".sh": "bash", ".js": "javascript", ".ts": "typescript",
+        ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
+        ".toml": "toml", ".mdc": "markdown",
+    }
+
+    try:
+        content = path.read_text()
+    except OSError:
+        print(f"Cannot read: {path}")
+        input("Press Enter to go back...")
+        return
+
+    buf = StringIO()
+    rc = RichConsole(file=buf, force_terminal=True)
+    rc.print(f"[bold]{path.name}[/bold]")
+    rc.print("[dim]\u2500" * 50 + "[/dim]\n")
+    lexer = LEXERS.get(path.suffix.lower(), "text")
+    rc.print(Syntax(content, lexer, theme="monokai", line_numbers=True))
+    rendered = buf.getvalue()
+
+    try:
+        subprocess.run(["less", "-R"], input=rendered, text=True, check=False)
+    except FileNotFoundError:
+        print(rendered)
+        input("Press Enter to go back...")
 
 
 def _interactive_select_items(items, registry=None, package_name: str = "",
@@ -811,9 +848,23 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
             remaining = total_rows - vis_end
             lines.append(f"[dim]  \u2193 {remaining} more[/dim]")
 
+        # Action row
         lines.append("")
-        lines.append("[dim]Space: toggle  a: all  n: none  Enter: confirm  q: quit  \u2191\u2193/jk: navigate[/dim]")
+        actions = ["Save", "Save & Sync"]
+        action_parts = []
+        for ai, label in enumerate(actions):
+            if ai == action_idx:
+                action_parts.append(f"[bold cyan][ {label} ][/bold cyan]")
+            else:
+                action_parts.append(f"[dim]  {label}  [/dim]")
+        lines.append("  ".join(action_parts))
+
+        lines.append("")
+        lines.append("[dim]Space: toggle  a: all  n: none  v: view  o: open  Tab: action  Enter: confirm  q: quit[/dim]")
         return "\n".join(lines)
+
+    action_idx = 0  # 0 = Save, 1 = Save & Sync
+    _ACTION_KEYS = ["add", "add_sync"]
 
     with Live("", console=console, refresh_per_second=15, transient=True) as live:
         live.update(Text.from_markup(_build_display()))
@@ -833,6 +884,9 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
                 cursor = (cursor - 1) % total_rows
             elif key in (readchar.key.DOWN, "j"):
                 cursor = (cursor + 1) % total_rows
+
+            elif key == "\t":
+                action_idx = (action_idx + 1) % len(_ACTION_KEYS)
 
             elif key in ("\r", "\n", readchar.key.ENTER):
                 break
@@ -858,12 +912,41 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
                 selected = set(range(len(items)))
             elif key == "n":
                 selected.clear()
+
+            elif key == "v":
+                row_type, _si, _gi, orig_idx = rows[cursor]
+                if row_type == ROW_ITEM:
+                    item = items[orig_idx]
+                    if item.source_path and item.source_path.is_file():
+                        live.stop()
+                        _view_source_in_terminal(item.source_path)
+                        live.start()
+
+            elif key == "o":
+                row_type, _si, _gi, orig_idx = rows[cursor]
+                if row_type == ROW_ITEM:
+                    item = items[orig_idx]
+                    if item.source_path and item.source_path.exists():
+                        import subprocess
+                        target = item.source_path
+                        if sys.platform == "darwin":
+                            subprocess.run(
+                                ["open", "-R", str(target)] if target.is_file()
+                                else ["open", str(target)],
+                                check=False,
+                            )
+                        elif sys.platform == "linux":
+                            subprocess.run(
+                                ["xdg-open", str(target.parent if target.is_file() else target)],
+                                check=False,
+                            )
+
             elif key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
                 return [], "cancel"
 
             live.update(Text.from_markup(_build_display()))
 
-    return [items[i] for i in sorted(selected)], "add"
+    return [items[i] for i in sorted(selected)], _ACTION_KEYS[action_idx]
 
 
 def cmd_scan(args):

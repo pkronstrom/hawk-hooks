@@ -691,8 +691,8 @@ class TestHooksJsonExplode:
         assert len(hook_items) == 1
         assert "bash" in hook_items[0].name.lower()
 
-    def test_skips_command_hooks_missing_script(self, tmp_path):
-        """Command hooks with non-existent scripts are skipped."""
+    def test_wraps_command_hooks_missing_script(self, tmp_path):
+        """Command hooks with non-existent scripts become synthetic .sh wrappers."""
         import json
         hooks_dir = tmp_path / "hooks"
         hooks_dir.mkdir()
@@ -710,7 +710,12 @@ class TestHooksJsonExplode:
 
         content = classify(tmp_path)
         hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
-        assert len(hook_items) == 0
+        assert len(hook_items) == 1
+        item = hook_items[0]
+        assert item.name.endswith(".sh")
+        text = item.source_path.read_text()
+        assert "./scripts/block.sh" in text
+        assert "hawk-hook: events=pre_tool_use" in text
 
     def test_extracts_command_hooks_with_script(self, tmp_path):
         """Command hooks with existing scripts are extracted."""
@@ -821,6 +826,142 @@ class TestHooksJsonExplode:
         hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
         assert len(hook_items) == 1
         assert hook_items[0].name.endswith(".prompt.json")
+
+    def test_explodes_inline_node_command(self, tmp_path):
+        """Inline node -e commands become synthetic .sh wrappers."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": 'node -e "let d=\'\';process.stdin.on(\'data\',c=>d+=c);"'}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        item = hook_items[0]
+        assert item.name.endswith(".sh")
+        assert item.source_path.exists()
+        text = item.source_path.read_text()
+        assert "hawk-hook: events=pre_tool_use" in text
+        assert "node -e" in text
+        assert "Source: hooks.json inline command" in text
+
+    def test_explodes_runner_prefixed_command(self, tmp_path):
+        """Runner-prefixed commands (node scripts/foo.js) strip runner and find script."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        scripts_dir = hooks_dir / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "suggest-compact.js").write_text("// suggest compact\n")
+
+        hooks_json = {
+            "hooks": {
+                "Stop": [
+                    {"hooks": [
+                        {"type": "command", "command": "node scripts/suggest-compact.js"}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "suggest-compact.js" for i in hook_items)
+        text = (scripts_dir / "suggest-compact.js").read_text()
+        assert "hawk-hook: events=stop" in text
+
+    def test_explodes_runner_with_plugin_root(self, tmp_path):
+        """Runner + ${CLAUDE_PLUGIN_ROOT} resolves the real script file."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        scripts_dir = hooks_dir / "scripts" / "hooks"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "compact.js").write_text("// compact logic\n")
+
+        hooks_json = {
+            "hooks": {
+                "Stop": [
+                    {"hooks": [
+                        {"type": "command", "command": 'node "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/compact.js"'}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "compact.js" for i in hook_items)
+        text = (scripts_dir / "compact.js").read_text()
+        assert "hawk-hook: events=stop" in text
+
+    def test_inline_command_has_description(self, tmp_path):
+        """Description from matcher entry is propagated to ClassifiedItem."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "description": "Block dev outside tmux",
+                        "hooks": [
+                            {"type": "command", "command": "echo blocked"}
+                        ],
+                    }
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        item = hook_items[0]
+        assert item.description == "Block dev outside tmux"
+        # Name uses repo slug + event, description stays on the item
+        assert "pre_tool_use" in item.name
+        assert item.name.endswith(".sh")
+
+    def test_multiple_inline_same_event(self, tmp_path):
+        """Multiple inline hooks on the same event get unique slugs."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": "echo first"}
+                    ]},
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": "echo second"}
+                    ]},
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 2
+        names = [i.name for i in hook_items]
+        # All names should be unique
+        assert len(set(names)) == 2
+        # Both should be .sh wrappers
+        assert all(n.endswith(".sh") for n in names)
 
     def test_hooks_json_with_timeout(self, tmp_path):
         import json

@@ -152,7 +152,7 @@ def _parse_package_manifest(path: Path) -> PackageMeta | None:
         return None
 
 
-def classify(directory: Path) -> ClassifiedContent:
+def classify(directory: Path, repo_name: str = "") -> ClassifiedContent:
     """Classify the contents of a directory into component types.
 
     Detection heuristics:
@@ -178,7 +178,7 @@ def classify(directory: Path) -> ClassifiedContent:
 
     # Check for well-known directory structures
     _scan_typed_dir(directory / "skills", ComponentType.SKILL, content)
-    _scan_typed_dir(directory / "hooks", ComponentType.HOOK, content)
+    _scan_typed_dir(directory / "hooks", ComponentType.HOOK, content, repo_name=repo_name)
     _scan_typed_dir(directory / "commands", ComponentType.COMMAND, content)
     _scan_typed_dir(directory / "agents", ComponentType.AGENT, content)
     _scan_typed_dir(directory / "prompts", ComponentType.PROMPT, content)
@@ -202,6 +202,7 @@ def _scan_typed_dir(
     directory: Path,
     component_type: ComponentType,
     content: ClassifiedContent,
+    repo_name: str = "",
 ) -> None:
     """Scan a typed subdirectory for components."""
     if not directory.exists() or not directory.is_dir():
@@ -248,7 +249,10 @@ def _scan_typed_dir(
             if component_type == ComponentType.HOOK:
                 # Explode hooks.json into individual prompt hooks
                 if entry.name == "hooks.json":
-                    content.items.extend(_explode_hooks_json(entry))
+                    pkg = content.package_meta.name if content.package_meta else repo_name
+                    content.items.extend(
+                        _explode_hooks_json(entry, package_name=pkg)
+                    )
                     continue
                 # For hooks: validate file is a hook
                 if _is_hook_file(entry):
@@ -500,7 +504,7 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
                 # Explode hooks.json into individual prompt hooks
                 if entry.name == "hooks.json" and parent_name == "hooks":
                     pkg = _current_package(entry)
-                    for exploded in _explode_hooks_json(entry):
+                    for exploded in _explode_hooks_json(entry, package_name=pkg):
                         if exploded.source_path not in seen_paths:
                             exploded.package = pkg
                             seen_paths.add(exploded.source_path)
@@ -550,7 +554,7 @@ def _is_hook_file(path: Path) -> bool:
     return False
 
 
-def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
+def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedItem]:
     """Parse a Claude Code hooks.json and extract individual hook items.
 
     The hooks.json format (Claude plugin format):
@@ -580,6 +584,18 @@ def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
 
     items: list[ClassifiedItem] = []
     out_dir = path.parent
+    # Derive a short prefix from the package name
+    import re as _re
+    repo_slug = _re.sub(
+        r"[^a-z0-9]+", "-", (package_name or "inline").lower().strip()
+    ).strip("-")
+    # Track generated synthetic names to avoid collisions
+    _seen_names: set[str] = set()
+
+    # Known script runners whose first token can be stripped to find the real file
+    _KNOWN_RUNNERS = {
+        "node", "python", "python3", "bash", "sh", "bun", "deno", "npx", "tsx",
+    }
 
     for event_name, matchers in hooks_map.items():
         if not isinstance(matchers, list):
@@ -588,6 +604,7 @@ def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
             if not isinstance(matcher_entry, dict):
                 continue
             matcher = matcher_entry.get("matcher", "")
+            description = matcher_entry.get("description", "")
             hook_list = matcher_entry.get("hooks", [])
             if not isinstance(hook_list, list):
                 continue
@@ -598,31 +615,92 @@ def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
                 hook_type = hook_def.get("type", "")
 
                 if hook_type == "command":
-                    # Resolve script path relative to hooks.json location
                     cmd = hook_def.get("command", "")
                     if not cmd:
                         continue
-                    # Expand ${CLAUDE_PLUGIN_ROOT} to the hooks.json's parent dir
-                    cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", str(out_dir))
-                    # Try resolving relative to hooks.json dir, then repo root
-                    for base in (out_dir, out_dir.parent):
-                        script_path = (base / cmd).resolve()
-                        if script_path.is_file():
-                            break
-                    else:
-                        continue
-                    # Skip if already outside the repo (safety)
-                    try:
-                        script_path.relative_to(out_dir.parent.resolve())
-                    except ValueError:
-                        continue
+
                     snake_event = _pascal_to_snake(event_name)
-                    # Inject hawk-hook header if not already present
-                    _inject_hawk_hook_header(script_path, snake_event)
+                    resolved_path = None
+
+                    # --- Tier 1: direct file path resolution (existing logic) ---
+                    expanded = cmd.replace("${CLAUDE_PLUGIN_ROOT}", str(out_dir))
+                    for base in (out_dir, out_dir.parent):
+                        candidate = (base / expanded).resolve()
+                        if candidate.is_file():
+                            try:
+                                candidate.relative_to(out_dir.parent.resolve())
+                                resolved_path = candidate
+                            except ValueError:
+                                pass
+                            break
+
+                    # --- Tier 2: strip runner prefix and resolve script path ---
+                    if resolved_path is None:
+                        parts = cmd.split(None, 1)
+                        if len(parts) == 2 and parts[0] in _KNOWN_RUNNERS:
+                            script_arg = parts[1].strip().strip('"').strip("'")
+                            script_arg = script_arg.replace(
+                                "${CLAUDE_PLUGIN_ROOT}", str(out_dir)
+                            )
+                            for base in (out_dir, out_dir.parent):
+                                candidate = (base / script_arg).resolve()
+                                if candidate.is_file():
+                                    try:
+                                        candidate.relative_to(
+                                            out_dir.parent.resolve()
+                                        )
+                                        resolved_path = candidate
+                                    except ValueError:
+                                        pass
+                                    break
+
+                    if resolved_path is not None:
+                        _inject_hawk_hook_header(resolved_path, snake_event)
+                        items.append(ClassifiedItem(
+                            component_type=ComponentType.HOOK,
+                            name=resolved_path.name,
+                            source_path=resolved_path,
+                            description=description,
+                        ))
+                        continue
+
+                    # --- Tier 3: synthetic .sh wrapper for inline commands ---
+                    if description:
+                        # Use first 5 words of description as the name
+                        desc_slug = _re.sub(r"[^a-z0-9]+", "-", description.lower().strip()).strip("-")
+                        desc_slug = "-".join(desc_slug.split("-")[:5])
+                        slug_base = f"{repo_slug}_{snake_event}_{desc_slug}"
+                    elif matcher:
+                        slug_base = f"{repo_slug}_{snake_event}-{matcher.lower()}"
+                    else:
+                        slug_base = f"{repo_slug}_{snake_event}"
+
+                    fname = f"{slug_base}.sh"
+                    # Ensure uniqueness
+                    counter = 2
+                    while fname in _seen_names:
+                        fname = f"{slug_base}-{counter}.sh"
+                        counter += 1
+                    _seen_names.add(fname)
+
+                    wrapper_path = out_dir / fname
+                    wrapper_content = (
+                        f"#!/usr/bin/env bash\n"
+                        f"# hawk-hook: events={snake_event}\n"
+                        f"# Source: hooks.json inline command\n"
+                    )
+                    if description:
+                        wrapper_content += f"# Description: {description}\n"
+                    wrapper_content += cmd + "\n"
+
+                    wrapper_path.write_text(wrapper_content)
+                    wrapper_path.chmod(0o755)
+
                     items.append(ClassifiedItem(
                         component_type=ComponentType.HOOK,
-                        name=script_path.name,
-                        source_path=script_path,
+                        name=fname,
+                        source_path=wrapper_path,
+                        description=description,
                     ))
 
                 elif hook_type == "prompt":
