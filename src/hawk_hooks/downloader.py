@@ -274,14 +274,25 @@ def _scan_typed_dir(
 
 
 def _scan_mcp_dir(directory: Path, content: ClassifiedContent) -> None:
-    """Scan for MCP configuration files."""
+    """Scan for MCP configuration files.
+
+    Files with a top-level ``mcpServers`` key are exploded into one item per
+    server so users can toggle them individually.  Files that are already a
+    flat server config (command/args/env) are kept as-is.
+    """
     if not directory.exists():
         return
 
     for entry in sorted(directory.iterdir()):
         if entry.is_symlink():
             continue
-        if entry.is_file() and entry.suffix in (".yaml", ".yml", ".json"):
+        if not entry.is_file() or entry.suffix not in (".yaml", ".yml", ".json"):
+            continue
+
+        exploded = _explode_mcp_file(entry)
+        if exploded:
+            content.items.extend(exploded)
+        else:
             content.items.append(
                 ClassifiedItem(
                     component_type=ComponentType.MCP,
@@ -289,6 +300,55 @@ def _scan_mcp_dir(directory: Path, content: ClassifiedContent) -> None:
                     source_path=entry,
                 )
             )
+
+
+def _explode_mcp_file(path: Path) -> list[ClassifiedItem] | None:
+    """If *path* contains a ``mcpServers`` mapping, fan it out.
+
+    Each server is written as its own ``<name>.json`` alongside the original
+    file so that the registry stores one file per server.
+
+    Returns a list of items, or ``None`` when the file is already a flat
+    (single-server) config and should be handled normally.
+    """
+    import json
+
+    try:
+        import yaml
+        data = yaml.safe_load(path.read_text(errors="replace"))
+    except Exception:
+        try:
+            data = json.loads(path.read_text(errors="replace"))
+        except Exception:
+            return None
+
+    if not isinstance(data, dict):
+        return None
+
+    servers = data.get("mcpServers")
+    if not isinstance(servers, dict) or not servers:
+        return None
+
+    out_dir = path.parent
+    items: list[ClassifiedItem] = []
+
+    for server_name, server_cfg in servers.items():
+        if not isinstance(server_cfg, dict):
+            continue
+        fname = f"{server_name}.json"
+        out_path = out_dir / fname
+        # Write individual server config (flat format the adapter expects)
+        if not out_path.exists():
+            out_path.write_text(json.dumps(server_cfg, indent=2) + "\n")
+        items.append(
+            ClassifiedItem(
+                component_type=ComponentType.MCP,
+                name=fname,
+                source_path=out_path,
+            )
+        )
+
+    return items if items else None
 
 
 def _scan_top_level(directory: Path, content: ClassifiedContent) -> None:

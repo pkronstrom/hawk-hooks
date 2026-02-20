@@ -76,6 +76,40 @@ class TestClassify:
         assert len(content.items) == 1
         assert content.items[0].component_type == ComponentType.MCP
 
+    def test_mcp_multi_server_fanout(self, tmp_path):
+        """mcpServers wrapper is fanned out into individual items."""
+        import json
+        mcp = tmp_path / "mcp"
+        mcp.mkdir()
+        multi = {
+            "mcpServers": {
+                "goose": {"command": "goose-mcp", "args": []},
+                "linear": {"command": "npx", "args": ["linear-mcp"]},
+            }
+        }
+        (mcp / "servers.json").write_text(json.dumps(multi))
+
+        content = classify(tmp_path)
+        mcp_items = [i for i in content.items if i.component_type == ComponentType.MCP]
+        assert len(mcp_items) == 2
+        names = {i.name for i in mcp_items}
+        assert names == {"goose.json", "linear.json"}
+        # Individual files should be written with flat config
+        goose_data = json.loads((mcp / "goose.json").read_text())
+        assert goose_data["command"] == "goose-mcp"
+        assert "mcpServers" not in goose_data
+
+    def test_mcp_flat_config_unchanged(self, tmp_path):
+        """Flat server configs (no mcpServers wrapper) are kept as-is."""
+        mcp = tmp_path / "mcp"
+        mcp.mkdir()
+        (mcp / "goose.json").write_text('{"command": "goose-mcp"}')
+
+        content = classify(tmp_path)
+        mcp_items = [i for i in content.items if i.component_type == ComponentType.MCP]
+        assert len(mcp_items) == 1
+        assert mcp_items[0].name == "goose.json"
+
     def test_top_level_fallback_md(self, tmp_path):
         (tmp_path / "my-skill.md").write_text("# Skill")
 
