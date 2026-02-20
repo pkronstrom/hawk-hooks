@@ -578,3 +578,222 @@ class TestPackageManifest:
         content = classify(tmp_path)
         assert content.package_meta is not None
         assert content.package_meta.name == "my-pkg"
+
+
+class TestNonComponentFiltering:
+    """Test that README, LICENSE, etc. are filtered from scan results."""
+
+    def test_readme_skipped_in_commands(self, tmp_path):
+        cmds = tmp_path / "commands"
+        cmds.mkdir()
+        (cmds / "deploy.md").write_text("# Deploy")
+        (cmds / "README.md").write_text("# Documentation")
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "deploy.md" in names
+        assert "README.md" not in names
+
+    def test_readme_skipped_in_scan(self, tmp_path):
+        cmds = tmp_path / "commands"
+        cmds.mkdir()
+        (cmds / "deploy.md").write_text("# Deploy")
+        (cmds / "README.md").write_text("# Docs")
+
+        content = scan_directory(tmp_path)
+        names = [i.name for i in content.items]
+        assert "deploy.md" in names
+        assert "README.md" not in names
+
+    def test_license_skipped(self, tmp_path):
+        skills = tmp_path / "skills"
+        skills.mkdir()
+        (skills / "tdd.md").write_text("# TDD")
+        (skills / "LICENSE").write_text("MIT License")
+        (skills / "LICENSE.md").write_text("# MIT License")
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "tdd.md" in names
+        assert "LICENSE" not in names
+        assert "LICENSE.md" not in names
+
+    def test_manifest_skipped_as_item(self, tmp_path):
+        cmds = tmp_path / "commands"
+        cmds.mkdir()
+        (cmds / "deploy.md").write_text("# Deploy")
+        (cmds / "hawk-package.yaml").write_text("name: pkg\n")
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "deploy.md" in names
+        assert "hawk-package.yaml" not in names
+
+    def test_readme_skipped_in_hooks_event_dir(self, tmp_path):
+        hooks_dir = tmp_path / "hooks" / "pre_tool_use"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "guard.py").write_text("#!/usr/bin/env python3\nimport sys\n")
+        (hooks_dir / "README.md").write_text("# Docs")
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "guard.py" in names
+        assert "README.md" not in names
+
+
+class TestHooksJsonExplode:
+    """Test hooks.json explosion into individual items."""
+
+    def test_explodes_prompt_hooks(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "Stop": [
+                    {"hooks": [{"type": "prompt", "prompt": "Check for console.log"}]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        assert hook_items[0].name.endswith(".prompt.json")
+        assert hook_items[0].source_path.exists()
+        data = json.loads(hook_items[0].source_path.read_text())
+        assert data["prompt"] == "Check for console.log"
+        assert data["hawk-hook"]["events"] == ["stop"]
+
+    def test_explodes_prompt_with_matcher(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [{"type": "prompt", "prompt": "Is this safe?"}]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        assert "bash" in hook_items[0].name.lower()
+
+    def test_skips_command_hooks(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": "./scripts/block.sh"}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 0
+
+    def test_hooks_json_not_shown_as_item(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        (hooks_dir / "guard.py").write_text("import sys")
+        (hooks_dir / "hooks.json").write_text(json.dumps({"hooks": {}}))
+
+        content = classify(tmp_path)
+        names = [i.name for i in content.items]
+        assert "hooks.json" not in names
+        assert "guard.py" in names
+
+    def test_hooks_json_invalid_json(self, tmp_path):
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+        (hooks_dir / "hooks.json").write_text("not json")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 0
+
+    def test_hooks_json_multiple_events(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "Stop": [
+                    {"hooks": [{"type": "prompt", "prompt": "Check completion"}]}
+                ],
+                "PreToolUse": [
+                    {"matcher": "Edit", "hooks": [{"type": "prompt", "prompt": "Verify edit"}]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 2
+
+    def test_scan_directory_explodes_hooks_json(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "Stop": [
+                    {"hooks": [{"type": "prompt", "prompt": "Check things"}]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = scan_directory(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        assert hook_items[0].name.endswith(".prompt.json")
+
+    def test_hooks_json_with_timeout(self, tmp_path):
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"hooks": [{"type": "prompt", "prompt": "Safe?", "timeout": 30}]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        data = json.loads(hook_items[0].source_path.read_text())
+        assert data["timeout"] == 30
+
+
+class TestPascalToSnake:
+    def test_simple_events(self):
+        from hawk_hooks.downloader import _pascal_to_snake
+        assert _pascal_to_snake("Stop") == "stop"
+        assert _pascal_to_snake("PreToolUse") == "pre_tool_use"
+        assert _pascal_to_snake("PostToolUse") == "post_tool_use"
+        assert _pascal_to_snake("UserPromptSubmit") == "user_prompt_submit"
+        assert _pascal_to_snake("SessionStart") == "session_start"
+        assert _pascal_to_snake("PreCompact") == "pre_compact"

@@ -23,6 +23,18 @@ from .types import ComponentType
 # Manifest filename for package declarations
 PACKAGE_MANIFEST = "hawk-package.yaml"
 
+# Files that are repo metadata, not components — skip during scan
+_NON_COMPONENT_FILES = {
+    "README.md", "readme.md", "README", "readme.txt",
+    "LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "LICENCE.md",
+    "CHANGELOG.md", "CHANGELOG", "CHANGES.md", "HISTORY.md",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+    "package.json", "package-lock.json", "pyproject.toml",
+    "setup.py", "setup.cfg", "Makefile", "Dockerfile",
+    ".gitignore", ".gitattributes", ".editorconfig",
+    PACKAGE_MANIFEST,
+}
+
 
 @dataclass
 class PackageMeta:
@@ -192,12 +204,17 @@ def _scan_typed_dir(
         # Skip symlinks for security (untrusted repos could link outside clone)
         if entry.is_symlink():
             continue
+        # Skip non-component files (README, LICENSE, etc.)
+        if entry.is_file() and entry.name in _NON_COMPONENT_FILES:
+            continue
 
         if entry.is_dir():
             if component_type == ComponentType.HOOK:
                 # Legacy event-dir layout: recurse one level into event dirs
                 for sub in sorted(entry.iterdir()):
                     if sub.name.startswith(".") or sub.is_symlink() or not sub.is_file():
+                        continue
+                    if sub.name in _NON_COMPONENT_FILES:
                         continue
                     # Validate file is actually a hook (skip READMEs, configs, etc.)
                     if not _is_hook_file(sub):
@@ -220,6 +237,10 @@ def _scan_typed_dir(
                 )
         elif entry.is_file():
             if component_type == ComponentType.HOOK:
+                # Explode hooks.json into individual prompt hooks
+                if entry.name == "hooks.json":
+                    content.items.extend(_explode_hooks_json(entry))
+                    continue
                 # For hooks: validate file is a hook
                 if _is_hook_file(entry):
                     content.items.append(
@@ -467,6 +488,16 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
                 _walk(entry, depth + 1)
 
             elif entry.is_file() and entry not in seen_paths:
+                # Explode hooks.json into individual prompt hooks
+                if entry.name == "hooks.json" and parent_name == "hooks":
+                    pkg = _current_package(entry)
+                    for exploded in _explode_hooks_json(entry):
+                        if exploded.source_path not in seen_paths:
+                            exploded.package = pkg
+                            seen_paths.add(exploded.source_path)
+                            content.items.append(exploded)
+                    seen_paths.add(entry)
+                    continue
                 item = _classify_file(entry, parent_name)
                 if item:
                     item.package = _current_package(entry)
@@ -510,10 +541,99 @@ def _is_hook_file(path: Path) -> bool:
     return False
 
 
+def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
+    """Parse a Claude Code hooks.json and extract individual hook items.
+
+    The hooks.json format (Claude plugin format):
+    {
+      "hooks": {
+        "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "..."}]}],
+        "Stop": [{"hooks": [{"type": "prompt", "prompt": "Check things"}]}]
+      }
+    }
+
+    Command hooks reference scripts that are already discovered individually.
+    Prompt hooks are extracted as synthetic .prompt.json files written alongside.
+    """
+    import json
+
+    try:
+        data = json.loads(path.read_text(errors="replace"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    if not isinstance(data, dict):
+        return []
+
+    hooks_map = data.get("hooks", {})
+    if not isinstance(hooks_map, dict):
+        return []
+
+    items: list[ClassifiedItem] = []
+    out_dir = path.parent
+
+    for event_name, matchers in hooks_map.items():
+        if not isinstance(matchers, list):
+            continue
+        for matcher_entry in matchers:
+            if not isinstance(matcher_entry, dict):
+                continue
+            matcher = matcher_entry.get("matcher", "")
+            hook_list = matcher_entry.get("hooks", [])
+            if not isinstance(hook_list, list):
+                continue
+
+            for hook_def in hook_list:
+                if not isinstance(hook_def, dict):
+                    continue
+                hook_type = hook_def.get("type", "")
+
+                if hook_type == "prompt":
+                    prompt_text = hook_def.get("prompt", "")
+                    if not prompt_text:
+                        continue
+                    timeout = hook_def.get("timeout", 0)
+                    slug = event_name.lower()
+                    if matcher:
+                        slug += f"-{matcher.lower().replace('|', '-')}"
+                    fname = f"{slug}.prompt.json"
+
+                    prompt_data = {
+                        "prompt": prompt_text,
+                        "hawk-hook": {"events": [_pascal_to_snake(event_name)]},
+                    }
+                    if timeout:
+                        prompt_data["timeout"] = timeout
+
+                    out_path = out_dir / fname
+                    if not out_path.exists():
+                        out_path.write_text(json.dumps(prompt_data, indent=2))
+
+                    items.append(ClassifiedItem(
+                        component_type=ComponentType.HOOK,
+                        name=fname,
+                        source_path=out_path,
+                        description=prompt_text[:80],
+                    ))
+
+    return items
+
+
+def _pascal_to_snake(name: str) -> str:
+    """Convert PascalCase event name to snake_case (e.g. PreToolUse -> pre_tool_use)."""
+    import re
+    s = re.sub(r"([A-Z])", r"_\1", name).lower().lstrip("_")
+    return s
+
+
 def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
     """Classify a single file based on its extension and parent directory."""
     suffix = path.suffix.lower()
     name = path.name
+
+    # Skip non-component files
+    if name in _NON_COMPONENT_FILES:
+        return None
 
     # MCP configs
     if parent_dir_name == "mcp" and suffix in (".yaml", ".yml", ".json"):

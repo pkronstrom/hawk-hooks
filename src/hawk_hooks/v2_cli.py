@@ -549,12 +549,14 @@ def cmd_download(args):
         # 3. Let user select (unless --all)
         if args.all:
             selected_items = content.items
+            do_sync = False
         else:
             pkg = content.package_meta.name if content.package_meta else ""
-            selected_items = _interactive_select_items(content.items, registry, package_name=pkg)
-            if not selected_items:
+            selected_items, action = _interactive_select_items(content.items, registry, package_name=pkg)
+            if not selected_items or action == "cancel":
                 print("\nNo components selected.")
                 return
+            do_sync = action == "add_sync"
 
         # 4. Check for clashes
         clashes = check_clashes(selected_items, registry)
@@ -604,9 +606,14 @@ def cmd_download(args):
             for name in skipped:
                 print(f"  - {name}")
 
-        print("\nNext steps:")
-        print("  hawk list              # View registry")
-        print("  hawk sync              # Sync to tools")
+        if added and do_sync:
+            from .v2_sync import format_sync_results, sync_all
+            print("\nSyncing to tools...")
+            all_results = sync_all(force=True)
+            formatted = format_sync_results(all_results)
+            print(formatted or "  No changes.")
+        elif added:
+            print("\nRun 'hawk sync' to apply changes.")
     finally:
         # Clean up temp dir
         shutil.rmtree(clone_dir, ignore_errors=True)
@@ -892,15 +899,17 @@ def cmd_scan(args):
     # Let user select (unless --all)
     if args.all:
         selected_items = content.items
+        do_sync = False
     else:
         pkg = content.package_meta.name if content.package_meta else ""
-        selected_items = _interactive_select_items(
+        selected_items, action = _interactive_select_items(
             content.items, registry, package_name=pkg,
             packages=content.packages,
         )
-        if not selected_items:
+        if not selected_items or action == "cancel":
             print("\nNo components selected.")
             return
+        do_sync = action == "add_sync"
 
     # Check clashes
     clashes = check_clashes(selected_items, registry)
@@ -978,7 +987,13 @@ def cmd_scan(args):
         for name in skipped:
             print(f"  - {name}")
 
-    if added:
+    if added and do_sync:
+        from .v2_sync import format_sync_results, sync_all
+        print("\nSyncing to tools...")
+        all_results = sync_all(force=True)
+        formatted = format_sync_results(all_results)
+        print(formatted or "  No changes.")
+    elif added:
         print("\nRun 'hawk sync' to apply changes.")
 
 
