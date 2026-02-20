@@ -7,6 +7,7 @@ import pytest
 from hawk_hooks.downloader import (
     ClassifiedContent,
     ClassifiedItem,
+    PackageMeta,
     add_items_to_registry,
     check_clashes,
     classify,
@@ -477,3 +478,103 @@ class TestScanDirectoryHooks:
         content = scan_directory(tmp_path)
         hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
         assert any(i.name == "notify.py" for i in hook_items)
+
+
+class TestPackageManifest:
+    """Test hawk-package.yaml manifest detection."""
+
+    def test_classify_detects_manifest(self, tmp_path):
+        """classify() populates package_meta when hawk-package.yaml exists."""
+        (tmp_path / "hawk-package.yaml").write_text(
+            "name: my-pkg\ndescription: Test package\nversion: '1.0.0'\n"
+        )
+        (tmp_path / "commands").mkdir()
+        (tmp_path / "commands" / "hello.md").write_text("# Hello")
+
+        content = classify(tmp_path)
+        assert content.package_meta is not None
+        assert content.package_meta.name == "my-pkg"
+        assert content.package_meta.description == "Test package"
+        assert content.package_meta.version == "1.0.0"
+        assert len(content.items) == 1
+
+    def test_classify_no_manifest(self, tmp_path):
+        """classify() returns None package_meta when no manifest."""
+        (tmp_path / "commands").mkdir()
+        (tmp_path / "commands" / "hello.md").write_text("# Hello")
+
+        content = classify(tmp_path)
+        assert content.package_meta is None
+
+    def test_classify_manifest_missing_name(self, tmp_path):
+        """Manifest without 'name' field returns None."""
+        (tmp_path / "hawk-package.yaml").write_text("description: no name\n")
+
+        content = classify(tmp_path)
+        assert content.package_meta is None
+
+    def test_classify_manifest_invalid_yaml(self, tmp_path):
+        """Invalid YAML manifest returns None."""
+        (tmp_path / "hawk-package.yaml").write_text(": : invalid\n  bad yaml\n")
+
+        content = classify(tmp_path)
+        assert content.package_meta is None
+
+    def test_classify_manifest_name_only(self, tmp_path):
+        """Manifest with only 'name' field works."""
+        (tmp_path / "hawk-package.yaml").write_text("name: minimal\n")
+        (tmp_path / "skills").mkdir()
+        (tmp_path / "skills" / "test.md").write_text("# Test")
+
+        content = classify(tmp_path)
+        assert content.package_meta is not None
+        assert content.package_meta.name == "minimal"
+        assert content.package_meta.description == ""
+        assert content.package_meta.version == ""
+
+    def test_scan_directory_detects_manifest(self, tmp_path):
+        """scan_directory() populates package_meta when hawk-package.yaml exists."""
+        (tmp_path / "hawk-package.yaml").write_text(
+            "name: scanned-pkg\ndescription: A scanned package\n"
+        )
+        (tmp_path / "commands").mkdir()
+        (tmp_path / "commands" / "deploy.md").write_text("# Deploy")
+
+        content = scan_directory(tmp_path)
+        assert content.package_meta is not None
+        assert content.package_meta.name == "scanned-pkg"
+        assert len(content.items) == 1
+
+    def test_scan_directory_no_manifest(self, tmp_path):
+        """scan_directory() returns None package_meta when no manifest."""
+        (tmp_path / "commands").mkdir()
+        (tmp_path / "commands" / "deploy.md").write_text("# Deploy")
+
+        content = scan_directory(tmp_path)
+        assert content.package_meta is None
+
+    def test_classify_manifest_whitespace_name(self, tmp_path):
+        """Manifest with whitespace-only name returns None."""
+        (tmp_path / "hawk-package.yaml").write_text("name: '  '\n")
+
+        content = classify(tmp_path)
+        assert content.package_meta is None
+
+    def test_classify_manifest_null_values(self, tmp_path):
+        """Manifest with null description/version defaults to empty string."""
+        (tmp_path / "hawk-package.yaml").write_text(
+            "name: test\ndescription:\nversion:\n"
+        )
+
+        content = classify(tmp_path)
+        assert content.package_meta is not None
+        assert content.package_meta.description == ""
+        assert content.package_meta.version == ""
+
+    def test_classify_manifest_name_stripped(self, tmp_path):
+        """Manifest name gets whitespace stripped."""
+        (tmp_path / "hawk-package.yaml").write_text("name: '  my-pkg  '\n")
+
+        content = classify(tmp_path)
+        assert content.package_meta is not None
+        assert content.package_meta.name == "my-pkg"

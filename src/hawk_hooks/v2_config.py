@@ -390,6 +390,8 @@ def record_package(
     url: str,
     commit: str,
     items: list[dict[str, str]],
+    *,
+    path: str = "",
 ) -> None:
     """Record or update a package in the index.
 
@@ -398,14 +400,18 @@ def record_package(
         url: Git clone URL.
         commit: HEAD commit hash.
         items: List of dicts with "type", "name", "hash" keys.
+        path: Local filesystem path (for scanned packages).
     """
     packages = load_packages()
-    packages[name] = {
+    entry: dict[str, Any] = {
         "url": url,
         "installed": date.today().isoformat(),
         "commit": commit,
         "items": items,
     }
+    if path:
+        entry["path"] = path
+    packages[name] = entry
     save_packages(packages)
 
 

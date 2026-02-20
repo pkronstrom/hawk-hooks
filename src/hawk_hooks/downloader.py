@@ -15,8 +15,22 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 from .registry import Registry
 from .types import ComponentType
+
+# Manifest filename for package declarations
+PACKAGE_MANIFEST = "hawk-package.yaml"
+
+
+@dataclass
+class PackageMeta:
+    """Metadata from a hawk-package.yaml manifest."""
+
+    name: str
+    description: str = ""
+    version: str = ""
 
 
 @dataclass
@@ -35,6 +49,7 @@ class ClassifiedContent:
 
     items: list[ClassifiedItem] = field(default_factory=list)
     source_url: str = ""
+    package_meta: PackageMeta | None = None
 
     @property
     def by_type(self) -> dict[ComponentType, list[ClassifiedItem]]:
@@ -91,6 +106,30 @@ def get_head_commit(clone_dir: Path) -> str:
     return ""
 
 
+def _parse_package_manifest(path: Path) -> PackageMeta | None:
+    """Parse a hawk-package.yaml manifest file.
+
+    Returns PackageMeta if valid (has required 'name' field), None otherwise.
+    """
+    try:
+        text = path.read_text(errors="replace")
+        data = yaml.safe_load(text)
+        if not isinstance(data, dict):
+            return None
+        name = data.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return None
+        desc = data.get("description")
+        ver = data.get("version")
+        return PackageMeta(
+            name=name.strip(),
+            description=str(desc) if desc is not None else "",
+            version=str(ver) if ver is not None else "",
+        )
+    except (yaml.YAMLError, OSError):
+        return None
+
+
 def classify(directory: Path) -> ClassifiedContent:
     """Classify the contents of a directory into component types.
 
@@ -107,6 +146,11 @@ def classify(directory: Path) -> ClassifiedContent:
 
     if not directory.exists():
         return content
+
+    # Check for hawk-package.yaml manifest
+    manifest = directory / PACKAGE_MANIFEST
+    if manifest.is_file():
+        content.package_meta = _parse_package_manifest(manifest)
 
     # Check for well-known directory structures
     _scan_typed_dir(directory / "skills", ComponentType.SKILL, content)
@@ -331,6 +375,11 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
     """
     content = ClassifiedContent()
     seen_paths: set[Path] = set()  # avoid duplicates
+
+    # Check for hawk-package.yaml manifest at scan root
+    manifest = directory.resolve() / PACKAGE_MANIFEST
+    if manifest.is_file():
+        content.package_meta = _parse_package_manifest(manifest)
 
     def _walk(path: Path, depth: int) -> None:
         if depth > max_depth:

@@ -492,6 +492,24 @@ def cmd_profile_show(args):
     print(yaml.dump(profile, default_flow_style=False))
 
 
+def _build_pkg_items(items_to_add, added, registry_path):
+    """Build package item list with hashes for items that were successfully added."""
+    from . import v2_config
+
+    pkg_items = []
+    for item in items_to_add:
+        item_key = f"{item.component_type}/{item.name}"
+        if item_key in added:
+            item_path = registry_path / item.component_type.registry_dir / item.name
+            item_hash = v2_config.hash_registry_item(item_path)
+            pkg_items.append({
+                "type": item.component_type.value,
+                "name": item.name,
+                "hash": item_hash,
+            })
+    return pkg_items
+
+
 def cmd_download(args):
     """Download components from a git URL."""
     import shutil
@@ -564,19 +582,13 @@ def cmd_download(args):
 
         # 6. Record package in packages.yaml
         if added:
-            pkg_name = getattr(args, "name", None) or v2_config.package_name_from_url(url)
+            pkg_name = (
+                getattr(args, "name", None)
+                or (content.package_meta.name if content.package_meta else None)
+                or v2_config.package_name_from_url(url)
+            )
             registry_path = v2_config.get_registry_path()
-            pkg_items = []
-            for item in items_to_add:
-                item_key = f"{item.component_type}/{item.name}"
-                if item_key in added:
-                    item_path = registry_path / item.component_type.registry_dir / item.name
-                    item_hash = v2_config.hash_registry_item(item_path)
-                    pkg_items.append({
-                        "type": item.component_type.value,
-                        "name": item.name,
-                        "hash": item_hash,
-                    })
+            pkg_items = _build_pkg_items(items_to_add, added, registry_path)
             if pkg_items:
                 v2_config.record_package(pkg_name, url, commit_hash, pkg_items)
                 print(f"\nRecorded package: {pkg_name} ({len(pkg_items)} items)")
@@ -702,6 +714,19 @@ def cmd_scan(args):
         return
 
     added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+
+    # Record package if manifest found
+    if added and content.package_meta:
+        registry_path = v2_config.get_registry_path()
+        pkg_items = _build_pkg_items(items_to_add, added, registry_path)
+        if pkg_items:
+            v2_config.record_package(
+                content.package_meta.name, "", "", pkg_items,
+                path=str(scan_path),
+            )
+            _print(f"\n[green]Package:[/green] {content.package_meta.name}")
+            if content.package_meta.description:
+                _print(f"  {content.package_meta.description}")
 
     # Enable in global config
     if added and not args.no_enable:

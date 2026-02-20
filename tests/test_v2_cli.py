@@ -257,3 +257,87 @@ class TestNameFromContent:
 
     def test_custom_suffix(self):
         assert _name_from_content("test hook", suffix=".py") == "test-hook.py"
+
+
+class TestCmdScanPackageRecording:
+    """Test that cmd_scan records packages when hawk-package.yaml is found."""
+
+    def test_scan_all_with_manifest_records_package(self, tmp_path, monkeypatch):
+        """hawk scan --all with a manifest records the package in packages.yaml."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_scan
+
+        # Set up a scannable directory with manifest
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text(
+            "name: test-pkg\ndescription: Test\nversion: '1.0'\n"
+        )
+        (scan_dir / "commands").mkdir()
+        (scan_dir / "commands" / "hello.md").write_text("# Hello")
+
+        # Point config to temp dirs
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        # Build args
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        # Verify package was recorded
+        packages = v2_config.load_packages()
+        assert "test-pkg" in packages
+        pkg = packages["test-pkg"]
+        assert pkg["path"] == str(scan_dir)
+        assert len(pkg["items"]) == 1
+        assert pkg["items"][0]["type"] == "command"
+        assert pkg["items"][0]["name"] == "hello.md"
+
+    def test_scan_all_without_manifest_no_package(self, tmp_path, monkeypatch):
+        """hawk scan --all without a manifest does not record a package."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_scan
+
+        scan_dir = tmp_path / "loose-files"
+        scan_dir.mkdir()
+        (scan_dir / "commands").mkdir()
+        (scan_dir / "commands" / "hello.md").write_text("# Hello")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        packages = v2_config.load_packages()
+        assert len(packages) == 0
