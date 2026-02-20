@@ -199,15 +199,13 @@ class ToolAdapter(ABC):
         except Exception as e:
             result.errors.append(f"hooks: {e}")
 
-        # Sync MCP servers
-        if resolved.mcp:
-            try:
-                servers = self._load_mcp_servers(resolved.mcp, registry_path / "mcp")
-                if servers:
-                    self.write_mcp_config(servers, target_dir)
-                    result.linked.extend(f"mcp:{name}" for name in servers)
-            except Exception as e:
-                result.errors.append(f"mcp: {e}")
+        # Sync MCP servers (always call to clean up stale entries)
+        try:
+            servers = self._load_mcp_servers(resolved.mcp, registry_path / "mcp") if resolved.mcp else {}
+            self.write_mcp_config(servers, target_dir)
+            result.linked.extend(f"mcp:{name}" for name in servers)
+        except Exception as e:
+            result.errors.append(f"mcp: {e}")
 
         return result
 
@@ -484,6 +482,69 @@ exit 0
             k: v for k, v in servers.items()
             if isinstance(v, dict) and v.get(HAWK_MCP_MARKER)
         }
+
+    @staticmethod
+    def _merge_mcp_sidecar(
+        config_path: Path,
+        servers: dict[str, dict],
+        server_key: str = "mcpServers",
+    ) -> None:
+        """Merge hawk-managed MCP servers using a sidecar tracking file.
+
+        Like _merge_mcp_json but keeps the server entries clean (no marker
+        key injected). Managed server names are tracked in a .hawk-mcp.json
+        sidecar file next to the config. Use this for tools with strict
+        config validation that reject unknown keys (e.g. Gemini).
+        """
+        sidecar_path = config_path.parent / ".hawk-mcp.json"
+
+        # Read existing managed names from sidecar
+        old_managed: set[str] = set()
+        if sidecar_path.exists():
+            try:
+                old_managed = set(json.loads(sidecar_path.read_text()))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Also detect legacy inline markers and migrate them
+        data: dict = {}
+        if config_path.exists():
+            try:
+                data = json.loads(config_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                data = {}
+
+        existing = data.get(server_key, {})
+
+        # Collect legacy inline-marked entries
+        for k, v in existing.items():
+            if isinstance(v, dict) and v.get(HAWK_MCP_MARKER):
+                old_managed.add(k)
+
+        # Remove old hawk-managed entries (sidecar-tracked + legacy inline)
+        cleaned = {}
+        for k, v in existing.items():
+            if k in old_managed:
+                continue
+            # Also strip any leftover inline markers
+            if isinstance(v, dict):
+                v = {ek: ev for ek, ev in v.items() if ek != HAWK_MCP_MARKER}
+            cleaned[k] = v
+
+        # Add new hawk-managed entries (clean, no marker)
+        for name, cfg in servers.items():
+            cleaned[name] = cfg
+
+        data[server_key] = cleaned
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(data, indent=2) + "\n")
+
+        # Write sidecar with current managed names
+        new_managed = sorted(servers.keys())
+        if new_managed:
+            sidecar_path.write_text(json.dumps(new_managed, indent=2) + "\n")
+        elif sidecar_path.exists():
+            sidecar_path.unlink()
 
     @staticmethod
     def _create_symlink(source: Path, dest: Path) -> None:

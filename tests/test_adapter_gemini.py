@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from hawk_hooks.adapters.gemini import GeminiAdapter, HAWK_MCP_MARKER, md_to_toml
+from hawk_hooks.adapters.gemini import GeminiAdapter, md_to_toml
 from hawk_hooks.types import ResolvedSet, Tool
 
 
@@ -101,7 +101,11 @@ class TestGeminiMCP:
 
         settings = json.loads((target / "settings.json").read_text())
         assert "github" in settings["mcpServers"]
-        assert settings["mcpServers"]["github"][HAWK_MCP_MARKER] is True
+        # Sidecar approach: no __hawk_managed in server entry
+        assert "__hawk_managed" not in settings["mcpServers"]["github"]
+        # Managed names tracked in sidecar
+        sidecar = json.loads((target / ".hawk-mcp.json").read_text())
+        assert "github" in sidecar
 
     def test_preserves_manual_entries(self, adapter, tmp_path):
         target = tmp_path / "gemini"
@@ -119,6 +123,56 @@ class TestGeminiMCP:
         assert "manual" in settings["mcpServers"]
         assert "hawk-server" in settings["mcpServers"]
         assert settings["other_setting"] is True
+        # Manual entry stays clean
+        assert "__hawk_managed" not in settings["mcpServers"]["manual"]
+
+    def test_removes_old_hawk_entries_on_resync(self, adapter, tmp_path):
+        """Re-syncing with different servers removes old ones."""
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        adapter.write_mcp_config({"old-server": {"command": "old"}}, target)
+        adapter.write_mcp_config({"new-server": {"command": "new"}}, target)
+
+        settings = json.loads((target / "settings.json").read_text())
+        assert "new-server" in settings["mcpServers"]
+        assert "old-server" not in settings["mcpServers"]
+
+    def test_clean_removes_all_hawk_entries(self, adapter, tmp_path):
+        """Syncing with empty servers removes all hawk-managed entries."""
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        adapter.write_mcp_config({"hawk-server": {"command": "hawk"}}, target)
+        adapter.write_mcp_config({}, target)
+
+        settings = json.loads((target / "settings.json").read_text())
+        assert "hawk-server" not in settings["mcpServers"]
+        # Sidecar cleaned up
+        assert not (target / ".hawk-mcp.json").exists()
+
+    def test_migrates_legacy_inline_markers(self, adapter, tmp_path):
+        """Legacy __hawk_managed markers in server entries get cleaned up."""
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        # Write legacy format (inline marker)
+        settings_path = target / "settings.json"
+        settings_path.write_text(json.dumps({
+            "mcpServers": {
+                "legacy": {"command": "legacy", "__hawk_managed": True},
+                "manual": {"command": "manual"},
+            }
+        }))
+
+        # Resync — legacy entry should be replaced, manual preserved
+        adapter.write_mcp_config({"new-server": {"command": "new"}}, target)
+
+        settings = json.loads(settings_path.read_text())
+        assert "legacy" not in settings["mcpServers"]
+        assert "manual" in settings["mcpServers"]
+        assert "new-server" in settings["mcpServers"]
+        assert "__hawk_managed" not in settings["mcpServers"]["manual"]
 
 
 class TestGeminiSync:

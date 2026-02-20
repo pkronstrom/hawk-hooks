@@ -44,5 +44,8 @@ class AntigravityAdapter(ToolAdapter):
         servers: dict[str, dict],
         target_dir: Path,
     ) -> None:
-        """Merge hawk-managed MCP servers into mcp_config.json."""
-        self._merge_mcp_json(target_dir / "mcp_config.json", servers)
+        """Merge hawk-managed MCP servers into mcp_config.json.
+
+        Uses sidecar tracking like Gemini to avoid strict validation issues.
+        """
+        self._merge_mcp_sidecar(target_dir / "mcp_config.json", servers)

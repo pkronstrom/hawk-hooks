@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..types import Tool
-from .base import HAWK_MCP_MARKER, ToolAdapter
+from .base import ToolAdapter
 
 
 def _escape_toml_string(s: str) -> str:
@@ -104,5 +104,9 @@ class GeminiAdapter(ToolAdapter):
         servers: dict[str, dict],
         target_dir: Path,
     ) -> None:
-        """Merge hawk-managed MCP servers into .gemini/settings.json."""
-        self._merge_mcp_json(target_dir / "settings.json", servers)
+        """Merge hawk-managed MCP servers into .gemini/settings.json.
+
+        Uses sidecar tracking to avoid injecting __hawk_managed into
+        server entries, which Gemini's strict config validation rejects.
+        """
+        self._merge_mcp_sidecar(target_dir / "settings.json", servers)
