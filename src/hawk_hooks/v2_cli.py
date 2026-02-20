@@ -550,7 +550,8 @@ def cmd_download(args):
         if args.all:
             selected_items = content.items
         else:
-            selected_items = _interactive_select_items(content.items, registry)
+            pkg = content.package_meta.name if content.package_meta else ""
+            selected_items = _interactive_select_items(content.items, registry, package_name=pkg)
             if not selected_items:
                 print("\nNo components selected.")
                 return
@@ -611,41 +612,248 @@ def cmd_download(args):
         shutil.rmtree(clone_dir, ignore_errors=True)
 
 
-def _interactive_select_items(items, registry=None):
-    """Show interactive multi-select for download items. Returns selected items."""
-    from simple_term_menu import TerminalMenu
+def _interactive_select_items(items, registry=None, package_name: str = "",
+                              packages: list | None = None):
+    """Show interactive multi-select for download/scan items.
 
-    options = []
-    preselected = []
+    Uses Rich Live + readchar for a scrollable list that works in small panes.
+    Items are grouped by package (if multiple) then by component type,
+    with collapsible section headers.
+    Returns selected items.
+    """
+    import os
+    import readchar
+    from rich.console import Console
+    from rich.live import Live
+    from rich.text import Text
+    from .types import ComponentType
+
+    console = Console(highlight=False)
+
+    # ── Row types ──
+    ROW_PKG = "pkg"        # top-level package header (collapsible)
+    ROW_TYPE = "type"      # component type header (collapsible)
+    ROW_ITEM = "item"      # selectable item
+
+    TYPE_ORDER = [
+        ComponentType.SKILL, ComponentType.HOOK, ComponentType.COMMAND,
+        ComponentType.AGENT, ComponentType.PROMPT, ComponentType.MCP,
+    ]
+
+    # ── Group items by package, then by component type ──
+    # Determine package names present in items
+    pkg_names: list[str] = []
+    seen_pkgs: set[str] = set()
+    for item in items:
+        pkg = getattr(item, "package", "") or ""
+        if pkg not in seen_pkgs:
+            seen_pkgs.add(pkg)
+            pkg_names.append(pkg)
+
+    multi_pkg = len(pkg_names) > 1 or (len(pkg_names) == 1 and pkg_names[0] != "")
+
+    # Build nested structure: packages → type groups → items
+    # Each package: {"name": str, "collapsed": bool, "type_groups": [...]}
+    # Each type_group: {"type": ComponentType, "collapsed": bool, "items": [(orig_idx, item)]}
+    pkg_sections: list[dict] = []
+    for pkg in pkg_names:
+        pkg_items = [(i, item) for i, item in enumerate(items)
+                     if (getattr(item, "package", "") or "") == pkg]
+        if not pkg_items:
+            continue
+
+        type_groups = []
+        for ct in TYPE_ORDER:
+            ct_items = [(i, item) for i, item in pkg_items if item.component_type == ct]
+            if ct_items:
+                type_groups.append({"type": ct, "collapsed": False, "items": ct_items})
+        # Catch types not in TYPE_ORDER
+        seen_ct = set(TYPE_ORDER)
+        for ct in sorted(set(item.component_type for _, item in pkg_items) - seen_ct,
+                         key=lambda x: x.value):
+            ct_items = [(i, item) for i, item in pkg_items if item.component_type == ct]
+            if ct_items:
+                type_groups.append({"type": ct, "collapsed": False, "items": ct_items})
+
+        display_name = pkg if pkg else (package_name or "Components")
+        pkg_sections.append({
+            "name": display_name,
+            "collapsed": False,
+            "type_groups": type_groups,
+        })
+
+    # Pre-select items not already registered
+    selected: set[int] = set()
     for i, item in enumerate(items):
         exists = registry and registry.has(item.component_type, item.name)
-        label = f"[{item.component_type.value}] {item.name}"
-        if exists:
-            label += "  (already registered)"
-        else:
-            preselected.append(i)
-        options.append(label)
+        if not exists:
+            selected.add(i)
 
-    menu = TerminalMenu(
-        options,
-        title=f"\nSelect components to add ({len(options)} found, space to toggle, enter to confirm):",
-        multi_select=True,
-        preselected_entries=preselected,
-        multi_select_select_on_accept=False,
-        clear_screen=True,
-        menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q", "\x1b"),
-        show_search_hint=True,
-        search_key="/",
-        status_bar="Space: toggle  /: search  Enter: confirm  q: quit",
-    )
-    result = menu.show()
-    if result is None:
-        return []
-    indices = list(result) if isinstance(result, tuple) else [result]
-    return [items[i] for i in indices]
+    def _build_rows():
+        """Build flat row list: (row_type, section_idx, group_idx, orig_idx)."""
+        rows = []
+        for si, section in enumerate(pkg_sections):
+            if multi_pkg:
+                rows.append((ROW_PKG, si, -1, -1))
+            if multi_pkg and section["collapsed"]:
+                continue
+            for gi, tg in enumerate(section["type_groups"]):
+                rows.append((ROW_TYPE, si, gi, -1))
+                if not tg["collapsed"]:
+                    for orig_idx, _ in tg["items"]:
+                        rows.append((ROW_ITEM, si, gi, orig_idx))
+        return rows
+
+    rows = _build_rows()
+    cursor = 0
+    scroll_offset = 0
+
+    def _get_max_visible():
+        try:
+            lines = os.get_terminal_size().lines
+        except OSError:
+            lines = 24
+        return max(3, lines - 6)
+
+    def _type_sel_count(tg):
+        tot = len(tg["items"])
+        sel = sum(1 for idx, _ in tg["items"] if idx in selected)
+        return sel, tot
+
+    def _pkg_sel_count(section):
+        sel = tot = 0
+        for tg in section["type_groups"]:
+            s, t = _type_sel_count(tg)
+            sel += s
+            tot += t
+        return sel, tot
+
+    def _build_display():
+        nonlocal scroll_offset
+        lines = []
+        max_vis = _get_max_visible()
+        total_rows = len(rows)
+
+        sel_count = len(selected)
+        total_items = len(items)
+        title = package_name if (package_name and not multi_pkg) else "Select components"
+        lines.append(f"[bold cyan]{title}[/bold cyan]  ({sel_count}/{total_items} selected)")
+        lines.append("[dim]\u2500" * 50 + "[/dim]")
+
+        if total_rows == 0:
+            vis_start, vis_end = 0, 0
+        else:
+            c = max(0, min(cursor, total_rows - 1))
+            if c < scroll_offset:
+                scroll_offset = c
+            elif c >= scroll_offset + max_vis:
+                scroll_offset = c - max_vis + 1
+            scroll_offset = max(0, min(scroll_offset, total_rows - 1))
+            vis_start = scroll_offset
+            vis_end = min(scroll_offset + max_vis, total_rows)
+
+        if vis_start > 0:
+            lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
+
+        for ri in range(vis_start, vis_end):
+            row_type, si, gi, orig_idx = rows[ri]
+            is_cur = ri == cursor
+            prefix = "[cyan]\u276f[/cyan] " if is_cur else "  "
+
+            if row_type == ROW_PKG:
+                section = pkg_sections[si]
+                sel, tot = _pkg_sel_count(section)
+                arrow = "\u25b6" if section["collapsed"] else "\u25bc"
+                style = "[bold]" if is_cur else ""
+                end = "[/bold]" if is_cur else ""
+                count_style = "green" if sel > 0 else "dim"
+                lines.append(
+                    f"{prefix}{style}\U0001f4e6 {section['name']}  "
+                    f"[{count_style}]({sel}/{tot})[/{count_style}]  {arrow}{end}"
+                )
+
+            elif row_type == ROW_TYPE:
+                tg = pkg_sections[si]["type_groups"][gi]
+                ct = tg["type"]
+                sel, tot = _type_sel_count(tg)
+                arrow = "\u25b6" if tg["collapsed"] else "\u25bc"
+                style = "[bold]" if is_cur else ""
+                end = "[/bold]" if is_cur else ""
+                count_style = "green" if sel > 0 else "dim"
+                indent = "  " if multi_pkg else ""
+                lines.append(
+                    f"{prefix}{indent}{style}{ct.value}s  "
+                    f"[{count_style}]({sel}/{tot})[/{count_style}]  {arrow}{end}"
+                )
+
+            elif row_type == ROW_ITEM:
+                item = items[orig_idx]
+                is_sel = orig_idx in selected
+                exists = registry and registry.has(item.component_type, item.name)
+                mark = "[green]\u25cf[/green]" if is_sel else "[dim]\u25cb[/dim]"
+                style = "[bold]" if is_cur else ("[dim]" if not is_sel else "")
+                end = "[/bold]" if is_cur else ("[/dim]" if not is_sel else "")
+                hint = "  [dim](already registered)[/dim]" if exists else ""
+                indent = "    " if multi_pkg else "  "
+                lines.append(f"{prefix}{indent}{mark} {style}{item.name}{end}{hint}")
+
+        if vis_end < total_rows:
+            remaining = total_rows - vis_end
+            lines.append(f"[dim]  \u2193 {remaining} more[/dim]")
+
+        lines.append("")
+        lines.append("[dim]Space: toggle  a: all  n: none  Enter: confirm  q: quit  \u2191\u2193/jk: navigate[/dim]")
+        return "\n".join(lines)
+
+    with Live("", console=console, refresh_per_second=15, transient=True) as live:
+        live.update(Text.from_markup(_build_display()))
+        while True:
+            try:
+                key = readchar.readkey()
+            except (KeyboardInterrupt, EOFError):
+                return []
+
+            total_rows = len(rows)
+            if not total_rows:
+                if key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
+                    return []
+                continue
+
+            if key in (readchar.key.UP, "k"):
+                cursor = (cursor - 1) % total_rows
+            elif key in (readchar.key.DOWN, "j"):
+                cursor = (cursor + 1) % total_rows
+
+            elif key in ("\r", "\n", readchar.key.ENTER):
+                break
+
+            elif key == " ":
+                row_type, si, gi, orig_idx = rows[cursor]
+                if row_type == ROW_PKG:
+                    pkg_sections[si]["collapsed"] = not pkg_sections[si]["collapsed"]
+                    rows = _build_rows()
+                    cursor = min(cursor, len(rows) - 1)
+                elif row_type == ROW_TYPE:
+                    tg = pkg_sections[si]["type_groups"][gi]
+                    tg["collapsed"] = not tg["collapsed"]
+                    rows = _build_rows()
+                    cursor = min(cursor, len(rows) - 1)
+                elif row_type == ROW_ITEM:
+                    if orig_idx in selected:
+                        selected.discard(orig_idx)
+                    else:
+                        selected.add(orig_idx)
+
+            elif key == "a":
+                selected = set(range(len(items)))
+            elif key == "n":
+                selected.clear()
+            elif key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
+                return []
+
+            live.update(Text.from_markup(_build_display()))
+
+    return [items[i] for i in sorted(selected)]
 
 
 def cmd_scan(args):
@@ -685,7 +893,11 @@ def cmd_scan(args):
     if args.all:
         selected_items = content.items
     else:
-        selected_items = _interactive_select_items(content.items, registry)
+        pkg = content.package_meta.name if content.package_meta else ""
+        selected_items = _interactive_select_items(
+            content.items, registry, package_name=pkg,
+            packages=content.packages,
+        )
         if not selected_items:
             print("\nNo components selected.")
             return

@@ -41,6 +41,7 @@ class ClassifiedItem:
     name: str
     source_path: Path
     description: str = ""
+    package: str = ""  # package name this item belongs to (empty = unpackaged)
 
 
 @dataclass
@@ -50,6 +51,7 @@ class ClassifiedContent:
     items: list[ClassifiedItem] = field(default_factory=list)
     source_url: str = ""
     package_meta: PackageMeta | None = None
+    packages: list[PackageMeta] = field(default_factory=list)  # all discovered packages
 
     @property
     def by_type(self) -> dict[ComponentType, list[ClassifiedItem]]:
@@ -57,6 +59,14 @@ class ClassifiedContent:
         result: dict[ComponentType, list[ClassifiedItem]] = {}
         for item in self.items:
             result.setdefault(item.component_type, []).append(item)
+        return result
+
+    @property
+    def by_package(self) -> dict[str, list[ClassifiedItem]]:
+        """Group items by package name. Empty string key = unpackaged."""
+        result: dict[str, list[ClassifiedItem]] = {}
+        for item in self.items:
+            result.setdefault(item.package, []).append(item)
         return result
 
 
@@ -376,10 +386,34 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
     content = ClassifiedContent()
     seen_paths: set[Path] = set()  # avoid duplicates
 
+    # Track package manifests: map resolved dir → PackageMeta
+    # Items under a package dir get tagged with that package name
+    package_dirs: dict[Path, str] = {}  # resolved_path → package_name
+
     # Check for hawk-package.yaml manifest at scan root
-    manifest = directory.resolve() / PACKAGE_MANIFEST
+    root = directory.resolve()
+    manifest = root / PACKAGE_MANIFEST
     if manifest.is_file():
-        content.package_meta = _parse_package_manifest(manifest)
+        meta = _parse_package_manifest(manifest)
+        content.package_meta = meta
+        if meta:
+            content.packages.append(meta)
+            package_dirs[root] = meta.name
+
+    def _current_package(path: Path) -> str:
+        """Find which package a path belongs to (longest matching prefix)."""
+        resolved = path.resolve()
+        best = ""
+        best_len = 0
+        for pkg_dir, pkg_name in package_dirs.items():
+            try:
+                resolved.relative_to(pkg_dir)
+                if len(str(pkg_dir)) > best_len:
+                    best = pkg_name
+                    best_len = len(str(pkg_dir))
+            except ValueError:
+                continue
+        return best
 
     def _walk(path: Path, depth: int) -> None:
         if depth > max_depth:
@@ -392,6 +426,19 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
         except PermissionError:
             return
 
+        # Discover nested hawk-package.yaml manifests
+        pkg_manifest = path / PACKAGE_MANIFEST
+        if pkg_manifest.is_file() and path.resolve() not in package_dirs:
+            meta = _parse_package_manifest(pkg_manifest)
+            if meta:
+                content.packages.append(meta)
+                package_dirs[path.resolve()] = meta.name
+                # Set as primary if none set yet
+                if content.package_meta is None:
+                    content.package_meta = meta
+
+        pkg_name = _current_package(path)
+
         # Check if this directory IS a skill (has SKILL.md)
         entry_names = {e.name for e in entries if e.is_file()}
         if entry_names & _SKILL_MARKERS:
@@ -401,6 +448,7 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
                     component_type=ComponentType.SKILL,
                     name=path.name,
                     source_path=path,
+                    package=pkg_name,
                 ))
             return  # Don't recurse into skill dirs
 
@@ -421,10 +469,11 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
             elif entry.is_file() and entry not in seen_paths:
                 item = _classify_file(entry, parent_name)
                 if item:
+                    item.package = _current_package(entry)
                     seen_paths.add(entry)
                     content.items.append(item)
 
-    _walk(directory.resolve(), 0)
+    _walk(root, 0)
     return content
 
 
