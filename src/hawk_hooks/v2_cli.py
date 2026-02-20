@@ -552,7 +552,10 @@ def cmd_download(args):
             do_sync = False
         else:
             pkg = content.package_meta.name if content.package_meta else ""
-            selected_items, action = _interactive_select_items(content.items, registry, package_name=pkg)
+            selected_items, action = _interactive_select_items(
+                content.items, registry, package_name=pkg,
+                packages=content.packages,
+            )
             if not selected_items or action == "cancel":
                 print("\nNo components selected.")
                 return

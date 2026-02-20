@@ -173,6 +173,8 @@ def classify(directory: Path) -> ClassifiedContent:
     manifest = directory / PACKAGE_MANIFEST
     if manifest.is_file():
         content.package_meta = _parse_package_manifest(manifest)
+        if content.package_meta:
+            content.packages.append(content.package_meta)
 
     # Check for well-known directory structures
     _scan_typed_dir(directory / "skills", ComponentType.SKILL, content)
@@ -185,6 +187,13 @@ def classify(directory: Path) -> ClassifiedContent:
     # Check for top-level items if no subdirectories found
     if not content.items:
         _scan_top_level(directory, content)
+
+    # Tag all items with package name if a manifest was found
+    if content.package_meta:
+        pkg_name = content.package_meta.name
+        for item in content.items:
+            if not item.package:
+                item.package = pkg_name
 
     return content
 

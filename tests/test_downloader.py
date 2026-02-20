@@ -497,6 +497,11 @@ class TestPackageManifest:
         assert content.package_meta.description == "Test package"
         assert content.package_meta.version == "1.0.0"
         assert len(content.items) == 1
+        # Items should be tagged with package name
+        assert content.items[0].package == "my-pkg"
+        # packages list should be populated
+        assert len(content.packages) == 1
+        assert content.packages[0].name == "my-pkg"
 
     def test_classify_no_manifest(self, tmp_path):
         """classify() returns None package_meta when no manifest."""
