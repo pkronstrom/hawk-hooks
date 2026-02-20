@@ -60,6 +60,34 @@ class TestParseCommentHeaders:
         assert meta.events == ["stop"]
 
 
+class TestJsTsCommentHeaders:
+    """Parse // hawk-hook: headers from JS/TS files."""
+
+    def test_js_comment_header(self, tmp_path):
+        f = tmp_path / "hook.js"
+        f.write_text("#!/usr/bin/env node\n// hawk-hook: events=pre_tool_use\nconst x = 1;\n")
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use"]
+
+    def test_ts_comment_header_with_description(self, tmp_path):
+        f = tmp_path / "hook.ts"
+        f.write_text(
+            "#!/usr/bin/env bun\n"
+            "// hawk-hook: events=stop,notification\n"
+            "// hawk-hook: description=TS guard\n"
+            "const data = 1;\n"
+        )
+        meta = parse_hook_meta(f)
+        assert meta.events == ["stop", "notification"]
+        assert meta.description == "TS guard"
+
+    def test_js_stops_at_code_line(self, tmp_path):
+        f = tmp_path / "hook.js"
+        f.write_text("#!/usr/bin/env node\n// hawk-hook: events=stop\nconst x = 1;\n// hawk-hook: events=notification\n")
+        meta = parse_hook_meta(f)
+        assert meta.events == ["stop"]
+
+
 class TestParseFrontmatter:
     """Parse hawk-hook YAML frontmatter from .md/.txt files."""
 
@@ -131,6 +159,88 @@ class TestDirectoryFallback:
         f.write_text("# Check things\nDo stuff\n")
         meta = parse_hook_meta(f)
         assert meta.events == ["stop"]
+
+
+class TestTimeoutParsing:
+    """Test timeout field parsing across all formats."""
+
+    def test_comment_header_timeout(self, tmp_path):
+        f = tmp_path / "hook.py"
+        f.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\n# hawk-hook: timeout=60\nimport sys\n")
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use"]
+        assert meta.timeout == 60
+
+    def test_frontmatter_timeout(self, tmp_path):
+        f = tmp_path / "hook.md"
+        f.write_text("---\nhawk-hook:\n  events: [stop]\n  timeout: 30\n---\nContent\n")
+        meta = parse_hook_meta(f)
+        assert meta.events == ["stop"]
+        assert meta.timeout == 30
+
+    def test_json_timeout(self, tmp_path):
+        f = tmp_path / "hook.json"
+        f.write_text('{"hawk-hook": {"events": ["pre_tool_use"], "timeout": 45}}')
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use"]
+        assert meta.timeout == 45
+
+    def test_default_timeout_is_zero(self, tmp_path):
+        f = tmp_path / "hook.py"
+        f.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+        meta = parse_hook_meta(f)
+        assert meta.timeout == 0
+
+    def test_invalid_timeout_ignored(self, tmp_path):
+        f = tmp_path / "hook.py"
+        f.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\n# hawk-hook: timeout=abc\nimport sys\n")
+        meta = parse_hook_meta(f)
+        assert meta.timeout == 0
+
+
+class TestJsonMeta:
+    """Test JSON hawk-hook metadata parsing."""
+
+    def test_basic_json_meta(self, tmp_path):
+        f = tmp_path / "hook.json"
+        f.write_text('{"hawk-hook": {"events": ["pre_tool_use"], "description": "A guard"}}')
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use"]
+        assert meta.description == "A guard"
+
+    def test_json_with_all_fields(self, tmp_path):
+        f = tmp_path / "hook.json"
+        f.write_text('{"hawk-hook": {"events": ["stop"], "description": "Check", "deps": "requests", "env": ["KEY=val"], "timeout": 30}}')
+        meta = parse_hook_meta(f)
+        assert meta.events == ["stop"]
+        assert meta.deps == "requests"
+        assert meta.env == ["KEY=val"]
+        assert meta.timeout == 30
+
+    def test_json_no_hawk_hook_key(self, tmp_path):
+        f = tmp_path / "hook.json"
+        f.write_text('{"prompt": "some prompt", "timeout": 30}')
+        meta = parse_hook_meta(f)
+        assert meta.events == []
+
+    def test_json_invalid_json(self, tmp_path):
+        f = tmp_path / "hook.json"
+        f.write_text("not json at all")
+        meta = parse_hook_meta(f)
+        assert meta.events == []
+
+    def test_json_comma_separated_events(self, tmp_path):
+        f = tmp_path / "hook.json"
+        f.write_text('{"hawk-hook": {"events": "pre_tool_use,stop"}}')
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use", "stop"]
+
+    def test_prompt_json_with_meta(self, tmp_path):
+        """A .prompt.json file with hawk-hook metadata."""
+        f = tmp_path / "guard.prompt.json"
+        f.write_text('{"prompt": "Evaluate this action", "timeout": 30, "hawk-hook": {"events": ["pre_tool_use"]}}')
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use"]
 
 
 class TestBuiltins:

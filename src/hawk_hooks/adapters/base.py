@@ -231,8 +231,10 @@ class ToolAdapter(ABC):
         from ..events import EVENTS
         from ..hook_meta import parse_hook_meta
 
-        # Resolve hooks and group by event
-        hooks_by_event: dict[str, list[Path]] = defaultdict(list)
+        from ..hook_meta import HookMeta
+
+        # Resolve hooks and group by event, keeping metadata
+        hooks_by_event: dict[str, list[tuple[Path, HookMeta]]] = defaultdict(list)
         hooks_dir = registry_path / "hooks"
         for name in hook_names:
             hook_path = hooks_dir / name
@@ -244,16 +246,30 @@ class ToolAdapter(ABC):
                 # path traversal (e.g. events=../../foo) and unknown events
                 if event not in EVENTS:
                     continue
-                hooks_by_event[event].append(hook_path)
+                hooks_by_event[event].append((hook_path, meta))
 
         runners: dict[str, Path] = {}
         runners_dir.mkdir(parents=True, exist_ok=True)
 
-        for event, scripts in hooks_by_event.items():
+        # Check for venv python
+        from .. import v2_config
+        venv_python = v2_config.get_config_dir() / ".venv" / "bin" / "python"
+        python_cmd = shlex.quote(str(venv_python)) if venv_python.is_file() else "python3"
+
+        for event, hook_entries in hooks_by_event.items():
             calls: list[str] = []
-            for script in scripts:
+            for script, meta in hook_entries:
                 safe_path = shlex.quote(str(script))
                 suffix = script.suffix
+
+                # Inject env var exports for entries with = (value assigned)
+                env_exports: list[str] = []
+                for env_entry in meta.env:
+                    if "=" in env_entry:
+                        var_name, _, var_value = env_entry.partition("=")
+                        env_exports.append(f"export {var_name}={shlex.quote(var_value)}")
+                if env_exports:
+                    calls.extend(env_exports)
 
                 # Content hooks: cat the file
                 if script.name.endswith((".stdout.md", ".stdout.txt")) or suffix in (".md", ".txt"):
@@ -264,7 +280,7 @@ class ToolAdapter(ABC):
                     calls.append(f'[[ -f {safe_path} ]] && {cat_path} {safe_path}')
                 elif suffix == ".py":
                     calls.append(
-                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | python3 {safe_path} || exit $?; }}'
+                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {python_cmd} {safe_path} || exit $?; }}'
                     )
                 elif suffix == ".sh":
                     try:

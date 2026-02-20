@@ -15,8 +15,8 @@ from pathlib import Path
 
 from .events import EVENTS
 
-# Matches: # hawk-hook: key=value
-_COMMENT_RE = re.compile(r"^#\s*hawk-hook:\s*(\w+)=(.+)$")
+# Matches: # hawk-hook: key=value  OR  // hawk-hook: key=value
+_COMMENT_RE = re.compile(r"^(?:#|//)\s*hawk-hook:\s*(\w+)=(.+)$")
 
 # Matches YAML frontmatter delimiters
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
@@ -30,6 +30,7 @@ class HookMeta:
     description: str = ""
     deps: str = ""
     env: list[str] = field(default_factory=list)
+    timeout: int = 0
 
 
 def parse_hook_meta(path: Path) -> HookMeta:
@@ -49,9 +50,15 @@ def parse_hook_meta(path: Path) -> HookMeta:
 
     suffix = path.suffix.lower()
 
+    # Try JSON metadata for .prompt.json / .json files
+    if suffix == ".json":
+        meta = _parse_json_meta(text)
+        if meta.events:
+            return meta
+
     # Try comment headers for scripts
     if suffix in (".py", ".sh", ".js", ".ts"):
-        meta = _parse_comment_headers(text)
+        meta = _parse_comment_headers(text, js_style=suffix in (".js", ".ts"))
         if meta.events:
             return meta
 
@@ -71,8 +78,8 @@ def parse_hook_meta(path: Path) -> HookMeta:
     return _fallback_from_parent(path)
 
 
-def _parse_comment_headers(text: str) -> HookMeta:
-    """Parse # hawk-hook: key=value lines from script header."""
+def _parse_comment_headers(text: str, js_style: bool = False) -> HookMeta:
+    """Parse # hawk-hook: key=value (or // hawk-hook:) lines from script header."""
     meta = HookMeta()
     found_any = False
 
@@ -84,7 +91,7 @@ def _parse_comment_headers(text: str) -> HookMeta:
             continue
 
         # Stop at first non-comment, non-empty line
-        if stripped and not stripped.startswith("#"):
+        if stripped and not stripped.startswith("#") and not stripped.startswith("//"):
             break
 
         m = _COMMENT_RE.match(stripped)
@@ -99,6 +106,11 @@ def _parse_comment_headers(text: str) -> HookMeta:
                 meta.deps = value
             elif key == "env":
                 meta.env.append(value)
+            elif key == "timeout":
+                try:
+                    meta.timeout = int(value)
+                except ValueError:
+                    pass
 
     return meta if found_any else HookMeta()
 
@@ -139,11 +151,69 @@ def _parse_frontmatter(text: str) -> HookMeta:
     else:
         env = []
 
+    timeout_raw = hawk.get("timeout", 0)
+    try:
+        timeout = int(timeout_raw)
+    except (ValueError, TypeError):
+        timeout = 0
+
     return HookMeta(
         events=events,
         description=str(hawk.get("description", "")),
         deps=str(hawk.get("deps", "")),
         env=env,
+        timeout=timeout,
+    )
+
+
+def _parse_json_meta(text: str) -> HookMeta:
+    """Parse hawk-hook metadata from a JSON file (e.g. .prompt.json).
+
+    Looks for a top-level "hawk-hook" key with the same fields
+    as YAML frontmatter (events, description, deps, env, timeout).
+    """
+    import json as _json
+
+    try:
+        data = _json.loads(text)
+    except (_json.JSONDecodeError, ValueError):
+        return HookMeta()
+
+    if not isinstance(data, dict):
+        return HookMeta()
+
+    hawk = data.get("hawk-hook")
+    if not isinstance(hawk, dict):
+        return HookMeta()
+
+    events_raw = hawk.get("events", [])
+    if isinstance(events_raw, str):
+        events = [e.strip() for e in events_raw.split(",") if e.strip()]
+    elif isinstance(events_raw, list):
+        events = [str(e) for e in events_raw]
+    else:
+        events = []
+
+    env_raw = hawk.get("env", [])
+    if isinstance(env_raw, str):
+        env = [env_raw]
+    elif isinstance(env_raw, list):
+        env = [str(e) for e in env_raw]
+    else:
+        env = []
+
+    timeout_raw = hawk.get("timeout", 0)
+    try:
+        timeout = int(timeout_raw)
+    except (ValueError, TypeError):
+        timeout = 0
+
+    return HookMeta(
+        events=events,
+        description=str(hawk.get("description", "")),
+        deps=str(hawk.get("deps", "")),
+        env=env,
+        timeout=timeout,
     )
 
 

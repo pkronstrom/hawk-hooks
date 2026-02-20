@@ -205,6 +205,11 @@ class TestSyncForeignProtection:
 class TestGenerateRunnersWithMeta:
     """Test _generate_runners with hawk-hook metadata (flat files)."""
 
+    @pytest.fixture(autouse=True)
+    def _patch_config_dir(self, tmp_path, monkeypatch):
+        from hawk_hooks import v2_config
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+
     def test_groups_by_metadata_events(self, tmp_path):
         """Hook with hawk-hook header groups by declared events."""
         adapter = get_adapter(Tool.CLAUDE)
@@ -316,3 +321,101 @@ class TestGenerateRunnersWithMeta:
 
         adapter._generate_runners(["guard.py"], registry, runners_dir)
         assert not stale.exists()
+
+    def test_env_vars_exported_in_runner(self, tmp_path, monkeypatch):
+        """Env vars with values should be exported before hook calls."""
+        from hawk_hooks import v2_config
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "hook.py"
+        hook.write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "# hawk-hook: env=API_KEY=secret123\n"
+            "# hawk-hook: env=VERBOSE\n"
+            "import sys\n"
+        )
+
+        runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
+        content = runners["pre_tool_use"].read_text()
+        # Env with = should be exported (simple values don't need quoting)
+        assert "export API_KEY=secret123" in content
+        # Env without = (informational only) should NOT be exported
+        assert "export VERBOSE" not in content
+
+    def test_env_var_shell_injection_prevented(self, tmp_path, monkeypatch):
+        """Env var values with shell metacharacters should be safely quoted."""
+        from hawk_hooks import v2_config
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "hook.py"
+        hook.write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "# hawk-hook: env=MALICIOUS=$(rm -rf /)\n"
+            "import sys\n"
+        )
+
+        runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
+        content = runners["pre_tool_use"].read_text()
+        # Value should be quoted, preventing shell expansion
+        assert "export MALICIOUS='$(rm -rf /)'" in content
+        # The raw unquoted version must NOT appear
+        assert "export MALICIOUS=$(rm -rf /)" not in content
+
+    def test_venv_python_used_when_available(self, tmp_path, monkeypatch):
+        """When venv exists, runners should use venv python path."""
+        from hawk_hooks import v2_config
+        config_dir = tmp_path / "config"
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        # Create fake venv python
+        venv_bin = config_dir / ".venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        venv_python = venv_bin / "python"
+        venv_python.write_text("#!/bin/sh\n")
+        venv_python.chmod(0o755)
+
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "hook.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+
+        runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
+        content = runners["pre_tool_use"].read_text()
+        assert str(venv_python) in content
+
+    def test_system_python_when_no_venv(self, tmp_path, monkeypatch):
+        """When no venv exists, runners should use system python3."""
+        from hawk_hooks import v2_config
+        config_dir = tmp_path / "config"
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "hook.py"
+        hook.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+
+        runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
+        content = runners["pre_tool_use"].read_text()
+        assert "python3" in content

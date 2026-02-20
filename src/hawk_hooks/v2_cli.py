@@ -1059,6 +1059,211 @@ def cmd_migrate(args):
         print(f"Migration skipped: {msg}")
 
 
+def cmd_new(args):
+    """Create a new component from a template."""
+    from . import v2_config
+    from .events import EVENTS
+    from .templates import (
+        AGENT_TEMPLATE, COMMAND_PROMPT_TEMPLATE, PROMPT_TEMPLATE,
+        get_template,
+    )
+
+    from .registry import _validate_name
+
+    registry_path = v2_config.get_registry_path()
+    comp_type = args.type
+    name = args.name
+    event = getattr(args, "event", "pre_tool_use")
+    lang = getattr(args, "lang", ".py")
+
+    try:
+        _validate_name(name)
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    if not lang.startswith("."):
+        lang = f".{lang}"
+
+    if comp_type == "hook":
+        # Script hook with hawk-hook metadata
+        template = get_template(lang)
+        if not template:
+            print(f"Error: No template for extension '{lang}'")
+            print("Supported: .py, .sh, .js, .ts")
+            sys.exit(1)
+
+        if event not in EVENTS:
+            print(f"Error: Unknown event '{event}'")
+            print(f"Events: {', '.join(EVENTS.keys())}")
+            sys.exit(1)
+
+        # Ensure name has the right extension
+        if not name.endswith(lang):
+            name = f"{name}{lang}"
+
+        # Inject hawk-hook metadata into template
+        if lang in (".py", ".sh"):
+            # Insert hawk-hook headers after shebang
+            lines = template.split("\n")
+            insert_idx = 1  # After shebang
+            hawk_lines = [
+                f"# hawk-hook: events={event}",
+            ]
+            for i, hl in enumerate(hawk_lines):
+                lines.insert(insert_idx + i, hl)
+            content = "\n".join(lines)
+        elif lang in (".js", ".ts"):
+            lines = template.split("\n")
+            insert_idx = 1
+            hawk_lines = [
+                f"// hawk-hook: events={event}",
+            ]
+            for i, hl in enumerate(hawk_lines):
+                lines.insert(insert_idx + i, hl)
+            content = "\n".join(lines)
+        else:
+            content = template
+
+        dest = registry_path / "hooks" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists() and not args.force:
+            print(f"Error: {dest} already exists. Use --force to overwrite.")
+            sys.exit(1)
+        dest.write_text(content)
+        dest.chmod(0o755)
+
+        _print(f"[green]+[/green] Created hook: {dest}")
+        _print(f"  Event: {event}")
+
+    elif comp_type == "command":
+        if not name.endswith(".md"):
+            name = f"{name}.md"
+
+        content = COMMAND_PROMPT_TEMPLATE.format(
+            name=name.replace(".md", ""),
+            description="Your command description",
+        )
+
+        dest = registry_path / "commands" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists() and not args.force:
+            print(f"Error: {dest} already exists. Use --force to overwrite.")
+            sys.exit(1)
+        dest.write_text(content)
+
+        _print(f"[green]+[/green] Created command: {dest}")
+
+    elif comp_type == "agent":
+        if not name.endswith(".md"):
+            name = f"{name}.md"
+
+        content = AGENT_TEMPLATE.format(
+            name=name.replace(".md", ""),
+            description="Your agent description",
+        )
+
+        dest = registry_path / "agents" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists() and not args.force:
+            print(f"Error: {dest} already exists. Use --force to overwrite.")
+            sys.exit(1)
+        dest.write_text(content)
+
+        _print(f"[green]+[/green] Created agent: {dest}")
+
+    elif comp_type == "prompt-hook":
+        if not name.endswith(".prompt.json"):
+            name = f"{name}.prompt.json"
+
+        if event not in EVENTS:
+            print(f"Error: Unknown event '{event}'")
+            sys.exit(1)
+
+        import json
+        prompt_data = json.loads(PROMPT_TEMPLATE)
+        prompt_data["hawk-hook"] = {"events": [event]}
+        content = json.dumps(prompt_data, indent=2) + "\n"
+
+        dest = registry_path / "hooks" / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists() and not args.force:
+            print(f"Error: {dest} already exists. Use --force to overwrite.")
+            sys.exit(1)
+        dest.write_text(content)
+
+        _print(f"[green]+[/green] Created prompt hook: {dest}")
+        _print(f"  Event: {event}")
+
+    else:
+        print(f"Error: Unknown type '{comp_type}'")
+        sys.exit(1)
+
+    # prompt-hook creates files in hooks/ dir, so the add type is "hook"
+    add_type = "hook" if comp_type == "prompt-hook" else comp_type
+    _print(f"\n[dim]Run[/dim] [cyan]hawk add {add_type} {dest}[/cyan] [dim]to register, or edit the file first.[/dim]")
+
+
+def cmd_deps(args):
+    """Install dependencies for all hooks in the registry."""
+    import subprocess
+    from . import v2_config
+    from .hook_meta import parse_hook_meta
+
+    registry_path = v2_config.get_registry_path()
+    hooks_dir = registry_path / "hooks"
+
+    if not hooks_dir.exists():
+        print("No hooks directory found.")
+        return
+
+    # Scan all hooks for deps
+    all_deps: set[str] = set()
+    for hook_file in sorted(hooks_dir.iterdir()):
+        if hook_file.is_file():
+            meta = parse_hook_meta(hook_file)
+            if meta.deps:
+                for dep in meta.deps.split(","):
+                    dep = dep.strip()
+                    if dep:
+                        all_deps.add(dep)
+
+    if not all_deps:
+        print("No dependencies found in hook metadata.")
+        return
+
+    print(f"Found {len(all_deps)} dependency(ies): {', '.join(sorted(all_deps))}")
+
+    # Create/update venv
+    venv_dir = v2_config.get_config_dir() / ".venv"
+    venv_python = venv_dir / "bin" / "python"
+
+    if not venv_dir.exists():
+        print(f"Creating venv at {venv_dir}...")
+        try:
+            subprocess.run(
+                ["python3", "-m", "venv", str(venv_dir)],
+                check=True, capture_output=True, text=True, timeout=60,
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error creating venv: {e.stderr}")
+            sys.exit(1)
+
+    # Install deps
+    print(f"Installing: {', '.join(sorted(all_deps))}...")
+    try:
+        subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "--quiet"] + sorted(all_deps),
+            check=True, capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error installing: {e.stderr}")
+        sys.exit(1)
+
+    print(f"\nInstalled {len(all_deps)} package(s) into {venv_dir}")
+    print("Runners will use venv Python automatically on next sync.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the v2 CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -1180,6 +1385,20 @@ def build_parser() -> argparse.ArgumentParser:
     # config
     config_p = subparsers.add_parser("config", help="Interactive settings editor")
     config_p.set_defaults(func=cmd_config)
+
+    # new
+    new_p = subparsers.add_parser("new", help="Create a new component from template")
+    new_p.add_argument("type", choices=["hook", "command", "agent", "prompt-hook"],
+                       help="Component type")
+    new_p.add_argument("name", help="Component name")
+    new_p.add_argument("--event", default="pre_tool_use", help="Target event (for hooks, default: pre_tool_use)")
+    new_p.add_argument("--lang", default=".py", help="Language extension (for hooks, default: .py)")
+    new_p.add_argument("--force", action="store_true", help="Overwrite existing file")
+    new_p.set_defaults(func=cmd_new)
+
+    # deps
+    deps_p = subparsers.add_parser("deps", help="Install dependencies for hooks")
+    deps_p.set_defaults(func=cmd_deps)
 
     # migrate
     migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")

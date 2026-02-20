@@ -267,7 +267,7 @@ class TestClaudeHookWiring:
             "config_dir": config_dir,
             "registry": registry,
             "target": target,
-            "runners_dir": config_dir / "runners",
+            "runners_dir": target / "runners",
         }
 
     def test_generates_runner_per_event(self, hook_env):
@@ -509,6 +509,243 @@ class TestClaudeHookWiring:
         runner = hook_env["runners_dir"] / "pre_tool_use.sh"
         mode = os.stat(runner).st_mode
         assert mode & stat.S_IXUSR  # Owner execute bit
+
+    def test_runners_are_per_project(self, tmp_path, monkeypatch):
+        """Each project should get its own runners directory, not a shared global one."""
+        config_dir = tmp_path / "hawk-config"
+        config_dir.mkdir()
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "guard.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n"
+        )
+
+        adapter = ClaudeAdapter()
+
+        # Project A
+        target_a = tmp_path / "project-a" / ".claude"
+        target_a.mkdir(parents=True)
+        adapter.register_hooks(["guard.py"], target_a, registry_path=registry)
+
+        # Project B
+        target_b = tmp_path / "project-b" / ".claude"
+        target_b.mkdir(parents=True)
+        adapter.register_hooks(["guard.py"], target_b, registry_path=registry)
+
+        # Each project has its own runners dir
+        assert (target_a / "runners" / "pre_tool_use.sh").exists()
+        assert (target_b / "runners" / "pre_tool_use.sh").exists()
+
+        # Global config dir should NOT have runners
+        assert not (config_dir / "runners").exists()
+
+
+class TestClaudePromptHooks:
+    """Tests for .prompt.json native Claude hook registration."""
+
+    @pytest.fixture
+    def prompt_hook_env(self, tmp_path, monkeypatch):
+        config_dir = tmp_path / "hawk-config"
+        config_dir.mkdir()
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+
+        target = tmp_path / "claude"
+        target.mkdir()
+
+        return {"registry": registry, "target": target, "hooks_dir": hooks_dir}
+
+    def test_prompt_json_registered_as_type_prompt(self, prompt_hook_env):
+        hooks_dir = prompt_hook_env["hooks_dir"]
+        (hooks_dir / "guard.prompt.json").write_text(json.dumps({
+            "prompt": "Evaluate if this action is safe.",
+            "timeout": 30,
+            "hawk-hook": {"events": ["pre_tool_use"]},
+        }))
+
+        adapter = ClaudeAdapter()
+        registered = adapter.register_hooks(
+            ["guard.prompt.json"],
+            prompt_hook_env["target"],
+            registry_path=prompt_hook_env["registry"],
+        )
+
+        assert "guard.prompt.json" in registered
+
+        settings = json.loads((prompt_hook_env["target"] / "settings.json").read_text())
+        hawk_hooks = [h for h in settings["hooks"] if any(
+            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        )]
+        assert len(hawk_hooks) == 1
+        entry = hawk_hooks[0]
+        assert entry["matcher"] == "PreToolUse"
+        assert entry["hooks"][0]["type"] == "prompt"
+        assert entry["hooks"][0]["prompt"] == "Evaluate if this action is safe."
+        assert entry["hooks"][0]["timeout"] == 30
+
+    def test_prompt_json_default_event(self, prompt_hook_env):
+        """Prompt hooks without explicit events default to pre_tool_use."""
+        hooks_dir = prompt_hook_env["hooks_dir"]
+        (hooks_dir / "check.prompt.json").write_text(json.dumps({
+            "prompt": "Check this operation.",
+            "hawk-hook": {"events": []},
+        }))
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(
+            ["check.prompt.json"],
+            prompt_hook_env["target"],
+            registry_path=prompt_hook_env["registry"],
+        )
+
+        settings = json.loads((prompt_hook_env["target"] / "settings.json").read_text())
+        hawk_hooks = [h for h in settings["hooks"] if any(
+            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        )]
+        assert len(hawk_hooks) == 1
+        assert hawk_hooks[0]["matcher"] == "PreToolUse"
+
+    def test_mixed_script_and_prompt_hooks(self, prompt_hook_env):
+        """Both script and prompt hooks can be registered together."""
+        hooks_dir = prompt_hook_env["hooks_dir"]
+        (hooks_dir / "guard.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n"
+        )
+        (hooks_dir / "eval.prompt.json").write_text(json.dumps({
+            "prompt": "Evaluate safety.",
+            "hawk-hook": {"events": ["stop"]},
+        }))
+
+        adapter = ClaudeAdapter()
+        registered = adapter.register_hooks(
+            ["guard.py", "eval.prompt.json"],
+            prompt_hook_env["target"],
+            registry_path=prompt_hook_env["registry"],
+        )
+
+        assert "guard.py" in registered
+        assert "eval.prompt.json" in registered
+
+        settings = json.loads((prompt_hook_env["target"] / "settings.json").read_text())
+        hawk_hooks = [h for h in settings["hooks"] if any(
+            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        )]
+        assert len(hawk_hooks) == 2
+
+        types = {h["hooks"][0]["type"] for h in hawk_hooks}
+        assert types == {"command", "prompt"}
+
+    def test_prompt_json_without_prompt_field_skipped(self, prompt_hook_env):
+        """Prompt hooks without a prompt field are skipped."""
+        hooks_dir = prompt_hook_env["hooks_dir"]
+        (hooks_dir / "bad.prompt.json").write_text(json.dumps({
+            "hawk-hook": {"events": ["pre_tool_use"]},
+        }))
+
+        adapter = ClaudeAdapter()
+        registered = adapter.register_hooks(
+            ["bad.prompt.json"],
+            prompt_hook_env["target"],
+            registry_path=prompt_hook_env["registry"],
+        )
+
+        # File exists in registry, so it's in registered list, but no settings entry
+        settings_path = prompt_hook_env["target"] / "settings.json"
+        if settings_path.exists():
+            settings = json.loads(settings_path.read_text())
+            hawk_hooks = [h for h in settings.get("hooks", []) if any(
+                hh.get("__hawk_managed") for hh in h.get("hooks", [])
+            )]
+            assert len(hawk_hooks) == 0
+
+
+class TestClaudeTimeoutPropagation:
+    """Tests for timeout propagation in hook entries."""
+
+    @pytest.fixture
+    def timeout_env(self, tmp_path, monkeypatch):
+        config_dir = tmp_path / "hawk-config"
+        config_dir.mkdir()
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+
+        target = tmp_path / "claude"
+        target.mkdir()
+
+        return {"registry": registry, "target": target, "hooks_dir": hooks_dir}
+
+    def test_timeout_propagated_to_settings(self, timeout_env):
+        hooks_dir = timeout_env["hooks_dir"]
+        (hooks_dir / "guard.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "# hawk-hook: timeout=60\n"
+            "import sys\n"
+        )
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(
+            ["guard.py"],
+            timeout_env["target"],
+            registry_path=timeout_env["registry"],
+        )
+
+        settings = json.loads((timeout_env["target"] / "settings.json").read_text())
+        hawk_hooks = [h for h in settings["hooks"] if any(
+            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        )]
+        assert hawk_hooks[0]["hooks"][0].get("timeout") == 60
+
+    def test_max_timeout_across_hooks(self, timeout_env):
+        hooks_dir = timeout_env["hooks_dir"]
+        (hooks_dir / "fast.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\n# hawk-hook: timeout=10\nimport sys\n"
+        )
+        (hooks_dir / "slow.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\n# hawk-hook: timeout=120\nimport sys\n"
+        )
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(
+            ["fast.py", "slow.py"],
+            timeout_env["target"],
+            registry_path=timeout_env["registry"],
+        )
+
+        settings = json.loads((timeout_env["target"] / "settings.json").read_text())
+        hawk_hooks = [h for h in settings["hooks"] if any(
+            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        )]
+        pre_tool = [h for h in hawk_hooks if h["matcher"] == "PreToolUse"][0]
+        assert pre_tool["hooks"][0]["timeout"] == 120
+
+    def test_no_timeout_when_zero(self, timeout_env):
+        hooks_dir = timeout_env["hooks_dir"]
+        (hooks_dir / "guard.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n"
+        )
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(
+            ["guard.py"],
+            timeout_env["target"],
+            registry_path=timeout_env["registry"],
+        )
+
+        settings = json.loads((timeout_env["target"] / "settings.json").read_text())
+        hawk_hooks = [h for h in settings["hooks"] if any(
+            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        )]
+        assert "timeout" not in hawk_hooks[0]["hooks"][0]
 
 
 class TestClaudePromptSync:

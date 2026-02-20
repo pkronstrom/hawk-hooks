@@ -234,6 +234,41 @@ class TestArgParsing:
         args = self.parser.parse_args([])
         assert args.main_dir is None
 
+    def test_new_hook(self):
+        args = self.parser.parse_args(["new", "hook", "my-guard"])
+        assert args.command == "new"
+        assert args.type == "hook"
+        assert args.name == "my-guard"
+        assert args.event == "pre_tool_use"
+        assert args.lang == ".py"
+
+    def test_new_hook_with_options(self):
+        args = self.parser.parse_args(["new", "hook", "notify", "--event", "stop", "--lang", ".sh"])
+        assert args.event == "stop"
+        assert args.lang == ".sh"
+
+    def test_new_command(self):
+        args = self.parser.parse_args(["new", "command", "deploy"])
+        assert args.type == "command"
+        assert args.name == "deploy"
+
+    def test_new_agent(self):
+        args = self.parser.parse_args(["new", "agent", "reviewer"])
+        assert args.type == "agent"
+
+    def test_new_prompt_hook(self):
+        args = self.parser.parse_args(["new", "prompt-hook", "safety-check"])
+        assert args.type == "prompt-hook"
+
+    def test_new_force(self):
+        args = self.parser.parse_args(["new", "hook", "guard", "--force"])
+        assert args.force is True
+
+    def test_deps(self):
+        args = self.parser.parse_args(["deps"])
+        assert args.command == "deps"
+        assert hasattr(args, "func")
+
 
 class TestNameFromContent:
     def test_simple_text(self):
@@ -257,6 +292,162 @@ class TestNameFromContent:
 
     def test_custom_suffix(self):
         assert _name_from_content("test hook", suffix=".py") == "test-hook.py"
+
+
+class TestCmdNew:
+    """Test hawk new command."""
+
+    def test_new_hook_creates_file(self, tmp_path, monkeypatch):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_new
+
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            type="hook", name="my-guard", event="pre_tool_use",
+            lang=".py", force=False,
+        )
+        cmd_new(args)
+
+        hook_file = registry_dir / "hooks" / "my-guard.py"
+        assert hook_file.exists()
+        content = hook_file.read_text()
+        assert "hawk-hook: events=pre_tool_use" in content
+        assert content.startswith("#!/usr/bin/env python3")
+
+    def test_new_hook_sh(self, tmp_path, monkeypatch):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_new
+
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            type="hook", name="guard", event="stop", lang=".sh", force=False,
+        )
+        cmd_new(args)
+
+        hook_file = registry_dir / "hooks" / "guard.sh"
+        assert hook_file.exists()
+        content = hook_file.read_text()
+        assert "hawk-hook: events=stop" in content
+
+    def test_new_command_creates_file(self, tmp_path, monkeypatch):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_new
+
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            type="command", name="deploy", event="pre_tool_use",
+            lang=".py", force=False,
+        )
+        cmd_new(args)
+
+        cmd_file = registry_dir / "commands" / "deploy.md"
+        assert cmd_file.exists()
+        content = cmd_file.read_text()
+        assert "deploy" in content
+
+    def test_new_agent_creates_file(self, tmp_path, monkeypatch):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_new
+
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            type="agent", name="reviewer", event="pre_tool_use",
+            lang=".py", force=False,
+        )
+        cmd_new(args)
+
+        agent_file = registry_dir / "agents" / "reviewer.md"
+        assert agent_file.exists()
+        content = agent_file.read_text()
+        assert "reviewer" in content
+
+    def test_new_prompt_hook_creates_file(self, tmp_path, monkeypatch):
+        import argparse
+        import json
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_new
+
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            type="prompt-hook", name="safety-check", event="pre_tool_use",
+            lang=".py", force=False,
+        )
+        cmd_new(args)
+
+        hook_file = registry_dir / "hooks" / "safety-check.prompt.json"
+        assert hook_file.exists()
+        data = json.loads(hook_file.read_text())
+        assert "prompt" in data
+        assert data["hawk-hook"]["events"] == ["pre_tool_use"]
+
+    def test_new_hook_no_overwrite_without_force(self, tmp_path, monkeypatch):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_new
+
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "hooks").mkdir(parents=True)
+        (registry_dir / "hooks" / "guard.py").write_text("existing")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            type="hook", name="guard", event="pre_tool_use",
+            lang=".py", force=False,
+        )
+        with pytest.raises(SystemExit):
+            cmd_new(args)
+
+        # File should be unchanged
+        assert (registry_dir / "hooks" / "guard.py").read_text() == "existing"
+
+
+class TestCmdDeps:
+    """Test hawk deps command."""
+
+    def test_deps_no_hooks(self, tmp_path, monkeypatch, capsys):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_deps
+
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace()
+        cmd_deps(args)
+
+        captured = capsys.readouterr()
+        assert "No hooks directory" in captured.out
+
+    def test_deps_no_deps_found(self, tmp_path, monkeypatch, capsys):
+        import argparse
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_deps
+
+        registry_dir = tmp_path / "registry"
+        hooks_dir = registry_dir / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "guard.py").write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace()
+        cmd_deps(args)
+
+        captured = capsys.readouterr()
+        assert "No dependencies found" in captured.out
 
 
 class TestCmdScanPackageRecording:

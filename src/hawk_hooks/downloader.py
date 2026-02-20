@@ -429,8 +429,12 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
 
 
 def _is_hook_file(path: Path) -> bool:
-    """Check if a file is a valid hook (script, .stdout.*, or has hawk-hook header)."""
+    """Check if a file is a valid hook (script, .stdout.*, .prompt.json, or has hawk-hook header)."""
     suffix = path.suffix.lower()
+
+    # .prompt.json files are always valid hooks (Claude native prompt hooks)
+    if path.name.endswith(".prompt.json"):
+        return True
 
     # Scripts are always valid hooks
     if suffix in (".py", ".sh", ".js", ".ts"):
@@ -477,6 +481,10 @@ def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
     # Prompts
     if parent_dir_name == "prompts" and suffix == ".md":
         return ClassifiedItem(ComponentType.PROMPT, name, path)
+
+    # Hooks — .prompt.json in hooks/ dir
+    if parent_dir_name == "hooks" and name.endswith(".prompt.json"):
+        return ClassifiedItem(ComponentType.HOOK, name, path)
 
     # Hooks — scripts in hooks/ dir
     if parent_dir_name == "hooks" and suffix in (".py", ".sh", ".js", ".ts"):

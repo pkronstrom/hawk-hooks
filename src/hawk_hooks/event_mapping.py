@@ -52,7 +52,7 @@ CANONICAL_EVENTS: dict[str, dict[str, str]] = {
 
 # Tool-specific events (not in canonical mapping)
 TOOL_SPECIFIC_EVENTS: dict[str, list[str]] = {
-    "claude": ["user_prompt_submit", "subagent_stop"],
+    "claude": ["user_prompt_submit", "subagent_stop", "permission_request"],
     "gemini": ["BeforeModel", "AfterModel", "BeforeToolSelection"],
     "codex": [],
 }
