@@ -104,6 +104,56 @@ class Registry:
             dest.unlink()
         return True
 
+    def replace(self, component_type: ComponentType, name: str, source: Path) -> Path:
+        """Atomically replace a component in the registry.
+
+        Copies new source to a temp location first, then removes old and
+        renames new into place. If the copy fails, the old item is preserved.
+
+        Returns:
+            Path to the component in the registry.
+        """
+        _validate_name(name)
+        if not source.exists():
+            raise FileNotFoundError(f"Source not found: {source}")
+
+        type_dir = self._type_dir(component_type)
+        type_dir.mkdir(parents=True, exist_ok=True)
+        dest = type_dir / name
+
+        if not dest.exists():
+            # Nothing to replace — just add
+            return self.add(component_type, name, source)
+
+        # Copy to temp location first
+        tmp_dest = type_dir / f".{name}.hawk_tmp"
+        try:
+            if tmp_dest.exists():
+                if tmp_dest.is_dir():
+                    shutil.rmtree(tmp_dest)
+                else:
+                    tmp_dest.unlink()
+            if source.is_dir():
+                shutil.copytree(source, tmp_dest)
+            else:
+                shutil.copy2(source, tmp_dest)
+        except Exception:
+            # Clean up temp on failure, preserve original
+            if tmp_dest.exists():
+                if tmp_dest.is_dir():
+                    shutil.rmtree(tmp_dest)
+                else:
+                    tmp_dest.unlink()
+            raise
+
+        # Now safe to remove old and rename new
+        if dest.is_dir():
+            shutil.rmtree(dest)
+        else:
+            dest.unlink()
+        tmp_dest.rename(dest)
+        return dest
+
     def has(self, component_type: ComponentType, name: str) -> bool:
         """Check if a component exists in the registry."""
         _validate_name(name)

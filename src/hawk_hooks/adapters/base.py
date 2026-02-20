@@ -347,8 +347,17 @@ exit 0
         unlink_fn,
         get_dir_fn,
         result: SyncResult,
+        find_current_fn=None,
     ) -> None:
-        """Sync a set of components: link desired, unlink stale."""
+        """Sync a set of components: link desired, unlink stale.
+
+        Args:
+            find_current_fn: Optional callable(comp_dir, source_dir) -> set[str]
+                that returns names of currently-managed items. Defaults to
+                scanning for symlinks pointing into the registry. Adapters that
+                write regular files (e.g. Gemini toml) should provide a custom
+                finder.
+        """
         # Validate all names to prevent path traversal from config
         validated: list[str] = []
         for name in names:
@@ -360,19 +369,12 @@ exit 0
         desired = set(validated)
         comp_dir = get_dir_fn(target_dir)
 
-        # Find currently linked items (symlinks only)
-        current: set[str] = set()
-        if comp_dir.exists():
-            for entry in comp_dir.iterdir():
-                if entry.is_symlink():
-                    # Check if it points into our registry
-                    try:
-                        target = entry.resolve()
-                        resolved_source = source_dir.resolve()
-                        if target == resolved_source or target.is_relative_to(resolved_source):
-                            current.add(entry.name)
-                    except (OSError, ValueError):
-                        pass
+        # Find currently managed items
+        if find_current_fn is not None:
+            current = find_current_fn(comp_dir, source_dir)
+        else:
+            # Default: scan for symlinks pointing into our registry
+            current = self._find_current_symlinks(comp_dir, source_dir)
 
         # Unlink stale
         for name in current - desired:
@@ -406,6 +408,23 @@ exit 0
                 result.linked.append(name)
             except Exception as e:
                 result.errors.append(f"link {name}: {e}")
+
+    @staticmethod
+    def _find_current_symlinks(comp_dir: Path, source_dir: Path) -> set[str]:
+        """Find symlinks in *comp_dir* that point into *source_dir*."""
+        current: set[str] = set()
+        if not comp_dir.exists():
+            return current
+        for entry in comp_dir.iterdir():
+            if entry.is_symlink():
+                try:
+                    target = entry.resolve()
+                    resolved_source = source_dir.resolve()
+                    if target == resolved_source or target.is_relative_to(resolved_source):
+                        current.add(entry.name)
+                except (OSError, ValueError):
+                    pass
+        return current
 
     @staticmethod
     def _load_mcp_servers(

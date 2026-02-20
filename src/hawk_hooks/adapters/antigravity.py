@@ -36,8 +36,8 @@ class AntigravityAdapter(ToolAdapter):
         return target_dir / "skills"
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """Antigravity hook support TBD — record names for now."""
-        return list(hook_names)
+        """Antigravity does not support hooks natively."""
+        return []
 
     def write_mcp_config(
         self,

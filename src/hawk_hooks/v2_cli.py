@@ -1170,8 +1170,9 @@ def cmd_update(args):
                 any_changes = True
                 continue
 
-            # Re-classify and diff
-            content = classify(clone_dir)
+            # Re-classify and diff — pass repo_name for consistent synthetic hook naming
+            repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+            content = classify(clone_dir, repo_name=repo_name)
             old_items = {(i["type"], i["name"]): i.get("hash", "") for i in pkg_data.get("items", [])}
             registry_path = v2_config.get_registry_path()
 
@@ -1183,12 +1184,12 @@ def cmd_update(args):
             for item in content.items:
                 item_key = (item.component_type.value, item.name)
 
-                # Add to registry (replace if exists)
-                if registry.detect_clash(item.component_type, item.name):
-                    registry.remove(item.component_type, item.name)
-
+                # Add to registry (atomic replace if exists)
                 try:
-                    registry.add(item.component_type, item.name, item.source_path)
+                    if registry.detect_clash(item.component_type, item.name):
+                        registry.replace(item.component_type, item.name, item.source_path)
+                    else:
+                        registry.add(item.component_type, item.name, item.source_path)
                 except (FileNotFoundError, FileExistsError, OSError) as e:
                     print(f"  ! {item.name}: {e}")
                     continue

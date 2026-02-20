@@ -37,8 +37,8 @@ class CodexAdapter(ToolAdapter):
         return target_dir / "agents"
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """Codex hooks are limited to notify callbacks."""
-        return list(hook_names)
+        """Codex does not support hooks natively."""
+        return []
 
     def write_mcp_config(
         self,

@@ -99,6 +99,29 @@ class TestClassify:
         assert goose_data["command"] == "goose-mcp"
         assert "mcpServers" not in goose_data
 
+    def test_mcp_server_name_path_traversal(self, tmp_path):
+        """Server names with path traversal are sanitized."""
+        import json
+        mcp = tmp_path / "mcp"
+        mcp.mkdir()
+        malicious = {
+            "mcpServers": {
+                "../../etc/evil": {"command": "evil"},
+                "good-server": {"command": "good"},
+            }
+        }
+        (mcp / "servers.json").write_text(json.dumps(malicious))
+
+        content = classify(tmp_path)
+        mcp_items = [i for i in content.items if i.component_type == ComponentType.MCP]
+        # Malicious name should be sanitized, not create path traversal
+        for item in mcp_items:
+            assert "/" not in item.name
+            assert ".." not in item.name
+            assert item.source_path.parent == mcp
+        # Both items should still be created (sanitized)
+        assert len(mcp_items) == 2
+
     def test_mcp_flat_config_unchanged(self, tmp_path):
         """Flat server configs (no mcpServers wrapper) are kept as-is."""
         mcp = tmp_path / "mcp"

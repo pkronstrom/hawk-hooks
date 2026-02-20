@@ -17,11 +17,31 @@ from pathlib import Path
 
 import yaml
 
+import re as _re_module
+
 from .registry import Registry
 from .types import ComponentType
 
 # Manifest filename for package declarations
 PACKAGE_MANIFEST = "hawk-package.yaml"
+
+
+def _sanitize_filename(name: str) -> str:
+    """Sanitize an untrusted string for use as a filename.
+
+    Strips path separators, .., control chars, and collapses to safe chars.
+    Raises ValueError if the result is empty.
+    """
+    # Strip path components — only keep the basename
+    name = name.replace("/", "_").replace("\\", "_")
+    name = name.replace("..", "_")
+    # Remove control chars and null bytes
+    name = _re_module.sub(r"[\x00-\x1f]", "", name)
+    # Collapse runs of unsafe chars to single dash
+    name = _re_module.sub(r"[^a-zA-Z0-9._-]", "-", name).strip("-")
+    if not name:
+        raise ValueError("Filename is empty after sanitization")
+    return name
 
 # Files that are repo metadata, not components — skip during scan
 _NON_COMPONENT_FILES = {
@@ -335,7 +355,11 @@ def _explode_mcp_file(path: Path) -> list[ClassifiedItem] | None:
     for server_name, server_cfg in servers.items():
         if not isinstance(server_cfg, dict):
             continue
-        fname = f"{server_name}.json"
+        try:
+            safe_name = _sanitize_filename(server_name)
+        except ValueError:
+            continue
+        fname = f"{safe_name}.json"
         out_path = out_dir / fname
         # Write individual server config (flat format the adapter expects)
         if not out_path.exists():
@@ -731,7 +755,8 @@ def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedIt
                         desc_slug = "-".join(desc_slug.split("-")[:5])
                         slug_base = f"{repo_slug}_{snake_event}_{desc_slug}"
                     elif matcher:
-                        slug_base = f"{repo_slug}_{snake_event}-{matcher.lower()}"
+                        safe_matcher = _re.sub(r"[^a-z0-9]+", "-", matcher.lower()).strip("-")
+                        slug_base = f"{repo_slug}_{snake_event}-{safe_matcher}"
                     else:
                         slug_base = f"{repo_slug}_{snake_event}"
 
@@ -768,9 +793,9 @@ def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedIt
                     if not prompt_text:
                         continue
                     timeout = hook_def.get("timeout", 0)
-                    slug = event_name.lower()
+                    slug = _re.sub(r"[^a-z0-9]+", "-", event_name.lower()).strip("-")
                     if matcher:
-                        slug += f"-{matcher.lower().replace('|', '-')}"
+                        slug += "-" + _re.sub(r"[^a-z0-9]+", "-", matcher.lower()).strip("-")
                     fname = f"{slug}.prompt.json"
 
                     prompt_data = {

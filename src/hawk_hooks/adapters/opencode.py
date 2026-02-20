@@ -25,8 +25,8 @@ class OpenCodeAdapter(ToolAdapter):
         return project / ".opencode"
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """OpenCode hooks use JS plugin wrappers."""
-        return list(hook_names)
+        """OpenCode does not support hooks natively."""
+        return []
 
     def write_mcp_config(
         self,

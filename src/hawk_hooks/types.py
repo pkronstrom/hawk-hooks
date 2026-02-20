@@ -75,8 +75,12 @@ class ResolvedSet:
         }
         return mapping.get(component_type, [])
 
-    def hash_key(self) -> str:
-        """Deterministic hash for cache comparison."""
+    def hash_key(self, registry_path: "Path | None" = None) -> str:
+        """Deterministic hash for cache comparison.
+
+        When *registry_path* is provided, includes file mtime+size so the
+        cache is invalidated when file contents change (not just names).
+        """
         import hashlib
 
         parts = [
@@ -87,6 +91,24 @@ class ResolvedSet:
             ",".join(sorted(self.mcp)),
             ",".join(sorted(self.prompts)),
         ]
+
+        # Include file metadata when registry is available
+        if registry_path is not None:
+            from pathlib import Path as _Path
+            field_dirs = [
+                ("skills", self.skills), ("hooks", self.hooks),
+                ("commands", self.commands), ("agents", self.agents),
+                ("mcp", self.mcp), ("prompts", self.prompts),
+            ]
+            for dir_name, names in field_dirs:
+                for name in sorted(names):
+                    p = _Path(registry_path) / dir_name / name
+                    try:
+                        st = p.stat()
+                        parts.append(f"{name}:{st.st_mtime_ns}:{st.st_size}")
+                    except OSError:
+                        parts.append(f"{name}:missing")
+
         return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 

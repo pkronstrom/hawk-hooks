@@ -95,9 +95,60 @@ class GeminiAdapter(ToolAdapter):
                 return True
         return False
 
+    @staticmethod
+    def _find_current_toml_commands(comp_dir: Path, source_dir: Path) -> set[str]:
+        """Find .toml command files whose stems match registry .md names."""
+        current: set[str] = set()
+        if not comp_dir.exists():
+            return current
+        registry_stems = set()
+        if source_dir.exists():
+            registry_stems = {f.stem for f in source_dir.iterdir() if f.is_file()}
+        for entry in comp_dir.iterdir():
+            if entry.suffix == ".toml" and entry.stem in registry_stems:
+                # Return the .md name so it matches the desired set
+                current.add(f"{entry.stem}.md")
+        return current
+
+    def sync(self, resolved, target_dir: Path, registry_path: Path):
+        """Override sync to pass custom command finder for toml cleanup."""
+        from ..types import SyncResult
+        from ..registry import _validate_name
+
+        result = SyncResult(tool=str(self.tool))
+
+        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_commands_dir, self.get_prompts_dir]:
+            dir_getter(target_dir).mkdir(parents=True, exist_ok=True)
+
+        self._sync_component(resolved.skills, registry_path / "skills", target_dir,
+                             self.link_skill, self.unlink_skill, self.get_skills_dir, result)
+        self._sync_component(resolved.agents, registry_path / "agents", target_dir,
+                             self.link_agent, self.unlink_agent, self.get_agents_dir, result)
+        # Commands: use toml-aware finder
+        self._sync_component(resolved.commands, registry_path / "commands", target_dir,
+                             self.link_command, self.unlink_command, self.get_commands_dir, result,
+                             find_current_fn=self._find_current_toml_commands)
+        self._sync_component(resolved.prompts, registry_path / "prompts", target_dir,
+                             self.link_prompt, self.unlink_prompt, self.get_prompts_dir, result)
+
+        try:
+            registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
+            result.linked.extend(f"hook:{h}" for h in registered)
+        except Exception as e:
+            result.errors.append(f"hooks: {e}")
+
+        try:
+            servers = self._load_mcp_servers(resolved.mcp, registry_path / "mcp") if resolved.mcp else {}
+            self.write_mcp_config(servers, target_dir)
+            result.linked.extend(f"mcp:{name}" for name in servers)
+        except Exception as e:
+            result.errors.append(f"mcp: {e}")
+
+        return result
+
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """Register hooks in Gemini settings.json format."""
-        return list(hook_names)
+        """Gemini does not support hooks natively."""
+        return []
 
     def write_mcp_config(
         self,

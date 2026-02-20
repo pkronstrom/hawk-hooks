@@ -45,8 +45,8 @@ class CursorAdapter(ToolAdapter):
         return target_dir / "commands"
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """Cursor hooks use hooks.json — record names for now."""
-        return list(hook_names)
+        """Cursor does not support hooks natively."""
+        return []
 
     def write_mcp_config(
         self,

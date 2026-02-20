@@ -674,7 +674,8 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
 
     # 1. Build groups by component type + track item->field mapping
     toggle_groups: list[ToggleGroup] = []
-    item_field_map: dict[str, str] = {}  # item name -> config field ("skills", "commands", etc.)
+    # Map item name -> set of config fields (handles same name across types)
+    item_field_map: dict[str, set[str]] = {}
     all_pkg_items: set[str] = set()
 
     for display_name, field, ct in COMPONENT_TYPES:
@@ -689,7 +690,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
                 items=sorted(type_items),
             ))
             for name in type_items:
-                item_field_map[name] = field
+                item_field_map.setdefault(name, set()).add(field)
                 all_pkg_items.add(name)
 
     if not toggle_groups:
@@ -769,14 +770,17 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
     field_to_ct = {f: c for _, f, c in COMPONENT_TYPES}
 
     def _delete_pkg_item(name: str) -> bool:
-        field = item_field_map.get(name)
-        if not field:
+        fields = item_field_map.get(name)
+        if not fields:
             return False
-        ct = field_to_ct.get(field)
-        if ct and registry.remove(ct, name):
+        removed = False
+        for field in fields:
+            ct = field_to_ct.get(field)
+            if ct and registry.remove(ct, name):
+                removed = True
+        if removed:
             state["contents"] = registry.list()
-            return True
-        return False
+        return removed
 
     enabled_lists, changed = run_toggle_list(
         f"\U0001f4e6 {pkg_name}",
@@ -800,7 +804,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
 
             # Diff per field
             for field in ["skills", "hooks", "commands", "agents", "mcp"]:
-                field_items = {name for name, f in item_field_map.items() if f == field}
+                field_items = {name for name, fields in item_field_map.items() if field in fields}
                 if not field_items:
                     continue
 

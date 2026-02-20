@@ -112,7 +112,7 @@ def sync_directory(
             continue
 
         # Check cache — skip if resolved set hasn't changed
-        current_hash = resolved.hash_key()
+        current_hash = resolved.hash_key(registry_path=registry.path)
         if not force and _read_cached_hash(scope_key, tool) == current_hash:
             results.append(SyncResult(tool=str(tool)))
             continue
@@ -161,7 +161,7 @@ def sync_global(
             continue
 
         # Check cache — skip if resolved set hasn't changed
-        current_hash = resolved.hash_key()
+        current_hash = resolved.hash_key(registry_path=registry.path)
         if not force and _read_cached_hash("global", tool) == current_hash:
             results.append(SyncResult(tool=str(tool)))
             continue
