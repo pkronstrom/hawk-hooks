@@ -41,3 +41,6 @@ htmlcov/
 .DS_Store
 *.log
 .worktrees/
+
+# Private builtins (not committed)
+builtins-private/

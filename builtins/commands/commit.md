@@ -1,18 +1,30 @@
 ---
 name: commit
 description: Generate a concise commit message following best practices
-tools: [claude, gemini, codex]
 ---
 
 # Commit
 
 Generate a concise, conventional commit message for staged changes.
 
-## Process
+## Step 1: Ground in Actual State
 
-1. Run `git diff --cached` to see staged changes
+Before reasoning about the commit, gather real project state:
+
+```bash
+!git status --short
+!git diff --cached --stat
+!git log --oneline -5
+```
+
+This ensures the commit message reflects what's actually staged, not assumptions.
+
+## Step 2: Analyze and Draft
+
+1. Run `git diff --cached` to see the full staged diff
 2. Analyze the nature of changes (feat, fix, refactor, docs, test, chore)
-3. Write a commit message following conventional commits format
+3. Check recent commit messages (`git log`) to match the project's existing style
+4. Write a commit message following conventional commits format
 
 ## Format
 
