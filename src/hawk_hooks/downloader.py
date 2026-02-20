@@ -597,7 +597,35 @@ def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
                     continue
                 hook_type = hook_def.get("type", "")
 
-                if hook_type == "prompt":
+                if hook_type == "command":
+                    # Resolve script path relative to hooks.json location
+                    cmd = hook_def.get("command", "")
+                    if not cmd:
+                        continue
+                    # Expand ${CLAUDE_PLUGIN_ROOT} to the hooks.json's parent dir
+                    cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", str(out_dir))
+                    # Try resolving relative to hooks.json dir, then repo root
+                    for base in (out_dir, out_dir.parent):
+                        script_path = (base / cmd).resolve()
+                        if script_path.is_file():
+                            break
+                    else:
+                        continue
+                    # Skip if already outside the repo (safety)
+                    try:
+                        script_path.relative_to(out_dir.parent.resolve())
+                    except ValueError:
+                        continue
+                    snake_event = _pascal_to_snake(event_name)
+                    # Inject hawk-hook header if not already present
+                    _inject_hawk_hook_header(script_path, snake_event)
+                    items.append(ClassifiedItem(
+                        component_type=ComponentType.HOOK,
+                        name=script_path.name,
+                        source_path=script_path,
+                    ))
+
+                elif hook_type == "prompt":
                     prompt_text = hook_def.get("prompt", "")
                     if not prompt_text:
                         continue
@@ -626,6 +654,29 @@ def _explode_hooks_json(path: Path) -> list[ClassifiedItem]:
                     ))
 
     return items
+
+
+def _inject_hawk_hook_header(path: Path, event: str) -> None:
+    """Inject a hawk-hook events header into a script if not already present."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return
+    if "hawk-hook:" in text:
+        return  # already has metadata
+    suffix = path.suffix.lower()
+    if suffix in (".py", ".sh"):
+        marker = f"# hawk-hook: events={event}\n"
+    elif suffix in (".js", ".ts"):
+        marker = f"// hawk-hook: events={event}\n"
+    else:
+        return
+    # Insert after shebang if present, otherwise at top
+    lines = text.split("\n", 1)
+    if lines[0].startswith("#!"):
+        path.write_text(lines[0] + "\n" + marker + (lines[1] if len(lines) > 1 else ""))
+    else:
+        path.write_text(marker + text)
 
 
 def _pascal_to_snake(name: str) -> str:

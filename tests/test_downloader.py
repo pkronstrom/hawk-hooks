@@ -691,7 +691,8 @@ class TestHooksJsonExplode:
         assert len(hook_items) == 1
         assert "bash" in hook_items[0].name.lower()
 
-    def test_skips_command_hooks(self, tmp_path):
+    def test_skips_command_hooks_missing_script(self, tmp_path):
+        """Command hooks with non-existent scripts are skipped."""
         import json
         hooks_dir = tmp_path / "hooks"
         hooks_dir.mkdir()
@@ -710,6 +711,55 @@ class TestHooksJsonExplode:
         content = classify(tmp_path)
         hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
         assert len(hook_items) == 0
+
+    def test_extracts_command_hooks_with_script(self, tmp_path):
+        """Command hooks with existing scripts are extracted."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        scripts_dir = hooks_dir / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "block.sh").write_text("#!/bin/bash\nexit 0\n")
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": "scripts/block.sh"}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "block.sh" for i in hook_items)
+        # Should have hawk-hook header injected
+        text = (scripts_dir / "block.sh").read_text()
+        assert "hawk-hook: events=pre_tool_use" in text
+
+    def test_extracts_command_hooks_plugin_root(self, tmp_path):
+        """Command hooks with ${CLAUDE_PLUGIN_ROOT} paths are resolved."""
+        import json
+        hooks_dir = tmp_path / "hooks"
+        scripts_dir = hooks_dir / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "format.sh").write_text("#!/bin/bash\nexit 0\n")
+
+        hooks_json = {
+            "hooks": {
+                "PostToolUse": [
+                    {"matcher": "Edit", "hooks": [
+                        {"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format.sh"}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "format.sh" for i in hook_items)
 
     def test_hooks_json_not_shown_as_item(self, tmp_path):
         import json

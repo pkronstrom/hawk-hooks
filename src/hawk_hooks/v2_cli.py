@@ -821,12 +821,12 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
             try:
                 key = readchar.readkey()
             except (KeyboardInterrupt, EOFError):
-                return []
+                return [], "cancel"
 
             total_rows = len(rows)
             if not total_rows:
                 if key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
-                    return []
+                    return [], "cancel"
                 continue
 
             if key in (readchar.key.UP, "k"):
@@ -859,11 +859,11 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
             elif key == "n":
                 selected.clear()
             elif key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
-                return []
+                return [], "cancel"
 
             live.update(Text.from_markup(_build_display()))
 
-    return [items[i] for i in sorted(selected)]
+    return [items[i] for i in sorted(selected)], "add"
 
 
 def cmd_scan(args):
