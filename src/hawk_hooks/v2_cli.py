@@ -927,18 +927,30 @@ def cmd_scan(args):
 
     added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
 
-    # Record package if manifest found
-    if added and content.package_meta:
+    # Record packages — group items by their per-item .package tag
+    if added and content.packages:
         registry_path = v2_config.get_registry_path()
-        pkg_items = _build_pkg_items(items_to_add, added, registry_path)
-        if pkg_items:
-            v2_config.record_package(
-                content.package_meta.name, "", "", pkg_items,
-                path=str(scan_path),
-            )
-            _print(f"\n[green]Package:[/green] {content.package_meta.name}")
-            if content.package_meta.description:
-                _print(f"  {content.package_meta.description}")
+        items_by_pkg: dict[str, list] = {}
+        for item in items_to_add:
+            item_key = f"{item.component_type}/{item.name}"
+            if item_key in added:
+                pkg_name = item.package or (
+                    content.package_meta.name if content.package_meta else ""
+                )
+                if pkg_name:
+                    items_by_pkg.setdefault(pkg_name, []).append(item)
+        pkg_meta_by_name = {p.name: p for p in content.packages}
+        for pkg_name, pkg_item_list in items_by_pkg.items():
+            pkg_items = _build_pkg_items(pkg_item_list, added, registry_path)
+            if pkg_items:
+                v2_config.record_package(
+                    pkg_name, "", "", pkg_items,
+                    path=str(scan_path),
+                )
+                meta = pkg_meta_by_name.get(pkg_name)
+                _print(f"\n[green]Package:[/green] {pkg_name}")
+                if meta and meta.description:
+                    _print(f"  {meta.description}")
 
     # Enable in global config
     if added and not args.no_enable:

@@ -545,8 +545,10 @@ def _handle_packages(state: dict) -> bool:
             item_count = len(data.get("items", []))
             url = data.get("url", "")
             prefix = "\u276f " if i == cursor else "  "
-            style = "bold cyan" if i == cursor else ""
-            lines.append(f"[{style}]{prefix}\U0001f4e6 {name:<30} {item_count} items[/{style}]")
+            if i == cursor:
+                lines.append(f"[bold cyan]{prefix}\U0001f4e6 {name:<30} {item_count} items[/bold cyan]")
+            else:
+                lines.append(f"{prefix}\U0001f4e6 {name:<30} {item_count} items")
             if i == cursor and url:
                 lines.append(f"[dim]    {url}[/dim]")
         lines.append("")
