@@ -520,6 +520,15 @@ def _build_pkg_items(items_to_add, added, registry_path):
     return pkg_items
 
 
+def _package_source_type(pkg_data: dict) -> str:
+    """Infer package source type from package metadata."""
+    if pkg_data.get("url"):
+        return "git"
+    if pkg_data.get("path"):
+        return "local"
+    return "manual"
+
+
 def cmd_download(args):
     """Download components from a git URL."""
     import shutil
@@ -1030,6 +1039,30 @@ def cmd_scan(args):
         print("\nNo new components to add.")
         return
 
+    # Reject package source-type conflicts up front (before mutating registry)
+    if content.packages:
+        existing_packages = v2_config.load_packages()
+        selected_pkg_names = {
+            item.package or (content.package_meta.name if content.package_meta else "")
+            for item in items_to_add
+        }
+        for pkg_name in sorted(n for n in selected_pkg_names if n):
+            existing = existing_packages.get(pkg_name)
+            if not existing:
+                continue
+            existing_source = _package_source_type(existing)
+            if existing_source != "local":
+                print(
+                    f"Package '{pkg_name}' already exists with source [{existing_source}], "
+                    "refusing to replace source metadata."
+                )
+                print(f"Fix: hawk remove-package {pkg_name} && hawk scan {scan_path} --all")
+                print(
+                    f"Fix: hawk remove-package {pkg_name} && "
+                    f"hawk download <url> --name {pkg_name}"
+                )
+                sys.exit(1)
+
     added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
 
     # Record packages — group items by their per-item .package tag
@@ -1107,21 +1140,23 @@ def cmd_packages(args):
     for name, data in sorted(packages.items()):
         item_count = len(data.get("items", []))
         installed = data.get("installed", "unknown")
+        source_type = _package_source_type(data)
         url = data.get("url", "")
+        path = data.get("path", "")
         commit = data.get("commit", "")[:7]
-        print(f"  {name:<30} {item_count} items  installed {installed}")
-        if url:
+        print(f"  [{source_type}] {name:<30} {item_count} items  installed {installed}")
+        if source_type == "git" and url:
             suffix = f" @ {commit}" if commit else ""
             print(f"    {url}{suffix}")
+        elif source_type == "local" and path:
+            print(f"    {path}")
 
 
 def cmd_update(args):
     """Update packages from their git sources."""
     import shutil
 
-    from .downloader import (
-        add_items_to_registry, classify, get_head_commit, shallow_clone,
-    )
+    from .downloader import classify, get_head_commit, scan_directory, shallow_clone
     from .registry import Registry
     from . import v2_config
 
@@ -1150,51 +1185,142 @@ def cmd_update(args):
 
     any_changes = False
     up_to_date = []
+    failed_packages: list[str] = []
 
     for pkg_name, pkg_data in sorted(to_update.items()):
-        url = pkg_data.get("url", "")
-        if not url:
-            print(f"{pkg_name}: no URL recorded, skipping")
+        source_type = _package_source_type(pkg_data)
+        old_items = {(i["type"], i["name"]): i.get("hash", "") for i in pkg_data.get("items", [])}
+        registry_path = v2_config.get_registry_path()
+
+        if source_type == "manual":
+            print(f"{pkg_name}: local-only package, cannot update")
             continue
 
-        print(f"\n{pkg_name}:")
-        print(f"  Cloning {url}...")
+        if source_type == "git":
+            url = pkg_data.get("url", "")
+            print(f"\n{pkg_name}:")
+            print(f"  Cloning {url}...")
 
-        try:
-            clone_dir = shallow_clone(url)
-        except Exception as e:
-            print(f"  Error cloning: {e}")
-            continue
-
-        try:
-            new_commit = get_head_commit(clone_dir)
-            old_commit = pkg_data.get("commit", "")
-
-            if new_commit == old_commit and not force:
-                up_to_date.append(pkg_name)
-                print(f"  Up to date ({new_commit[:7]})")
+            try:
+                clone_dir = shallow_clone(url)
+            except Exception as e:
+                print(f"  Error cloning: {e}")
+                failed_packages.append(pkg_name)
                 continue
+
+            try:
+                new_commit = get_head_commit(clone_dir)
+                old_commit = pkg_data.get("commit", "")
+
+                if new_commit == old_commit and not force:
+                    up_to_date.append(pkg_name)
+                    print(f"  Up to date ({new_commit[:7]})")
+                    continue
+
+                if check_only:
+                    print(f"  Update available: {old_commit[:7]} -> {new_commit[:7]}")
+                    any_changes = True
+                    continue
+
+                # Re-classify and diff — pass repo_name for consistent synthetic hook naming
+                repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+                content = classify(clone_dir, repo_name=repo_name)
+
+                new_pkg_items = []
+                added_count = 0
+                updated_count = 0
+
+                for item in content.items:
+                    item_key = (item.component_type.value, item.name)
+
+                    # Add to registry (atomic replace if exists)
+                    try:
+                        if registry.detect_clash(item.component_type, item.name):
+                            registry.replace(item.component_type, item.name, item.source_path)
+                        else:
+                            registry.add(item.component_type, item.name, item.source_path)
+                    except (FileNotFoundError, FileExistsError, OSError) as e:
+                        print(f"  ! {item.name}: {e}")
+                        continue
+
+                    item_path = registry_path / item.component_type.registry_dir / item.name
+                    new_hash = v2_config.hash_registry_item(item_path)
+
+                    new_pkg_items.append({
+                        "type": item.component_type.value,
+                        "name": item.name,
+                        "hash": new_hash,
+                    })
+
+                    old_hash = old_items.get(item_key, "")
+                    if not old_hash:
+                        print(f"  + {item.name} (added)")
+                        added_count += 1
+                    elif old_hash != new_hash:
+                        print(f"  ~ {item.name} (updated)")
+                        updated_count += 1
+                    else:
+                        print(f"  = {item.name} (unchanged)")
+
+                # Check for items removed upstream
+                new_keys = {(i["type"], i["name"]) for i in new_pkg_items}
+                for (t, n), _ in old_items.items():
+                    if (t, n) not in new_keys:
+                        if prune:
+                            ct = ComponentType(t)
+                            registry.remove(ct, n)
+                            print(f"  - {n} (pruned)")
+                        else:
+                            print(f"  ? {n} (removed upstream, kept locally)")
+
+                # Update packages.yaml
+                v2_config.record_package(
+                    pkg_name, url, new_commit, new_pkg_items, path=str(pkg_data.get("path", ""))
+                )
+
+                parts = []
+                if updated_count:
+                    parts.append(f"{updated_count} updated")
+                if added_count:
+                    parts.append(f"{added_count} new")
+                if parts:
+                    print(f"  {', '.join(parts)}")
+                    any_changes = True
+            finally:
+                shutil.rmtree(clone_dir, ignore_errors=True)
+            continue
+
+        # local source
+        local_path = Path(str(pkg_data.get("path", ""))).expanduser()
+        print(f"\n{pkg_name}:")
+
+        if not local_path.exists():
+            print(f"  local source path not found: {local_path}")
+            print(f"  Path moved? Re-import: hawk scan /new/path --all --replace")
+            print(f"  Removed intentionally? hawk remove-package {pkg_name}")
+            print(f"  Temporarily unavailable? Reconnect and run: hawk update {pkg_name}")
+            failed_packages.append(pkg_name)
+            continue
+
+        content = scan_directory(local_path.resolve())
+        if not content.items:
+            print(f"  no components found at {local_path.resolve()}")
+            print("  Fix: verify path, increase scan depth if needed, or re-import")
+            print("  Example: hawk scan /correct/path --depth 8 --all --replace")
+            failed_packages.append(pkg_name)
+            continue
+
+        new_pkg_items = []
+        added_count = 0
+        updated_count = 0
+        unchanged_count = 0
+
+        for item in content.items:
+            item_key = (item.component_type.value, item.name)
 
             if check_only:
-                print(f"  Update available: {old_commit[:7]} -> {new_commit[:7]}")
-                any_changes = True
-                continue
-
-            # Re-classify and diff — pass repo_name for consistent synthetic hook naming
-            repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-            content = classify(clone_dir, repo_name=repo_name)
-            old_items = {(i["type"], i["name"]): i.get("hash", "") for i in pkg_data.get("items", [])}
-            registry_path = v2_config.get_registry_path()
-
-            new_pkg_items = []
-            added_count = 0
-            updated_count = 0
-            unchanged_count = 0
-
-            for item in content.items:
-                item_key = (item.component_type.value, item.name)
-
-                # Add to registry (atomic replace if exists)
+                new_hash = v2_config.hash_registry_item(item.source_path)
+            else:
                 try:
                     if registry.detect_clash(item.component_type, item.name):
                         registry.replace(item.component_type, item.name, item.source_path)
@@ -1207,27 +1333,26 @@ def cmd_update(args):
                 item_path = registry_path / item.component_type.registry_dir / item.name
                 new_hash = v2_config.hash_registry_item(item_path)
 
-                new_pkg_items.append({
-                    "type": item.component_type.value,
-                    "name": item.name,
-                    "hash": new_hash,
-                })
+            new_pkg_items.append({
+                "type": item.component_type.value,
+                "name": item.name,
+                "hash": new_hash,
+            })
 
-                old_hash = old_items.get(item_key, "")
-                if not old_hash:
-                    print(f"  + {item.name} (added)")
-                    added_count += 1
-                elif old_hash != new_hash:
-                    print(f"  ~ {item.name} (updated)")
-                    updated_count += 1
-                else:
-                    print(f"  = {item.name} (unchanged)")
-                    unchanged_count += 1
+            old_hash = old_items.get(item_key, "")
+            if not old_hash:
+                added_count += 1
+            elif old_hash != new_hash:
+                updated_count += 1
+            else:
+                unchanged_count += 1
 
-            # Check for items removed upstream
-            new_keys = {(i["type"], i["name"]) for i in new_pkg_items}
-            for (t, n), _ in old_items.items():
-                if (t, n) not in new_keys:
+        new_keys = {(i["type"], i["name"]) for i in new_pkg_items}
+        removed_count = 0
+        for (t, n), _ in old_items.items():
+            if (t, n) not in new_keys:
+                removed_count += 1
+                if not check_only:
                     if prune:
                         ct = ComponentType(t)
                         registry.remove(ct, n)
@@ -1235,20 +1360,37 @@ def cmd_update(args):
                     else:
                         print(f"  ? {n} (removed upstream, kept locally)")
 
-            # Update packages.yaml
-            v2_config.record_package(pkg_name, url, new_commit, new_pkg_items)
-
-            parts = []
-            if updated_count:
-                parts.append(f"{updated_count} updated")
-            if added_count:
-                parts.append(f"{added_count} new")
-            if parts:
-                print(f"  {', '.join(parts)}")
+        if check_only:
+            if added_count or updated_count or removed_count:
+                parts = []
+                if updated_count:
+                    parts.append(f"{updated_count} updated")
+                if added_count:
+                    parts.append(f"{added_count} new")
+                if removed_count:
+                    parts.append(f"{removed_count} removed upstream")
+                print(f"  Would update: {', '.join(parts)}")
                 any_changes = True
+            else:
+                up_to_date.append(pkg_name)
+                print("  Up to date (local)")
+            continue
 
-        finally:
-            shutil.rmtree(clone_dir, ignore_errors=True)
+        v2_config.record_package(
+            pkg_name, "", "", new_pkg_items, path=str(local_path.resolve())
+        )
+
+        parts = []
+        if updated_count:
+            parts.append(f"{updated_count} updated")
+        if added_count:
+            parts.append(f"{added_count} new")
+        if parts:
+            print(f"  {', '.join(parts)}")
+            any_changes = True
+        elif unchanged_count and not removed_count:
+            up_to_date.append(pkg_name)
+            print("  Up to date (local)")
 
     if up_to_date:
         print(f"\nAll packages up to date: {', '.join(up_to_date)}")
@@ -1258,6 +1400,10 @@ def cmd_update(args):
         print("\nSyncing...")
         sync_all(force=True)
         print("Done.")
+
+    if failed_packages:
+        print(f"\nFailed ({len(failed_packages)}): {', '.join(sorted(failed_packages))}")
+        sys.exit(1)
 
 
 def cmd_remove_package(args):

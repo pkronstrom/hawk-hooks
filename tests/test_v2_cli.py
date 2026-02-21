@@ -580,3 +580,176 @@ class TestCmdScanPackageRecording:
 
         packages = v2_config.load_packages()
         assert len(packages) == 0
+
+    def test_scan_rejects_source_type_conflict(self, tmp_path, monkeypatch, capsys):
+        """hawk scan refuses package source-type replacement (git -> local)."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_scan
+
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text(
+            "name: test-pkg\ndescription: Test\nversion: '1.0'\n"
+        )
+        (scan_dir / "commands").mkdir()
+        (scan_dir / "commands" / "hello.md").write_text("# Hello")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        v2_config.save_packages({
+            "test-pkg": {
+                "url": "https://github.com/acme/test-pkg.git",
+                "installed": "2026-02-21",
+                "commit": "abc1234",
+                "items": [],
+            }
+        })
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        with pytest.raises(SystemExit) as exc:
+            cmd_scan(args)
+
+        assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "already exists with source [git]" in out
+        assert "refusing to replace source metadata" in out
+        assert not (registry_dir / "prompts" / "hello.md").exists()
+
+
+class TestCmdPackagesSources:
+    def test_packages_show_source_markers(self, tmp_path, monkeypatch, capsys):
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_packages
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+
+        v2_config.save_packages({
+            "git-pkg": {
+                "url": "https://example.com/a.git",
+                "path": "/tmp/local-a",
+                "installed": "2026-02-21",
+                "commit": "abcdef0",
+                "items": [],
+            },
+            "local-pkg": {
+                "url": "",
+                "path": "/tmp/local-b",
+                "installed": "2026-02-21",
+                "commit": "",
+                "items": [],
+            },
+            "manual-pkg": {
+                "url": "",
+                "installed": "2026-02-21",
+                "commit": "",
+                "items": [],
+            },
+        })
+
+        cmd_packages(argparse.Namespace())
+
+        out = capsys.readouterr().out
+        assert "[git] git-pkg" in out
+        assert "[local] local-pkg" in out
+        assert "[manual] manual-pkg" in out
+
+
+class TestCmdUpdateLocalPackages:
+    def _patch_config_paths(self, monkeypatch, tmp_path):
+        from hawk_hooks import v2_config
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        return config_dir, registry_dir
+
+    def test_update_local_missing_path_fails_nonzero(self, tmp_path, monkeypatch, capsys):
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_update
+
+        self._patch_config_paths(monkeypatch, tmp_path)
+
+        missing_path = tmp_path / "does-not-exist"
+        v2_config.save_packages({
+            "local-pkg": {
+                "url": "",
+                "path": str(missing_path),
+                "installed": "2026-02-21",
+                "commit": "",
+                "items": [],
+            }
+        })
+
+        args = argparse.Namespace(package=None, check=False, force=False, prune=False)
+        with pytest.raises(SystemExit) as exc:
+            cmd_update(args)
+
+        assert exc.value.code == 1
+        out = capsys.readouterr().out
+        assert "local source path not found" in out
+        assert "hawk scan" in out
+        assert "hawk remove-package local-pkg" in out
+
+    def test_update_local_path_rescans_and_records_items(self, tmp_path, monkeypatch):
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.v2_cli import cmd_update
+
+        _, registry_dir = self._patch_config_paths(monkeypatch, tmp_path)
+
+        local_dir = tmp_path / "local-pkg"
+        local_dir.mkdir()
+        (local_dir / "commands").mkdir()
+        (local_dir / "commands" / "hello.md").write_text("# Hello")
+
+        v2_config.save_packages({
+            "local-pkg": {
+                "url": "",
+                "path": str(local_dir.resolve()),
+                "installed": "2026-02-21",
+                "commit": "",
+                "items": [],
+            }
+        })
+
+        monkeypatch.setattr("hawk_hooks.v2_sync.sync_all", lambda force=False: {})
+
+        args = argparse.Namespace(package=None, check=False, force=False, prune=False)
+        cmd_update(args)
+
+        assert (registry_dir / "prompts" / "hello.md").exists()
+        packages = v2_config.load_packages()
+        assert packages["local-pkg"]["path"] == str(local_dir.resolve())
+        assert len(packages["local-pkg"]["items"]) == 1
+        assert packages["local-pkg"]["items"][0]["type"] == "prompt"
+        assert packages["local-pkg"]["items"][0]["name"] == "hello.md"

@@ -6,6 +6,7 @@ preserving all user settings.
 
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 from pathlib import Path
@@ -44,10 +45,8 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
         registry_path, debug, global: {skills, hooks, ...},
         tools: {claude: {...}}, directories: {path: {...}}
     """
-    v2: dict[str, Any] = {
-        "registry_path": "~/.config/hawk-hooks/registry",
-        "debug": v1.get("debug", False),
-    }
+    v2: dict[str, Any] = copy.deepcopy(v2_config.DEFAULT_GLOBAL_CONFIG)
+    v2["debug"] = v1.get("debug", False)
 
     # Migrate enabled hooks -> global.hooks
     enabled_hooks: list[str] = []
@@ -55,13 +54,11 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
         for name in hook_names:
             if name not in enabled_hooks:
                 enabled_hooks.append(name)
-    v2["global"] = {
-        "skills": [],
-        "hooks": enabled_hooks,
-        "prompts": [],
-        "agents": [],
-        "mcp": [],
-    }
+    v2["global"]["hooks"] = enabled_hooks
+    v2["global"]["prompts"] = []
+    v2["global"]["agents"] = []
+    v2["global"]["skills"] = []
+    v2["global"]["mcp"] = []
 
     # Migrate prompts and agents to global lists
     for name, info in v1.get("prompts", {}).items():
@@ -75,14 +72,8 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
     # Migrate destinations -> tools config
     destinations = v1.get("destinations", {})
     tools_cfg: dict[str, Any] = {}
-    tool_map = {
-        "claude": {"enabled": True, "global_dir": "~/.claude"},
-        "gemini": {"enabled": True, "global_dir": "~/.gemini"},
-        "codex": {"enabled": True, "global_dir": "~/.codex"},
-        "opencode": {"enabled": True, "global_dir": "~/.config/opencode"},
-    }
-    for tool_name, defaults in tool_map.items():
-        tool_entry = dict(defaults)
+    for tool_name, defaults in v2_config.DEFAULT_GLOBAL_CONFIG.get("tools", {}).items():
+        tool_entry = copy.deepcopy(defaults)
         if tool_name in destinations:
             tool_dests = dict(destinations[tool_name])
             if "commands" in tool_dests and "prompts" not in tool_dests:

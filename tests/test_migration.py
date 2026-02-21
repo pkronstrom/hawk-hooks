@@ -71,6 +71,23 @@ class TestMigrateConfig:
         v2 = migration.migrate_config(v1)
         assert v2["global"]["hooks"].count("hook-a") == 1
 
+    def test_migrated_tools_include_cursor_and_antigravity(self):
+        v2 = migration.migrate_config({})
+        assert "cursor" in v2["tools"]
+        assert "antigravity" in v2["tools"]
+
+    def test_migrated_output_contains_default_global_config_keys(self):
+        v2 = migration.migrate_config({})
+
+        def _assert_default_shape(default_obj, got_obj):
+            assert isinstance(got_obj, dict)
+            for key, value in default_obj.items():
+                assert key in got_obj
+                if isinstance(value, dict):
+                    _assert_default_shape(value, got_obj[key])
+
+        _assert_default_shape(v2_config.DEFAULT_GLOBAL_CONFIG, v2)
+
 
 class TestDetectV1:
     def test_detects_existing(self, v2_env):
