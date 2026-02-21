@@ -91,6 +91,8 @@ class ClaudeAdapter(ToolAdapter):
 
         # Remove existing hawk-managed hook entries
         existing_hooks = settings.get("hooks", [])
+        if not isinstance(existing_hooks, list):
+            existing_hooks = [existing_hooks] if existing_hooks else []
         user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
 
         # Add hawk entries for each runner (command hooks)
@@ -191,16 +193,25 @@ class ClaudeAdapter(ToolAdapter):
         settings_path = target_dir / "settings.json"
         settings = self._load_json(settings_path)
         existing_hooks = settings.get("hooks", [])
+        if not isinstance(existing_hooks, list):
+            existing_hooks = [existing_hooks] if existing_hooks else []
         user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
         if len(user_hooks) != len(existing_hooks):
             settings["hooks"] = user_hooks
             self._save_json(settings_path, settings)
 
     @staticmethod
-    def _is_hawk_hook(hook_entry: dict) -> bool:
-        """Check if a hook entry is hawk-managed."""
+    def _is_hawk_hook(hook_entry: object) -> bool:
+        """Check if a hook entry is hawk-managed.
+
+        Defensive against malformed legacy entries (e.g. strings).
+        """
+        if not isinstance(hook_entry, dict):
+            return False
         hooks = hook_entry.get("hooks", [])
-        return any(h.get(_HAWK_HOOK_MARKER) for h in hooks)
+        if not isinstance(hooks, list):
+            return False
+        return any(isinstance(h, dict) and h.get(_HAWK_HOOK_MARKER) for h in hooks)
 
     @staticmethod
     def _load_json(path: Path) -> dict:
