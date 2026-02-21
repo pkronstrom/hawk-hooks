@@ -11,22 +11,22 @@ class TestDestinations:
         assert "claude" in dests
         assert "gemini" in dests
         assert "codex" in dests
-        assert dests["claude"]["commands"] == "~/.claude/commands/"
+        assert dests["claude"]["prompts"] == "~/.claude/commands/"
 
     def test_get_destination(self, tmp_path, monkeypatch):
         # Use temp config
         monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path)
         config.ensure_dirs()
 
-        dest = config.get_destination("claude", "commands")
+        dest = config.get_destination("claude", "prompts")
         assert "/.claude/commands" in dest
 
     def test_set_destination(self, tmp_path, monkeypatch):
         monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path)
         config.ensure_dirs()
 
-        config.set_destination("claude", "commands", "/custom/path/")
-        dest = config.get_destination("claude", "commands")
+        config.set_destination("claude", "prompts", "/custom/path/")
+        dest = config.get_destination("claude", "prompts")
         assert dest == "/custom/path/"
 
 

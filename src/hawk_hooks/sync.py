@@ -161,7 +161,7 @@ def get_dest_path(prompt_info: "PromptInfo", tool: str) -> Path:
     """
     from .types import PromptType
 
-    item_type = "commands" if prompt_info.prompt_type == PromptType.COMMAND else "agents"
+    item_type = "prompts" if prompt_info.prompt_type == PromptType.COMMAND else "agents"
     dest_dir = config.get_destination(tool, item_type)
     filename = get_dest_filename(prompt_info, tool)
     return Path(dest_dir) / filename

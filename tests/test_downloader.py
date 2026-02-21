@@ -47,7 +47,7 @@ class TestClassify:
         content = classify(tmp_path)
         assert len(content.items) == 2
         types = {i.component_type for i in content.items}
-        assert types == {ComponentType.COMMAND}
+        assert types == {ComponentType.PROMPT}
 
     def test_structured_hooks_dir(self, tmp_path):
         hooks = tmp_path / "hooks"
@@ -159,7 +159,7 @@ class TestClassify:
         types = {i.component_type for i in content.items}
         assert ComponentType.SKILL in types
         assert ComponentType.HOOK in types
-        assert ComponentType.COMMAND in types
+        assert ComponentType.PROMPT in types
 
     def test_empty_dir(self, tmp_path):
         empty = tmp_path / "empty"
@@ -329,7 +329,7 @@ class TestScanDirectory:
 
         content = scan_directory(tmp_path)
         assert len(content.items) == 1
-        assert content.items[0].component_type == ComponentType.COMMAND
+        assert content.items[0].component_type == ComponentType.PROMPT
 
     def test_finds_agents(self, tmp_path):
         agents = tmp_path / "agents"
@@ -405,7 +405,7 @@ class TestScanDirectory:
 
         content = scan_directory(tmp_path)
         types = {item.component_type for item in content.items}
-        assert ComponentType.COMMAND in types
+        assert ComponentType.PROMPT in types
         assert ComponentType.SKILL in types
         assert ComponentType.AGENT in types
 
@@ -420,7 +420,7 @@ class TestScanDirectory:
 
         content = scan_directory(tmp_path)
         assert len(content.items) == 1
-        assert content.items[0].component_type == ComponentType.COMMAND
+        assert content.items[0].component_type == ComponentType.PROMPT
 
 
 class TestClassifyFlatHooks:
@@ -516,7 +516,7 @@ class TestBatchDuplicateDetection:
 
         items = [
             ClassifiedItem(ComponentType.SKILL, "item.md", source),
-            ClassifiedItem(ComponentType.COMMAND, "item.md", source),
+            ClassifiedItem(ComponentType.PROMPT, "item.md", source),
         ]
         clashes = check_clashes(items, registry)
         assert len(clashes) == 0

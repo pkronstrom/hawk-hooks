@@ -65,8 +65,8 @@ def _add_item(item_type_name: str, template: str, dir_fn: Callable[[], Path]) ->
 
 
 def _add_command() -> bool:
-    """Add a new command from template."""
-    return _add_item("Command", templates.COMMAND_PROMPT_TEMPLATE, config.get_prompts_dir)
+    """Add a new prompt from template."""
+    return _add_item("Prompt", templates.COMMAND_PROMPT_TEMPLATE, config.get_prompts_dir)
 
 
 def _add_agent() -> bool:
@@ -401,11 +401,11 @@ def _handle_items_menu(
 
 
 def _handle_commands_menu() -> None:
-    """Handle the Commands submenu."""
+    """Handle the Prompts submenu."""
     from .. import prompt_scanner
 
     _handle_items_menu(
-        item_type_name="command",
+        item_type_name="prompt",
         scanner_fn=prompt_scanner.scan_prompts,
         is_enabled_fn=config.is_prompt_enabled,
         set_enabled_fn=config.set_prompt_enabled,
@@ -455,7 +455,7 @@ def _auto_sync_prompts() -> None:
     # Add new (disabled by default)
     for name in new_prompts:
         config.set_prompt_enabled(name, False, False)
-        console.print(f"[dim]Found new command: {name}[/dim]")
+        console.print(f"[dim]Found new prompt: {name}[/dim]")
 
     for name in new_agents:
         config.set_agent_enabled(name, False, False)
@@ -467,7 +467,7 @@ def _auto_sync_prompts() -> None:
         if "prompts" in cfg and name in cfg["prompts"]:
             del cfg["prompts"][name]
             config.save_config(cfg)
-        console.print(f"[dim]Removed command: {name}[/dim]")
+        console.print(f"[dim]Removed prompt: {name}[/dim]")
 
     for name in removed_agents:
         cfg = config.load_config()

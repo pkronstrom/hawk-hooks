@@ -145,7 +145,7 @@ class ToolAdapter(ABC):
         result = SyncResult(tool=str(self.tool))
 
         # Ensure target subdirs exist
-        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_commands_dir, self.get_prompts_dir]:
+        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_prompts_dir]:
             dir_getter(target_dir).mkdir(parents=True, exist_ok=True)
 
         # Sync skills
@@ -167,17 +167,6 @@ class ToolAdapter(ABC):
             self.link_agent,
             self.unlink_agent,
             self.get_agents_dir,
-            result,
-        )
-
-        # Sync commands
-        self._sync_component(
-            resolved.commands,
-            registry_path / "commands",
-            target_dir,
-            self.link_command,
-            self.unlink_command,
-            self.get_commands_dir,
             result,
         )
 

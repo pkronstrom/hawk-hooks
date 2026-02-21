@@ -456,7 +456,6 @@ class TestEnsureDirs:
         registry = v2_config.get_registry_path()
         assert (registry / "skills").exists()
         assert (registry / "hooks").exists()
-        assert (registry / "commands").exists()
         assert (registry / "agents").exists()
         assert (registry / "mcp").exists()
         assert (registry / "prompts").exists()

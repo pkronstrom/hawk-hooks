@@ -178,7 +178,7 @@ def classify(directory: Path, repo_name: str = "") -> ClassifiedContent:
     Detection heuristics:
     - skills/: directories containing SKILL.md or *.md with skill frontmatter
     - hooks/: directories organized by event name, or scripts with hook metadata
-    - commands/: .md files in commands/ directory
+    - commands/: .md files in commands/ directory (legacy prompt alias)
     - agents/: .md files in agents/ directory
     - mcp/: .yaml or .json files with mcpServers definitions
     - prompts/: .md files in prompts/ directory
@@ -199,7 +199,7 @@ def classify(directory: Path, repo_name: str = "") -> ClassifiedContent:
     # Check for well-known directory structures
     _scan_typed_dir(directory / "skills", ComponentType.SKILL, content)
     _scan_typed_dir(directory / "hooks", ComponentType.HOOK, content, repo_name=repo_name)
-    _scan_typed_dir(directory / "commands", ComponentType.COMMAND, content)
+    _scan_typed_dir(directory / "commands", ComponentType.PROMPT, content)
     _scan_typed_dir(directory / "agents", ComponentType.AGENT, content)
     _scan_typed_dir(directory / "prompts", ComponentType.PROMPT, content)
     _scan_mcp_dir(directory / "mcp", content)
@@ -862,9 +862,9 @@ def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
     if parent_dir_name == "mcp" and suffix in (".yaml", ".yml", ".json"):
         return ClassifiedItem(ComponentType.MCP, name, path)
 
-    # Commands
+    # Legacy commands directory now maps to prompts
     if parent_dir_name == "commands" and suffix == ".md":
-        return ClassifiedItem(ComponentType.COMMAND, name, path)
+        return ClassifiedItem(ComponentType.PROMPT, name, path)
 
     # Agents
     if parent_dir_name == "agents" and suffix == ".md":
@@ -892,14 +892,14 @@ def _classify_file(path: Path, parent_dir_name: str) -> ClassifiedItem | None:
             return ClassifiedItem(ComponentType.HOOK, name, path)
         return None  # Skip plain markdown in hooks/
 
-    # Markdown with frontmatter → try to classify as command
+    # Markdown with frontmatter → classify as prompt
     if suffix == ".md":
         try:
             head = path.read_text(errors="replace")[:500]
             if head.startswith("---"):
-                # Has frontmatter — likely a command
+                # Has frontmatter — likely a prompt.
                 if "name:" in head and "description:" in head:
-                    return ClassifiedItem(ComponentType.COMMAND, name, path)
+                    return ClassifiedItem(ComponentType.PROMPT, name, path)
         except OSError:
             pass
 

@@ -95,6 +95,18 @@ class GeminiAdapter(ToolAdapter):
                 return True
         return False
 
+    def get_prompts_dir(self, target_dir: Path) -> Path:
+        """Gemini slash prompts are stored in the commands directory."""
+        return self.get_commands_dir(target_dir)
+
+    def link_prompt(self, source: Path, target_dir: Path) -> Path:
+        """Prompts use the same TOML conversion pipeline as commands."""
+        return self.link_command(source, target_dir)
+
+    def unlink_prompt(self, name: str, target_dir: Path) -> bool:
+        """Prompts use the same cleanup behavior as commands."""
+        return self.unlink_command(name, target_dir)
+
     @staticmethod
     def _find_current_toml_commands(comp_dir: Path, source_dir: Path) -> set[str]:
         """Find .toml command files whose stems match registry .md names."""
@@ -117,19 +129,24 @@ class GeminiAdapter(ToolAdapter):
 
         result = SyncResult(tool=str(self.tool))
 
-        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_commands_dir, self.get_prompts_dir]:
+        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_prompts_dir]:
             dir_getter(target_dir).mkdir(parents=True, exist_ok=True)
 
         self._sync_component(resolved.skills, registry_path / "skills", target_dir,
                              self.link_skill, self.unlink_skill, self.get_skills_dir, result)
         self._sync_component(resolved.agents, registry_path / "agents", target_dir,
                              self.link_agent, self.unlink_agent, self.get_agents_dir, result)
-        # Commands: use toml-aware finder
-        self._sync_component(resolved.commands, registry_path / "commands", target_dir,
-                             self.link_command, self.unlink_command, self.get_commands_dir, result,
-                             find_current_fn=self._find_current_toml_commands)
-        self._sync_component(resolved.prompts, registry_path / "prompts", target_dir,
-                             self.link_prompt, self.unlink_prompt, self.get_prompts_dir, result)
+        # Prompts: use toml-aware finder because Gemini expects .toml command files.
+        self._sync_component(
+            resolved.prompts,
+            registry_path / "prompts",
+            target_dir,
+            self.link_prompt,
+            self.unlink_prompt,
+            self.get_prompts_dir,
+            result,
+            find_current_fn=self._find_current_toml_commands,
+        )
 
         try:
             registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)

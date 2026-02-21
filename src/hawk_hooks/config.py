@@ -18,15 +18,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "env": {},  # Env vars from scripts: {VAR_NAME: value}
     "destinations": {
         "claude": {
-            "commands": "~/.claude/commands/",
+            "prompts": "~/.claude/commands/",
             "agents": "~/.claude/agents/",
         },
         "gemini": {
-            "commands": "~/.gemini/commands/",
+            "prompts": "~/.gemini/commands/",
             "agents": "~/.gemini/agents/",
         },
         "codex": {
-            "commands": "~/.codex/prompts/",
+            "prompts": "~/.codex/prompts/",
             "agents": "~/.codex/agents/",
         },
     },
@@ -391,14 +391,18 @@ def get_destination(tool: str, item_type: str) -> str:
 
     Args:
         tool: "claude", "gemini", or "codex"
-        item_type: "commands" or "agents"
+        item_type: "prompts" or "agents"
 
     Returns:
         Expanded destination path.
     """
     cfg = load_config()
     dests = cfg.get("destinations", DEFAULT_CONFIG["destinations"])
-    path = dests.get(tool, {}).get(item_type, "")
+    tool_dests = dests.get(tool, {})
+    path = tool_dests.get(item_type, "")
+    if not path and item_type == "prompts":
+        # Backward compatibility for pre-migration configs.
+        path = tool_dests.get("commands", "")
     return os.path.expanduser(path)
 
 

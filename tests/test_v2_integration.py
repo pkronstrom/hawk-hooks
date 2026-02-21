@@ -32,7 +32,7 @@ def full_env(tmp_path, monkeypatch):
     cmd_source = tmp_path / "sources" / "deploy.md"
     cmd_source.parent.mkdir(parents=True, exist_ok=True)
     cmd_source.write_text("---\nname: deploy\ndescription: Deploy\n---\nDeploy the app.")
-    registry.add(ComponentType.COMMAND, "deploy.md", cmd_source)
+    registry.add(ComponentType.PROMPT, "deploy.md", cmd_source)
 
     # Add test agent
     agent_source = tmp_path / "sources" / "reviewer.md"
@@ -43,7 +43,7 @@ def full_env(tmp_path, monkeypatch):
     cfg = v2_config.load_global_config()
     cfg["registry_path"] = str(registry_path)
     cfg["global"]["skills"] = ["tdd"]
-    cfg["global"]["commands"] = ["deploy.md"]
+    cfg["global"]["prompts"] = ["deploy.md"]
     cfg["global"]["agents"] = ["reviewer.md"]
     v2_config.save_global_config(cfg)
 
@@ -103,7 +103,7 @@ class TestRoundTrip:
         v2_config.save_profile("web", {
             "name": "web",
             "skills": ["tdd"],
-            "commands": ["deploy.md"],
+            "prompts": ["deploy.md"],
         })
 
         # Init a project directory
@@ -144,7 +144,7 @@ class TestResolverIntegration:
         # Global only
         resolved = resolve(cfg)
         assert "tdd" in resolved.skills
-        assert "deploy.md" in resolved.commands
+        assert "deploy.md" in resolved.prompts
 
         # With profile
         profile = {"skills": ["react-patterns"]}
@@ -183,19 +183,19 @@ class TestPackageRemoval:
                 "commit": "abc123",
                 "items": [
                     {"type": "skill", "name": "tdd", "hash": "deadbeef"},
-                    {"type": "command", "name": "deploy.md", "hash": "cafebabe"},
+                    {"type": "prompt", "name": "deploy.md", "hash": "cafebabe"},
                 ],
             }
         })
 
         # Verify items exist
         assert registry.has(ComponentType.SKILL, "tdd")
-        assert registry.has(ComponentType.COMMAND, "deploy.md")
+        assert registry.has(ComponentType.PROMPT, "deploy.md")
 
         # Verify global config has them enabled
         cfg = v2_config.load_global_config()
         assert "tdd" in cfg["global"]["skills"]
-        assert "deploy.md" in cfg["global"]["commands"]
+        assert "deploy.md" in cfg["global"]["prompts"]
 
         # Create a directory config that also has them
         project = tmp_path / "project"
@@ -240,11 +240,11 @@ class TestPackageRemoval:
 
         # Verify cleanup
         assert not registry.has(ComponentType.SKILL, "tdd")
-        assert not registry.has(ComponentType.COMMAND, "deploy.md")
+        assert not registry.has(ComponentType.PROMPT, "deploy.md")
 
         cfg = v2_config.load_global_config()
         assert "tdd" not in cfg["global"]["skills"]
-        assert "deploy.md" not in cfg["global"]["commands"]
+        assert "deploy.md" not in cfg["global"]["prompts"]
 
         dir_cfg = v2_config.load_dir_config(project)
         assert "tdd" not in dir_cfg["skills"]["enabled"]

@@ -29,10 +29,10 @@ def setup_registry(tmp_path):
     agents_dir.mkdir(parents=True)
     (agents_dir / "reviewer.md").write_text("# Reviewer Agent")
 
-    # Commands
-    commands_dir = registry / "commands"
-    commands_dir.mkdir(parents=True)
-    (commands_dir / "deploy.md").write_text("# Deploy Command")
+    # Prompts
+    prompts_dir = registry / "prompts"
+    prompts_dir.mkdir(parents=True)
+    (prompts_dir / "deploy.md").write_text("# Deploy Prompt")
 
     # Hooks (flat layout with hawk-hook headers)
     hooks_dir = registry / "hooks"
@@ -49,10 +49,6 @@ def setup_registry(tmp_path):
     (hooks_dir / "completion-check.md").write_text(
         "---\nhawk-hook:\n  events: [stop]\n---\n# Completion check\n"
     )
-
-    # Prompts
-    prompts_dir = registry / "prompts"
-    prompts_dir.mkdir(parents=True)
 
     return registry
 
@@ -159,7 +155,7 @@ class TestClaudeSync:
         resolved = ResolvedSet(
             skills=["tdd"],
             agents=["reviewer.md"],
-            commands=["deploy.md"],
+            prompts=["deploy.md"],
         )
 
         result = adapter.sync(resolved, target, setup_registry)

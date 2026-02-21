@@ -67,7 +67,7 @@ def interactive_menu():
     options = [
         ("Status       Show hooks + enabled state", "status"),
         ("Hooks        Enable/disable/edit/delete hooks", "toggle"),
-        ("Commands     Manage slash commands", "commands"),
+        ("Prompts      Manage slash prompts", "prompts"),
         ("Agents       Manage AI agents", "agents"),
         ("Add...       Create new hook/command/agent", "add"),
         ("─────────", None),
@@ -82,7 +82,7 @@ def interactive_menu():
     handlers = {
         "status": show_status,
         "toggle": interactive_toggle,
-        "commands": _handle_commands_menu,
+        "prompts": _handle_commands_menu,
         "agents": _handle_agents_menu,
         "add": interactive_add_hook,
         "config": interactive_config,

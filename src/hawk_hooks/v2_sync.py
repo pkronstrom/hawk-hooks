@@ -304,7 +304,6 @@ def _compute_would_unlink(
     for comp_type, get_dir_fn in [
         ("skill", adapter.get_skills_dir),
         ("agent", adapter.get_agents_dir),
-        ("command", adapter.get_commands_dir),
         ("prompt", adapter.get_prompts_dir),
     ]:
         comp_dir = get_dir_fn(target_dir)
@@ -337,9 +336,6 @@ def _compute_would_link(
     for agent in resolved.agents:
         if registry.has_from_name("agents", agent):
             would_link.append(f"agent:{agent}")
-    for cmd in resolved.commands:
-        if registry.has_from_name("commands", cmd):
-            would_link.append(f"command:{cmd}")
     for prompt in resolved.prompts:
         if registry.has_from_name("prompts", prompt):
             would_link.append(f"prompt:{prompt}")

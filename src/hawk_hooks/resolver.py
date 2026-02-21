@@ -11,7 +11,7 @@ from typing import Any
 
 from .types import ComponentType, ResolvedSet, Tool
 
-COMPONENT_FIELDS = ["skills", "hooks", "commands", "agents", "mcp", "prompts"]
+COMPONENT_FIELDS = ["skills", "hooks", "agents", "mcp", "prompts"]
 
 
 def _merge_list(base: list[str], add: list[str], remove: list[str]) -> list[str]:
@@ -32,7 +32,11 @@ def _apply_profile(result: ResolvedSet, profile: dict[str, Any]) -> None:
     """Apply a profile layer to the result (adds only, no removes)."""
     for field_name in COMPONENT_FIELDS:
         current = getattr(result, field_name)
-        merged = _merge_list(current, profile.get(field_name, []), [])
+        additions = profile.get(field_name, [])
+        if field_name == "prompts":
+            # Backward compatibility: commands are merged into prompts.
+            additions = _merge_list(list(additions), profile.get("commands", []), [])
+        merged = _merge_list(current, additions, [])
         setattr(result, field_name, merged)
 
 
@@ -42,6 +46,9 @@ def _apply_dir_config(
     """Apply a directory config layer (enabled/disabled + per-tool overrides)."""
     for field_name in COMPONENT_FIELDS:
         section = dir_config.get(field_name, {})
+        if field_name == "prompts" and "commands" in dir_config:
+            # Backward compatibility: commands sections migrate into prompts.
+            section = _merge_legacy_sections(dir_config.get("commands", {}), section)
         if isinstance(section, dict):
             enabled = section.get("enabled", [])
             disabled = section.get("disabled", [])
@@ -60,6 +67,8 @@ def _apply_dir_config(
         tool_overrides = dir_config.get("tools", {}).get(str(tool), {})
         for field_name in COMPONENT_FIELDS:
             tool_section = tool_overrides.get(field_name, {})
+            if field_name == "prompts" and "commands" in tool_overrides:
+                tool_section = _merge_legacy_sections(tool_overrides.get("commands", {}), tool_section)
             if not isinstance(tool_section, dict):
                 continue
             extra = tool_section.get("extra", [])
@@ -99,10 +108,13 @@ def resolve(
     result = ResolvedSet(
         skills=list(global_section.get("skills", [])),
         hooks=list(global_section.get("hooks", [])),
-        commands=list(global_section.get("commands", [])),
         agents=list(global_section.get("agents", [])),
         mcp=list(global_section.get("mcp", [])),
-        prompts=list(global_section.get("prompts", [])),
+        prompts=_merge_list(
+            list(global_section.get("prompts", [])),
+            list(global_section.get("commands", [])),
+            [],
+        ),
     )
 
     if dir_chain is not None:
@@ -119,3 +131,31 @@ def resolve(
             _apply_dir_config(result, dir_config, tool)
 
     return result
+
+
+def _merge_legacy_sections(legacy: Any, current: Any) -> dict[str, list[str]]:
+    """Merge legacy commands-style section into prompts-style section."""
+    current_enabled: list[str] = []
+    current_disabled: list[str] = []
+    if isinstance(current, dict):
+        current_enabled = list(current.get("enabled", []))
+        current_disabled = list(current.get("disabled", []))
+    elif isinstance(current, list):
+        current_enabled = list(current)
+
+    legacy_enabled: list[str] = []
+    legacy_disabled: list[str] = []
+    if isinstance(legacy, dict):
+        if isinstance(legacy.get("extra"), list) or isinstance(legacy.get("exclude"), list):
+            legacy_enabled = list(legacy.get("extra", []))
+            legacy_disabled = list(legacy.get("exclude", []))
+        else:
+            legacy_enabled = list(legacy.get("enabled", []))
+            legacy_disabled = list(legacy.get("disabled", []))
+    elif isinstance(legacy, list):
+        legacy_enabled = list(legacy)
+
+    return {
+        "enabled": _merge_list(current_enabled, legacy_enabled, []),
+        "disabled": _merge_list(current_disabled, legacy_disabled, []),
+    }

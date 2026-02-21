@@ -281,4 +281,4 @@ class TestResolveFullStack:
         assert result.hooks == ["block-secrets"]
         assert "lint" not in result.hooks
         assert result.mcp == ["github", "postgres"]
-        assert result.commands == ["deploy"]
+        assert result.prompts == ["deploy"]

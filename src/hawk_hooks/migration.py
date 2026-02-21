@@ -58,7 +58,7 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
     v2["global"] = {
         "skills": [],
         "hooks": enabled_hooks,
-        "commands": [],
+        "prompts": [],
         "agents": [],
         "mcp": [],
     }
@@ -66,7 +66,7 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
     # Migrate prompts and agents to global lists
     for name, info in v1.get("prompts", {}).items():
         if info.get("enabled", False):
-            v2["global"]["commands"].append(name)
+            v2["global"]["prompts"].append(name)
 
     for name, info in v1.get("agents", {}).items():
         if info.get("enabled", False):
@@ -84,7 +84,10 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
     for tool_name, defaults in tool_map.items():
         tool_entry = dict(defaults)
         if tool_name in destinations:
-            tool_entry["destinations"] = destinations[tool_name]
+            tool_dests = dict(destinations[tool_name])
+            if "commands" in tool_dests and "prompts" not in tool_dests:
+                tool_dests["prompts"] = tool_dests.pop("commands")
+            tool_entry["destinations"] = tool_dests
         tools_cfg[tool_name] = tool_entry
     v2["tools"] = tools_cfg
 

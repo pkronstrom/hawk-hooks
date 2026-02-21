@@ -147,7 +147,7 @@ def cmd_status(args):
 
             # Show per-layer breakdown
             global_section = cfg.get("global", {})
-            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
                 g_items = global_section.get(field, [])
                 if g_items:
                     print(f"  global:  {', '.join(g_items)}")
@@ -155,8 +155,10 @@ def cmd_status(args):
             # Show each layer's contributions
             for chain_dir, chain_config in config_chain:
                 parts: list[str] = []
-                for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+                for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
                     section = chain_config.get(field, {})
+                    if field == "prompts" and "commands" in chain_config:
+                        section = chain_config.get("commands", section)
                     if isinstance(section, dict):
                         enabled = section.get("enabled", [])
                         disabled = section.get("disabled", [])
@@ -188,7 +190,7 @@ def cmd_status(args):
     else:
         resolved = resolve(cfg)
         print(f"\nGlobal active:")
-    for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+    for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
         items = getattr(resolved, field)
         if items:
             print(f"  {field}: {', '.join(items)}")
@@ -242,7 +244,7 @@ def _guess_component_type(path: Path) -> ComponentType | None:
 
     # Parent directory hints
     if parent == "commands":
-        return ComponentType.COMMAND
+        return ComponentType.PROMPT
     if parent == "agents":
         return ComponentType.AGENT
     if parent == "prompts":
@@ -265,7 +267,7 @@ def _guess_component_type(path: Path) -> ComponentType | None:
         try:
             head = path.read_text(errors="replace")[:500]
             if head.startswith("---") and "name:" in head and "description:" in head:
-                return ComponentType.COMMAND
+                return ComponentType.PROMPT
         except OSError:
             pass
 
@@ -276,10 +278,9 @@ def _ask_component_type() -> ComponentType | None:
     """Interactively ask the user what type of component this is."""
     type_options = [
         ("skill", "Skill — reusable instructions / knowledge"),
-        ("command", "Command — slash command / action"),
+        ("prompt", "Prompt — slash prompt / command"),
         ("agent", "Agent — autonomous agent definition"),
         ("hook", "Hook — event-triggered script"),
-        ("prompt", "Prompt — prompt template"),
         ("mcp", "MCP — MCP server configuration"),
     ]
     print("\nWhat type of component is this?")
@@ -358,7 +359,10 @@ def cmd_add(args):
 
     # Determine component type
     if args.type and args.type in valid_types:
-        component_type = ComponentType(args.type)
+        if args.type == "command":
+            component_type = ComponentType.PROMPT
+        else:
+            component_type = ComponentType(args.type)
     elif stdin_content is not None:
         print("Error: --type is required when reading from stdin.")
         print("  echo 'content' | hawk add --type skill --name my-skill.md")
@@ -435,7 +439,10 @@ def cmd_remove(args):
     from . import v2_config
 
     registry = Registry(v2_config.get_registry_path())
-    component_type = ComponentType(args.type)
+    if args.type == "command":
+        component_type = ComponentType.PROMPT
+    else:
+        component_type = ComponentType(args.type)
 
     if registry.remove(component_type, args.name):
         print(f"Removed {component_type}/{args.name}")
@@ -453,7 +460,10 @@ def cmd_list(args):
     registry = Registry(v2_config.get_registry_path())
 
     if args.type:
-        component_type = ComponentType(args.type)
+        if args.type == "command":
+            component_type = ComponentType.PROMPT
+        else:
+            component_type = ComponentType(args.type)
         contents = registry.list(component_type)
     else:
         contents = registry.list()
@@ -683,8 +693,8 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
     ROW_ITEM = "item"      # selectable item
 
     TYPE_ORDER = [
-        ComponentType.SKILL, ComponentType.HOOK, ComponentType.COMMAND,
-        ComponentType.AGENT, ComponentType.PROMPT, ComponentType.MCP,
+        ComponentType.SKILL, ComponentType.HOOK, ComponentType.PROMPT,
+        ComponentType.AGENT, ComponentType.MCP,
     ]
 
     # ── Group items by package, then by component type ──
@@ -1385,6 +1395,33 @@ def cmd_migrate(args):
         print(f"Migration skipped: {msg}")
 
 
+def cmd_migrate_prompts(args):
+    """One-shot migration from commands schema to prompts schema."""
+    from .migrate_prompts import run_migrate_prompts
+
+    check_only = bool(args.check or not args.apply)
+    changed_or_needed, summary = run_migrate_prompts(
+        check_only=check_only,
+        backup=not args.no_backup,
+    )
+
+    if check_only:
+        print("Migration check:")
+        print(summary)
+        if not changed_or_needed:
+            print("\nNo migration required.")
+        else:
+            print("\nRun 'hawk migrate-prompts --apply' to apply.")
+        return
+
+    if changed_or_needed:
+        print("Migration complete:")
+        print(summary)
+    else:
+        print("Migration skipped:")
+        print(summary)
+
+
 def cmd_new(args):
     """Create a new component from a template."""
     from . import v2_config
@@ -1462,7 +1499,7 @@ def cmd_new(args):
         _print(f"[green]+[/green] Created hook: {dest}")
         _print(f"  Event: {event}")
 
-    elif comp_type == "command":
+    elif comp_type in ("command", "prompt"):
         if not name.endswith(".md"):
             name = f"{name}.md"
 
@@ -1471,14 +1508,14 @@ def cmd_new(args):
             description="Your command description",
         )
 
-        dest = registry_path / "commands" / name
+        dest = registry_path / "prompts" / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists() and not args.force:
             print(f"Error: {dest} already exists. Use --force to overwrite.")
             sys.exit(1)
         dest.write_text(content)
 
-        _print(f"[green]+[/green] Created command: {dest}")
+        _print(f"[green]+[/green] Created prompt: {dest}")
 
     elif comp_type == "agent":
         if not name.endswith(".md"):
@@ -1526,7 +1563,12 @@ def cmd_new(args):
         sys.exit(1)
 
     # prompt-hook creates files in hooks/ dir, so the add type is "hook"
-    add_type = "hook" if comp_type == "prompt-hook" else comp_type
+    if comp_type == "prompt-hook":
+        add_type = "hook"
+    elif comp_type == "command":
+        add_type = "prompt"
+    else:
+        add_type = comp_type
     _print(f"\n[dim]Run[/dim] [cyan]hawk add {add_type} {dest}[/cyan] [dim]to register, or edit the file first.[/dim]")
 
 
@@ -1626,7 +1668,7 @@ def build_parser() -> argparse.ArgumentParser:
     # add
     add_p = subparsers.add_parser("add", help="Add component to registry")
     add_p.add_argument("type", nargs="?", default=None,
-                       help="Component type: skill, hook, command, agent, mcp, prompt (auto-detected if omitted)")
+                       help="Component type: skill, hook, prompt, agent, mcp (command accepted as alias)")
     add_p.add_argument("path", nargs="?", help="Path to component (reads stdin if omitted)")
     add_p.add_argument("--type", dest="type_flag",
                        choices=[ct.value for ct in ComponentType],
@@ -1714,7 +1756,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # new
     new_p = subparsers.add_parser("new", help="Create a new component from template")
-    new_p.add_argument("type", choices=["hook", "command", "agent", "prompt-hook"],
+    new_p.add_argument("type", choices=["hook", "prompt", "command", "agent", "prompt-hook"],
                        help="Component type")
     new_p.add_argument("name", help="Component name")
     new_p.add_argument("--event", default="pre_tool_use", help="Target event (for hooks, default: pre_tool_use)")
@@ -1730,6 +1772,17 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")
     migrate_p.add_argument("--no-backup", action="store_true", help="Skip backup of v1 config")
     migrate_p.set_defaults(func=cmd_migrate)
+
+    # migrate-prompts
+    migrate_prompts_p = subparsers.add_parser(
+        "migrate-prompts",
+        help="One-shot migration: commands schema -> prompts schema",
+    )
+    mode = migrate_prompts_p.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="Show what would change (default)")
+    mode.add_argument("--apply", action="store_true", help="Apply migration changes")
+    migrate_prompts_p.add_argument("--no-backup", action="store_true", help="Skip config backups")
+    migrate_prompts_p.set_defaults(func=cmd_migrate_prompts)
 
     return parser
 

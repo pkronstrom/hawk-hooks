@@ -215,7 +215,7 @@ def run_wizard():
         examples_prompts_dir = Path(__file__).parent.parent / "examples" / "prompts"
         if examples_prompts_dir.exists() and any(examples_prompts_dir.iterdir()):
             copy_prompts = questionary.confirm(
-                "Copy example prompts/commands to config directory?",
+                "Copy example prompts to config directory?",
                 default=True,
                 style=custom_style,
             ).ask()

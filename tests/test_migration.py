@@ -26,7 +26,7 @@ class TestMigrateConfig:
             "debug": True,
             "projects": ["/home/user/project1"],
             "destinations": {
-                "claude": {"commands": "~/.claude/commands/"},
+                "claude": {"prompts": "~/.claude/commands/"},
             },
             "prompts": {"my-cmd": {"enabled": True, "hook_enabled": False}},
             "agents": {"reviewer": {"enabled": True, "hook_enabled": True}},
@@ -39,17 +39,17 @@ class TestMigrateConfig:
         assert "file-guard" in v2["global"]["hooks"]
         assert "block-secrets" in v2["global"]["hooks"]
         assert "notify" in v2["global"]["hooks"]
-        assert "my-cmd" in v2["global"]["commands"]
+        assert "my-cmd" in v2["global"]["prompts"]
         assert "reviewer" in v2["global"]["agents"]
         assert "/home/user/project1" in v2["directories"]
         assert v2["env"]["MY_VAR"] == "hello"
-        assert v2["tools"]["claude"]["destinations"]["commands"] == "~/.claude/commands/"
+        assert v2["tools"]["claude"]["destinations"]["prompts"] == "~/.claude/commands/"
 
     def test_empty_v1(self):
         v2 = migration.migrate_config({})
         assert v2["debug"] is False
         assert v2["global"]["hooks"] == []
-        assert v2["global"]["commands"] == []
+        assert v2["global"]["prompts"] == []
         assert v2["directories"] == {}
 
     def test_disabled_prompts_not_migrated(self):
@@ -58,7 +58,7 @@ class TestMigrateConfig:
             "agents": {"disabled-agent": {"enabled": False}},
         }
         v2 = migration.migrate_config(v1)
-        assert "disabled-cmd" not in v2["global"]["commands"]
+        assert "disabled-cmd" not in v2["global"]["prompts"]
         assert "disabled-agent" not in v2["global"]["agents"]
 
     def test_deduplicates_hooks(self):

@@ -20,7 +20,7 @@ console = Console(highlight=False)
 COMPONENT_TYPES = [
     ("Skills", "skills", ComponentType.SKILL),
     ("Hooks", "hooks", ComponentType.HOOK),
-    ("Commands", "commands", ComponentType.COMMAND),
+    ("Prompts", "prompts", ComponentType.PROMPT),
     ("Agents", "agents", ComponentType.AGENT),
     ("MCP Servers", "mcp", ComponentType.MCP),
 ]
@@ -704,7 +704,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
     # Global scope
     global_cfg = state["global_cfg"]
     global_enabled = []
-    for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+    for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
         for name in global_cfg.get(field, []):
             if name in all_pkg_items:
                 global_enabled.append(name)
@@ -721,7 +721,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
     if config_chain:
         for chain_dir, chain_config in config_chain:
             enabled = []
-            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
                 section = chain_config.get(field, {})
                 if isinstance(section, dict):
                     for name in section.get("enabled", []):
@@ -743,7 +743,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
         local_cfg = state.get("local_cfg")
         if local_cfg is not None:
             local_enabled = []
-            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
                 section = local_cfg.get(field, {})
                 if isinstance(section, dict):
                     for name in section.get("enabled", []):
@@ -803,7 +803,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
                 continue
 
             # Diff per field
-            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
                 field_items = {name for name, fields in item_field_map.items() if field in fields}
                 if not field_items:
                     continue
@@ -886,7 +886,7 @@ def _run_projects_tree() -> None:
         if profile:
             parts.append(f"profile: {profile}")
         if dir_config:
-            for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
                 section = dir_config.get(field, {})
                 if isinstance(section, dict):
                     count = len(section.get("enabled", []))
@@ -929,7 +929,7 @@ def _run_projects_tree() -> None:
     cfg = v2_config.load_global_config()
     global_section = cfg.get("global", {})
     global_parts: list[str] = []
-    for field in ["skills", "hooks", "commands", "agents", "mcp"]:
+    for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
         count = len(global_section.get(field, []))
         if count:
             global_parts.append(f"{count} {field}")
@@ -1098,7 +1098,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             console.clear()
             break
 
-        if action in ("skills", "hooks", "commands", "agents", "mcp"):
+        if action in ("skills", "hooks", "prompts", "agents", "mcp"):
             if _handle_component_toggle(state, action):
                 dirty = True
 

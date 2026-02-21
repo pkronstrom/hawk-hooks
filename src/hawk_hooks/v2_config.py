@@ -29,7 +29,6 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
     "global": {
         "skills": [],
         "hooks": [],
-        "commands": [],
         "agents": [],
         "mcp": [],
         "prompts": [],
@@ -92,7 +91,7 @@ def ensure_v2_dirs(cfg: dict[str, Any] | None = None) -> None:
     get_profiles_dir().mkdir(parents=True, exist_ok=True)
 
     registry = get_registry_path(cfg)
-    for subdir in ["skills", "hooks", "commands", "agents", "mcp", "prompts"]:
+    for subdir in ["skills", "hooks", "agents", "mcp", "prompts"]:
         (registry / subdir).mkdir(parents=True, exist_ok=True)
 
     # Cache dir for resolved sets

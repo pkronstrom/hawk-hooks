@@ -127,7 +127,7 @@ def run_wizard() -> bool:
 
 
 def _offer_builtins_install(cfg: dict) -> None:
-    """Offer to install bundled agents, commands & hooks."""
+    """Offer to install bundled agents, prompts & hooks."""
     from ..downloader import add_items_to_registry, classify
     from ..registry import Registry
     from ..types import ComponentType
@@ -141,13 +141,13 @@ def _offer_builtins_install(cfg: dict) -> None:
         return
 
     agent_count = sum(1 for i in content.items if i.component_type == ComponentType.AGENT)
-    command_count = sum(1 for i in content.items if i.component_type == ComponentType.COMMAND)
+    prompt_count = sum(1 for i in content.items if i.component_type == ComponentType.PROMPT)
     hook_count = sum(1 for i in content.items if i.component_type == ComponentType.HOOK)
     parts = []
     if agent_count:
         parts.append(f"{agent_count} agents")
-    if command_count:
-        parts.append(f"{command_count} commands")
+    if prompt_count:
+        parts.append(f"{prompt_count} prompts")
     if hook_count:
         parts.append(f"{hook_count} hook groups")
     desc = ", ".join(parts) if parts else f"{len(content.items)} components"

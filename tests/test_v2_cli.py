@@ -99,6 +99,20 @@ class TestArgParsing:
         args = self.parser.parse_args(["migrate", "--no-backup"])
         assert args.no_backup is True
 
+    def test_migrate_prompts_check(self):
+        args = self.parser.parse_args(["migrate-prompts", "--check"])
+        assert args.command == "migrate-prompts"
+        assert args.check is True
+        assert args.apply is False
+        assert args.no_backup is False
+
+    def test_migrate_prompts_apply_no_backup(self):
+        args = self.parser.parse_args(["migrate-prompts", "--apply", "--no-backup"])
+        assert args.command == "migrate-prompts"
+        assert args.check is False
+        assert args.apply is True
+        assert args.no_backup is True
+
     def test_download(self):
         args = self.parser.parse_args(["download", "https://github.com/user/repo"])
         assert args.command == "download"
@@ -349,7 +363,7 @@ class TestCmdNew:
         )
         cmd_new(args)
 
-        cmd_file = registry_dir / "commands" / "deploy.md"
+        cmd_file = registry_dir / "prompts" / "deploy.md"
         assert cmd_file.exists()
         content = cmd_file.read_text()
         assert "deploy" in content
@@ -413,6 +427,40 @@ class TestCmdNew:
 
         # File should be unchanged
         assert (registry_dir / "hooks" / "guard.py").read_text() == "existing"
+
+
+class TestCmdMigratePrompts:
+    def test_check_mode_outputs_summary(self, monkeypatch, capsys):
+        import argparse
+        from hawk_hooks.v2_cli import cmd_migrate_prompts
+
+        monkeypatch.setattr(
+            "hawk_hooks.migrate_prompts.run_migrate_prompts",
+            lambda **kwargs: (True, "global.commands needs migration"),
+        )
+
+        args = argparse.Namespace(check=True, apply=False, no_backup=False)
+        cmd_migrate_prompts(args)
+
+        out = capsys.readouterr().out
+        assert "Migration check:" in out
+        assert "global.commands needs migration" in out
+
+    def test_apply_mode_outputs_done(self, monkeypatch, capsys):
+        import argparse
+        from hawk_hooks.v2_cli import cmd_migrate_prompts
+
+        monkeypatch.setattr(
+            "hawk_hooks.migrate_prompts.run_migrate_prompts",
+            lambda **kwargs: (True, "migrated global.commands -> global.prompts"),
+        )
+
+        args = argparse.Namespace(check=False, apply=True, no_backup=True)
+        cmd_migrate_prompts(args)
+
+        out = capsys.readouterr().out
+        assert "Migration complete:" in out
+        assert "migrated global.commands -> global.prompts" in out
 
 
 class TestCmdDeps:
@@ -496,7 +544,7 @@ class TestCmdScanPackageRecording:
         pkg = packages["test-pkg"]
         assert pkg["path"] == str(scan_dir)
         assert len(pkg["items"]) == 1
-        assert pkg["items"][0]["type"] == "command"
+        assert pkg["items"][0]["type"] == "prompt"
         assert pkg["items"][0]["name"] == "hello.md"
 
     def test_scan_all_without_manifest_no_package(self, tmp_path, monkeypatch):
