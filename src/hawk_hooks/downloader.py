@@ -203,6 +203,7 @@ def classify(directory: Path, repo_name: str = "") -> ClassifiedContent:
     _scan_typed_dir(directory / "agents", ComponentType.AGENT, content)
     _scan_typed_dir(directory / "prompts", ComponentType.PROMPT, content)
     _scan_mcp_dir(directory / "mcp", content)
+    _scan_top_level_hook_metadata(directory, content)
 
     # Check for top-level items if no subdirectories found
     if not content.items:
@@ -384,6 +385,17 @@ def _scan_top_level(directory: Path, content: ClassifiedContent) -> None:
             continue
 
         if entry.is_file():
+            if _has_item_for_path(content, entry):
+                continue
+            if _has_explicit_hawk_hook_metadata(entry):
+                content.items.append(
+                    ClassifiedItem(
+                        component_type=ComponentType.HOOK,
+                        name=entry.name,
+                        source_path=entry,
+                    )
+                )
+                continue
             if entry.suffix == ".md":
                 # Default: classify as skill
                 content.items.append(
@@ -413,6 +425,30 @@ def _scan_top_level(directory: Path, content: ClassifiedContent) -> None:
                         source_path=entry,
                     )
                 )
+
+
+def _scan_top_level_hook_metadata(directory: Path, content: ClassifiedContent) -> None:
+    """Add top-level files with explicit hawk-hook metadata as hooks."""
+    for entry in sorted(directory.iterdir()):
+        if entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+        if not entry.is_file() or entry.is_symlink():
+            continue
+        if _has_item_for_path(content, entry):
+            continue
+        if _has_explicit_hawk_hook_metadata(entry):
+            content.items.append(
+                ClassifiedItem(
+                    component_type=ComponentType.HOOK,
+                    name=entry.name,
+                    source_path=entry,
+                )
+            )
+
+
+def _has_item_for_path(content: ClassifiedContent, path: Path) -> bool:
+    """Return True if an item has already been classified for this path."""
+    return any(item.source_path == path for item in content.items)
 
 
 def check_clashes(
@@ -596,6 +632,8 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
                     seen_paths.add(entry)
                     continue
                 item = _classify_file(entry, parent_name)
+                if not item and _has_explicit_hawk_hook_metadata(entry):
+                    item = ClassifiedItem(ComponentType.HOOK, entry.name, entry)
                 if item:
                     item.package = _current_package(entry)
                     seen_paths.add(entry)
@@ -636,6 +674,22 @@ def _is_hook_file(path: Path) -> bool:
             return False
 
     return False
+
+
+def _has_explicit_hawk_hook_metadata(path: Path) -> bool:
+    """Return True if file declares hawk-hook metadata with at least one event."""
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return False
+    if "hawk-hook" not in text:
+        return False
+
+    try:
+        from .hook_meta import parse_hook_meta
+        return bool(parse_hook_meta(path).events)
+    except Exception:
+        return False
 
 
 def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedItem]:

@@ -488,6 +488,17 @@ class TestClassifyFlatHooks:
         assert "README.md" not in names
         assert "config.yaml" not in names
 
+    def test_root_md_with_hawk_hook_metadata_is_hook_even_with_structured_dirs(self, tmp_path):
+        """Top-level metadata hooks should be found even when typed dirs exist."""
+        (tmp_path / "commands").mkdir()
+        (tmp_path / "commands" / "deploy.md").write_text("# Deploy")
+        root_hook = tmp_path / "guard.md"
+        root_hook.write_text("---\nhawk-hook:\n  events: [stop]\n---\nCheck completion.\n")
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "guard.md" for i in hook_items)
+
 
 class TestBatchDuplicateDetection:
     """Test that check_clashes detects intra-batch duplicate filenames."""
@@ -535,6 +546,15 @@ class TestScanDirectoryHooks:
         content = scan_directory(tmp_path)
         hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
         assert any(i.name == "notify.py" for i in hook_items)
+
+    def test_detects_root_md_with_hawk_hook_frontmatter(self, tmp_path):
+        """scan_directory finds top-level markdown hooks via hawk-hook metadata."""
+        root_hook = tmp_path / "guard.md"
+        root_hook.write_text("---\nhawk-hook:\n  events: [stop]\n---\nCheck completion.\n")
+
+        content = scan_directory(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert any(i.name == "guard.md" for i in hook_items)
 
 
 class TestPackageManifest:
