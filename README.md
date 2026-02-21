@@ -6,6 +6,12 @@ A modular Claude Code hooks manager with auto-discovery, multi-language support,
 
 Part of [**Nest-Driven Development**](https://github.com/pkronstrom/nest-driven-development) — the minimum vibable workflow.
 
+## Breaking Changes
+
+- **v3 prompts-canonical schema**: slash-style items now use `prompts` as the canonical concept instead of `commands`.
+- Migration instructions: `docs/MIGRATION-v3-prompts.md`
+- Release notes: `docs/CHANGELOG.md`
+
 ## Features
 
 - **Auto-discovery**: Drop scripts in `~/.config/hawk-hooks/hooks/{event}/` and they appear automatically
