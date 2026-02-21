@@ -5,7 +5,7 @@ import json
 import pytest
 
 from hawk_hooks.adapters.opencode import OpenCodeAdapter, HAWK_MCP_MARKER
-from hawk_hooks.types import Tool
+from hawk_hooks.types import ResolvedSet, Tool
 
 
 @pytest.fixture
@@ -22,6 +22,9 @@ class TestOpenCodeAdapter:
 
     def test_project_dir(self, adapter, tmp_path):
         assert adapter.get_project_dir(tmp_path) == tmp_path / ".opencode"
+
+    def test_hook_support_flag(self, adapter):
+        assert adapter.hook_support == "unsupported"
 
 
 class TestOpenCodeMCP:
@@ -63,3 +66,13 @@ class TestOpenCodeMCP:
         data = json.loads((target / "opencode.json").read_text())
         assert "old" not in data["mcpServers"]
         assert "new" in data["mcpServers"]
+
+
+class TestOpenCodeHooks:
+    def test_sync_warns_when_hooks_configured(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        target = tmp_path / "opencode"
+        target.mkdir(parents=True)
+
+        result = adapter.sync(ResolvedSet(hooks=["guard.py"]), target, registry)
+        assert any("opencode hook registration is unsupported" in e for e in result.errors)

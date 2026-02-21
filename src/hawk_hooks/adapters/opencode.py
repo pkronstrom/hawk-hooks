@@ -10,6 +10,7 @@ from .base import HAWK_MCP_MARKER, ToolAdapter
 
 class OpenCodeAdapter(ToolAdapter):
     """Adapter for OpenCode."""
+    HOOK_SUPPORT = "unsupported"
 
     @property
     def tool(self) -> Tool:
@@ -26,6 +27,7 @@ class OpenCodeAdapter(ToolAdapter):
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """OpenCode does not support hooks natively."""
+        self._warn_hooks_unsupported("opencode", hook_names)
         return []
 
     def write_mcp_config(

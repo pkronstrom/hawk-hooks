@@ -14,6 +14,7 @@ _HAWK_HOOK_MARKER = "__hawk_managed"
 
 class ClaudeAdapter(ToolAdapter):
     """Adapter for Claude Code."""
+    HOOK_SUPPORT = "native"
 
     @property
     def tool(self) -> Tool:

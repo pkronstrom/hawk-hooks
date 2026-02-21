@@ -27,10 +27,9 @@ Branch `v2` — 63 commits ahead of `main`, 476 tests passing.
 | TUI scope detection | `v2-tui-design.md:13` | Exact cwd match only, should walk ancestor registered dirs |
 | TUI enabled counts | `v2-tui-design.md:52` | Approximate (global + local delta), not resolved-chain counts |
 | Registry Browser | `v2-tui-design.md:111` | Not implemented — planned as TUI action |
-| Hook metadata-anywhere discovery | `hawk-hook-format-design.md:82` | Scan classifies mainly by parent dir, not by header presence |
 | Scan package updates | `package-grouping-design.md:270` | `hawk scan` records empty `url`/`commit`, so `hawk update` skips them |
 | Migration schema | `migration.py:58` | Missing `prompts` key, only seeds 4 tools (defaults fill on load) |
-| Non-Claude hooks | All non-Claude adapters | Return `[]` — correct, these tools don't support hooks natively yet |
+| Cross-tool hooks (Gemini/Codex/others) | Phase E (below) | Claude + Gemini native, Codex bridge, OpenCode/Cursor/Antigravity explicit unsupported warnings |
 | Builtins | `hawk-hook-format-plan.md:354` | Curated to 4 hooks (plan had 15) — intentional reduction |
 
 ---
@@ -89,7 +88,7 @@ Task:
 - Tests: add test asserting migrated output has all keys from DEFAULT_GLOBAL_CONFIG
 ```
 
-### Phase C — Hook Discovery (1 agent, depends on nothing)
+### Phase C — Hook Discovery (1 agent, depends on nothing, completed 2026-02-21)
 
 **Agent C1: Metadata-Anywhere Hook Detection**
 ```
@@ -104,6 +103,11 @@ Task:
 - Tests: add test for hook file in root dir with hawk-hook: header
 ```
 
+Status:
+- Implemented in `src/hawk_hooks/downloader.py`
+- Verified by `tests/test_downloader.py::TestClassifyFlatHooks::test_root_md_with_hawk_hook_metadata_is_hook_even_with_structured_dirs`
+- Verified by `tests/test_downloader.py::TestScanDirectoryHooks::test_detects_root_md_with_hawk_hook_frontmatter`
+
 ### Phase D — Pre-Merge Cleanup (1 agent, after A+B+C)
 
 **Agent D1: Plan Doc Reconciliation & Final Checks**
@@ -117,28 +121,82 @@ Task:
 - Check for any TODO/FIXME/HACK comments that need resolution
 ```
 
+### Phase E — Cross-Tool Hook Registration (completed 2026-02-21)
+
+This phase plans hook support beyond Claude with a staged rollout:
+- native integration where supported
+- limited bridge mode where only partial APIs exist
+- explicit unsupported reporting (no silent drops)
+
+**Agent E1: Capability Matrix + Event Contract**
+```
+Files: docs/hawk-v2-research-and-design.md, src/hawk_hooks/event_mapping.py, tests/test_event_mapping.py
+Task:
+- Verify current hook capabilities for Claude, Gemini, Codex (and note optional tools)
+- Freeze canonical event contract and per-tool mappings in event_mapping.py
+- Mark each event as native / bridged / unsupported per tool
+- Tests: add event mapping tests for supported + unsupported cases
+```
+
+**Agent E2: Gemini Native Hook Registration**
+```
+Files: src/hawk_hooks/adapters/gemini.py, src/hawk_hooks/event_mapping.py, tests/test_adapter_gemini.py
+Task:
+- Implement GeminiAdapter.register_hooks() using hawk runners + settings.json hook entries
+- Map canonical hawk events to Gemini hook names (e.g. pre_tool_use -> BeforeTool)
+- Preserve user-defined hooks; replace only hawk-managed entries
+- Skip unsupported events with explicit sync warnings
+- Tests: registration, update/cleanup, preservation, unsupported-event handling
+```
+
+**Agent E3: Codex Limited Hook Bridge**
+```
+Files: src/hawk_hooks/adapters/codex.py, src/hawk_hooks/event_mapping.py, tests/test_adapter_codex.py, docs/hawk-v2-research-and-design.md
+Task:
+- Implement minimal Codex hook support via the available notify-style callback path
+- Bridge stop/notification-class events through hawk-generated runner(s)
+- Keep unsupported Codex events explicit in sync output (not silently ignored)
+- Tests: bridge install/update/remove and manual config preservation
+```
+
+**Agent E4 (Optional): Other adapters if low-friction**
+```
+Files: src/hawk_hooks/adapters/opencode.py, src/hawk_hooks/adapters/cursor.py, src/hawk_hooks/adapters/antigravity.py
+Task:
+- Add explicit capability flags + warning behavior for hooks
+- Implement native registration only where API is stable and low-risk
+- Tests: adapter-level smoke tests for hook registration behavior
+```
+
+Status:
+- E1 complete: event contract + support levels in `src/hawk_hooks/event_mapping.py`
+- E2 complete: Gemini hook registration in `src/hawk_hooks/adapters/gemini.py`
+- E3 complete: Codex notify bridge in `src/hawk_hooks/adapters/codex.py`
+- E4 complete: OpenCode/Cursor/Antigravity hook capability flags + explicit warning behavior
+
 ---
 
 ## Dependency Graph
 
 ```
-Phase A (TUI Polish)          Phase B (Package Lifecycle)     Phase C (Hook Discovery)
-  A1: Scope Detection           B1: Scan Source Tracking        C1: Metadata-Anywhere
-  A2: Registry Browser          B2: Migration Schema
-       |                             |                               |
-       +-----------------------------+-------------------------------+
-                                     |
-                              Phase D (Pre-Merge)
-                               D1: Reconciliation
+Phase A (TUI Polish)          Phase B (Package Lifecycle)     Phase C (Hook Discovery)    Phase E (Cross-Tool Hooks)
+  A1: Scope Detection           B1: Scan Source Tracking        C1: Metadata-Anywhere       E1: Event Contract
+  A2: Registry Browser          B2: Migration Schema                                        E2: Gemini Native
+                                                                                             E3: Codex Bridge
+       |                             |                               |                       E4: Optional Others
+       +-----------------------------+-------------------------------+------------------------------+
+                                                                                                      |
+                                                                                               Phase D (Pre-Merge)
+                                                                                                D1: Reconciliation
 ```
 
-A, B, C are fully parallel (no shared files between phases).
+A, B, C, and E can run in parallel by agent.
 D runs after everything else lands.
 
 ## Execution Notes
 
 - Each agent task is self-contained with file list, clear task, and test expectations
-- Agents A1, A2, B1, B2, C1 can all run simultaneously (5 parallel agents)
-- Or run as 3 phases: A (2 agents) || B (2 agents) || C (1 agent), then D
+- Agents A1, A2, B1, B2, C1, E1, E2, E3 can run simultaneously (8 parallel agents; E4 optional)
+- Or run as 4 phases: A (2 agents) || B (2 agents) || C (1 agent) || E (3-4 agents), then D
 - After each phase, run `python3 -m pytest tests/ --ignore=tests/test_cli.py -q` to verify
-- Non-Claude hook registration (Gemini/Codex/etc.) is intentionally out of scope — those tools don't support hooks natively
+- Cross-tool hook registration is now in scope under Phase E

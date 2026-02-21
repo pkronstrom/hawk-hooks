@@ -17,6 +17,7 @@ from .base import ToolAdapter
 
 class AntigravityAdapter(ToolAdapter):
     """Adapter for Google Antigravity."""
+    HOOK_SUPPORT = "unsupported"
 
     @property
     def tool(self) -> Tool:
@@ -37,6 +38,7 @@ class AntigravityAdapter(ToolAdapter):
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """Antigravity does not support hooks natively."""
+        self._warn_hooks_unsupported("antigravity", hook_names)
         return []
 
     def write_mcp_config(

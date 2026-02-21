@@ -56,6 +56,7 @@ def setup_registry(tmp_path):
 class TestClaudeAdapter:
     def test_tool(self, adapter):
         assert adapter.tool == Tool.CLAUDE
+        assert adapter.hook_support == "native"
 
     def test_global_dir(self, adapter):
         assert str(adapter.get_global_dir()).endswith(".claude")
