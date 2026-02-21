@@ -104,13 +104,13 @@ def cmd_sync(args):
     if args.dir:
         project_dir = Path(args.dir).resolve()
         results = sync_directory(project_dir, tools=tools, dry_run=args.dry_run, force=force)
-        formatted = format_sync_results({str(project_dir): results})
+        formatted = format_sync_results({str(project_dir): results}, verbose=args.verbose)
     elif args.globals_only:
         results = sync_global(tools=tools, dry_run=args.dry_run, force=force)
-        formatted = format_sync_results({"global": results})
+        formatted = format_sync_results({"global": results}, verbose=args.verbose)
     else:
         all_results = sync_all(tools=tools, dry_run=args.dry_run, force=force)
-        formatted = format_sync_results(all_results)
+        formatted = format_sync_results(all_results, verbose=args.verbose)
 
     if args.dry_run:
         print("Dry run (no changes applied):")
@@ -1803,6 +1803,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_p.add_argument("--tool", choices=[t.value for t in Tool], help="Sync specific tool")
     sync_p.add_argument("--dry-run", action="store_true", help="Show what would change")
     sync_p.add_argument("--force", action="store_true", help="Bypass cache, sync unconditionally")
+    sync_p.add_argument("-v", "--verbose", action="store_true", help="Show per-item sync details")
     sync_p.add_argument("--global", dest="globals_only", action="store_true", help="Sync global only")
     sync_p.set_defaults(func=cmd_sync)
 

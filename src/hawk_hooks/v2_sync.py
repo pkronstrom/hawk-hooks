@@ -347,8 +347,17 @@ def _compute_would_link(
     return would_link
 
 
-def format_sync_results(results: dict[str, list[SyncResult]]) -> str:
-    """Format sync results into a human-readable summary."""
+def format_sync_results(
+    results: dict[str, list[SyncResult]],
+    *,
+    verbose: bool = True,
+) -> str:
+    """Format sync/clean results into a human-readable summary.
+
+    Args:
+        results: Mapping of scope name to per-tool sync results.
+        verbose: When True, include per-item link/unlink/error lines.
+    """
     lines: list[str] = []
 
     for scope, tool_results in results.items():
@@ -367,11 +376,12 @@ def format_sync_results(results: dict[str, list[SyncResult]]) -> str:
                 parts.append(f"!{len(result.errors)} errors")
             lines.append(f"    {result.tool}: {', '.join(parts)}")
 
-            for item in result.linked:
-                lines.append(f"      + {item}")
-            for item in result.unlinked:
-                lines.append(f"      - {item}")
-            for err in result.errors:
-                lines.append(f"      ! {err}")
+            if verbose:
+                for item in result.linked:
+                    lines.append(f"      + {item}")
+                for item in result.unlinked:
+                    lines.append(f"      - {item}")
+                for err in result.errors:
+                    lines.append(f"      ! {err}")
 
     return "\n".join(lines)

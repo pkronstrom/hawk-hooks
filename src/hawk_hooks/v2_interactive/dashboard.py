@@ -12,6 +12,7 @@ from ..adapters import get_adapter
 from ..registry import Registry
 from ..resolver import resolve
 from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
+from .pause import wait_for_continue
 from .toggle import run_toggle_list
 
 console = Console(highlight=False)
@@ -384,13 +385,13 @@ def _make_mcp_add_callback(state: dict):
             # Validate name
             if "/" in name or ".." in name or name.startswith("."):
                 console.print("[red]Invalid name.[/red]")
-                console.input("[dim]Press Enter to continue...[/dim]")
+                wait_for_continue()
                 return None
 
             # Check clash
             if registry.has(ComponentType.MCP, name + ".yaml"):
                 console.print(f"[red]Already exists: mcp/{name}.yaml[/red]")
-                console.input("[dim]Press Enter to continue...[/dim]")
+                wait_for_continue()
                 return None
 
             # Command
@@ -526,7 +527,7 @@ def _handle_packages(state: dict) -> bool:
     if not packages:
         console.print("\n[dim]No packages installed.[/dim]")
         console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
-        console.input("[dim]Press Enter to continue...[/dim]")
+        wait_for_continue()
         return False
 
     dirty = False
@@ -695,7 +696,7 @@ def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
 
     if not toggle_groups:
         console.print(f"\n[dim]No items in package {pkg_name}.[/dim]")
-        console.input("[dim]Press Enter to continue...[/dim]")
+        wait_for_continue()
         return False
 
     # 2. Build scopes — collect enabled items across ALL types for this package
@@ -852,7 +853,7 @@ def _run_projects_tree() -> None:
     if not dirs:
         console.print("\n[dim]No directories registered.[/dim]")
         console.print("[dim]Run [cyan]hawk init[/cyan] in a project directory to register it.[/dim]\n")
-        console.input("[dim]Press Enter to continue...[/dim]")
+        wait_for_continue()
         return
 
     # Build tree structure: group by parent-child relationships
@@ -971,10 +972,10 @@ def _handle_sync(state: dict) -> None:
 
     console.print("\n[bold]Syncing...[/bold]")
     all_results = sync_all(force=True)
-    formatted = format_sync_results(all_results)
+    formatted = format_sync_results(all_results, verbose=False)
     console.print(formatted or "  No changes.")
     console.print()
-    console.input("[dim]Press Enter to continue...[/dim]")
+    wait_for_continue()
 
 
 def _handle_download() -> None:
@@ -1004,7 +1005,7 @@ def _handle_download() -> None:
         pass
 
     console.print()
-    console.input("[dim]Press Enter to continue...[/dim]")
+    wait_for_continue()
 
 
 def _prompt_sync_on_exit(dirty: bool) -> None:
@@ -1023,7 +1024,7 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
 
         console.print("\n[bold]Syncing...[/bold]")
         all_results = sync_all(force=True)
-        formatted = format_sync_results(all_results)
+        formatted = format_sync_results(all_results, verbose=False)
         console.print(formatted or "  No changes.")
         return
 
@@ -1043,7 +1044,7 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
 
         console.print("[bold]Syncing...[/bold]")
         all_results = sync_all(force=True)
-        formatted = format_sync_results(all_results)
+        formatted = format_sync_results(all_results, verbose=False)
         console.print(formatted or "  No changes.")
 
 

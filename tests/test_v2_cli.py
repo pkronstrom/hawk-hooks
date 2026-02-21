@@ -27,6 +27,7 @@ class TestArgParsing:
         args = self.parser.parse_args(["sync"])
         assert args.command == "sync"
         assert args.dry_run is False
+        assert args.verbose is False
 
     def test_sync_dry_run(self):
         args = self.parser.parse_args(["sync", "--dry-run"])
@@ -35,6 +36,10 @@ class TestArgParsing:
     def test_sync_with_tool(self):
         args = self.parser.parse_args(["sync", "--tool", "claude"])
         assert args.tool == "claude"
+
+    def test_sync_verbose(self):
+        args = self.parser.parse_args(["sync", "-v"])
+        assert args.verbose is True
 
     def test_sync_global(self):
         args = self.parser.parse_args(["sync", "--global"])
