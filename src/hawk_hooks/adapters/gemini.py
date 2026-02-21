@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from ..types import Tool
 from .base import ToolAdapter
+
+_HAWK_HOOK_MARKER = "__hawk_managed"
 
 
 def _escape_toml_string(s: str) -> str:
@@ -57,6 +60,7 @@ prompt = '''
 
 class GeminiAdapter(ToolAdapter):
     """Adapter for Gemini CLI."""
+    HOOK_SUPPORT = "native"
 
     @property
     def tool(self) -> Tool:
@@ -149,8 +153,11 @@ class GeminiAdapter(ToolAdapter):
         )
 
         try:
+            self._set_hook_warnings([])
             registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
             result.linked.extend(f"hook:{h}" for h in registered)
+            for warning in self._take_hook_warnings():
+                result.errors.append(f"hooks: {warning}")
         except Exception as e:
             result.errors.append(f"hooks: {e}")
 
@@ -164,8 +171,101 @@ class GeminiAdapter(ToolAdapter):
         return result
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """Gemini does not support hooks natively."""
-        return []
+        """Register command hooks in Gemini settings.json.
+
+        Gemini uses a Claude-like hooks array in settings.json. We only
+        register command-style hooks; .prompt.json hooks are skipped.
+        """
+        from ..event_mapping import get_event_support, get_tool_event_or_none
+        from ..hook_meta import parse_hook_meta
+
+        warnings: list[str] = []
+        runners_dir = target_dir / "runners"
+
+        if not hook_names or registry_path is None:
+            self._remove_hawk_hooks(target_dir)
+            if runners_dir.exists():
+                for f in runners_dir.iterdir():
+                    if f.suffix == ".sh":
+                        f.unlink()
+            self._set_hook_warnings([])
+            return []
+
+        hooks_dir = registry_path / "hooks"
+
+        script_hooks: list[str] = []
+        prompt_hooks: list[str] = []
+        for name in hook_names:
+            if name.endswith(".prompt.json"):
+                prompt_hooks.append(name)
+            else:
+                script_hooks.append(name)
+
+        if prompt_hooks:
+            warnings.append(
+                f"prompt hooks are unsupported by gemini and were skipped: {', '.join(sorted(prompt_hooks))}"
+            )
+
+        runners = self._generate_runners(script_hooks, registry_path, runners_dir) if script_hooks else {}
+
+        event_timeouts: dict[str, int] = {}
+        for name in script_hooks:
+            hook_path = hooks_dir / name
+            if not hook_path.is_file():
+                continue
+            meta = parse_hook_meta(hook_path)
+            for event in meta.events:
+                if event in runners and meta.timeout > 0:
+                    event_timeouts[event] = max(event_timeouts.get(event, 0), meta.timeout)
+
+        settings_path = target_dir / "settings.json"
+        settings = self._load_json(settings_path)
+        existing_hooks = settings.get("hooks", [])
+        if not isinstance(existing_hooks, list):
+            existing_hooks = [existing_hooks] if existing_hooks else []
+        user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
+
+        hawk_entries: list[dict] = []
+        registered_events: set[str] = set()
+
+        for event_name, runner_path in sorted(runners.items()):
+            support = get_event_support(event_name, "gemini")
+            matcher = get_tool_event_or_none(event_name, "gemini")
+            if support == "unsupported" or not matcher:
+                warnings.append(f"{event_name} is unsupported by gemini and was skipped")
+                runner_path.unlink(missing_ok=True)
+                continue
+
+            hook_def: dict = {
+                "type": "command",
+                "command": str(runner_path),
+                _HAWK_HOOK_MARKER: True,
+            }
+            if event_name in event_timeouts:
+                hook_def["timeout"] = event_timeouts[event_name]
+
+            hawk_entries.append(
+                {
+                    "matcher": matcher,
+                    "hooks": [hook_def],
+                }
+            )
+            registered_events.add(event_name)
+
+        settings["hooks"] = user_hooks + hawk_entries
+        self._save_json(settings_path, settings)
+
+        registered: list[str] = []
+        for name in script_hooks:
+            hook_path = hooks_dir / name
+            if not hook_path.is_file():
+                continue
+            events = parse_hook_meta(hook_path).events
+            if any(event in registered_events for event in events):
+                registered.append(name)
+
+        self._set_hook_warnings(warnings)
+        return registered
 
     def write_mcp_config(
         self,
@@ -178,3 +278,39 @@ class GeminiAdapter(ToolAdapter):
         server entries, which Gemini's strict config validation rejects.
         """
         self._merge_mcp_sidecar(target_dir / "settings.json", servers)
+
+    # -- Hook helpers --
+
+    def _remove_hawk_hooks(self, target_dir: Path) -> None:
+        settings_path = target_dir / "settings.json"
+        settings = self._load_json(settings_path)
+        existing_hooks = settings.get("hooks", [])
+        if not isinstance(existing_hooks, list):
+            existing_hooks = [existing_hooks] if existing_hooks else []
+        user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
+        if len(user_hooks) != len(existing_hooks):
+            settings["hooks"] = user_hooks
+            self._save_json(settings_path, settings)
+
+    @staticmethod
+    def _is_hawk_hook(hook_entry: object) -> bool:
+        if not isinstance(hook_entry, dict):
+            return False
+        hooks = hook_entry.get("hooks", [])
+        if not isinstance(hooks, list):
+            return False
+        return any(isinstance(h, dict) and h.get(_HAWK_HOOK_MARKER) for h in hooks)
+
+    @staticmethod
+    def _load_json(path: Path) -> dict:
+        if path.exists():
+            try:
+                return json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    @staticmethod
+    def _save_json(path: Path, data: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n")

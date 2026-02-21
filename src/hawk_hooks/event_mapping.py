@@ -1,139 +1,129 @@
-"""Canonical event mapping between AI coding tools.
+"""Event mapping and capability contract across supported tools.
 
-Maps canonical event names to tool-specific events:
-- pre_tool -> pre_tool_use (Claude), BeforeTool (Gemini)
-- post_tool -> post_tool_use (Claude), AfterTool (Gemini)
-- etc.
-
-Tool-specific events (user_prompt_submit, BeforeModel) pass through as-is
-and are skipped for unsupported tools.
+This module normalizes hawk hook events to tool-specific matcher/event names
+and exposes support status per tool:
+- native: tool supports this event directly
+- bridge: emulated via a reduced mechanism
+- unsupported: no reliable integration
 """
 
 from __future__ import annotations
 
-# Canonical event -> tool-specific mapping
-CANONICAL_EVENTS: dict[str, dict[str, str]] = {
-    "pre_tool": {
-        "claude": "pre_tool_use",
-        "gemini": "BeforeTool",
-        "codex": "pre_tool",  # TBD
+from typing import Literal
+
+SupportLevel = Literal["native", "bridge", "unsupported"]
+
+# Backward-compatible aliases used by older docs/tests.
+_ALIASES_TO_HAWK: dict[str, str] = {
+    "pre_tool": "pre_tool_use",
+    "post_tool": "post_tool_use",
+}
+
+_HAWK_TO_ALIASES: dict[str, str] = {
+    "pre_tool_use": "pre_tool",
+    "post_tool_use": "post_tool",
+}
+
+# Hawk event -> tool-specific matcher/event name where available.
+_TOOL_EVENT_MAP: dict[str, dict[str, str]] = {
+    "claude": {
+        "pre_tool_use": "PreToolUse",
+        "post_tool_use": "PostToolUse",
+        "notification": "Notification",
+        "stop": "Stop",
+        "subagent_stop": "SubagentStop",
+        "user_prompt_submit": "UserPromptSubmit",
+        "session_start": "SessionStart",
+        "session_end": "SessionEnd",
+        "pre_compact": "PreCompact",
+        "permission_request": "PermissionRequest",
     },
-    "post_tool": {
-        "claude": "post_tool_use",
-        "gemini": "AfterTool",
-        "codex": "post_tool",  # TBD
+    "gemini": {
+        "pre_tool_use": "BeforeTool",
+        "post_tool_use": "AfterTool",
+        "notification": "Notification",
+        "stop": "AfterAgent",
+        "user_prompt_submit": "BeforeAgent",
+        "session_start": "SessionStart",
+        "session_end": "SessionEnd",
+        "pre_compact": "PreCompress",
     },
-    "stop": {
-        "claude": "stop",
-        "gemini": "AfterAgent",
-        "codex": "stop",  # TBD
-    },
-    "notification": {
-        "claude": "notification",
-        "gemini": "Notification",
-        "codex": "notification",  # TBD
-    },
-    "session_start": {
-        "claude": "session_start",
-        "gemini": "SessionStart",
-        "codex": "session_start",  # TBD
-    },
-    "session_end": {
-        "claude": "session_end",
-        "gemini": "SessionEnd",
-        "codex": "session_end",  # TBD
-    },
-    "pre_compact": {
-        "claude": "pre_compact",
-        "gemini": "PreCompress",
-        "codex": "pre_compact",  # TBD
+    "codex": {
+        # Limited bridge mode: Codex notify callbacks currently model
+        # "agent-turn-complete" semantics rather than full event hooks.
+        "stop": "agent-turn-complete",
+        "notification": "agent-turn-complete",
     },
 }
 
-# Tool-specific events (not in canonical mapping)
-TOOL_SPECIFIC_EVENTS: dict[str, list[str]] = {
-    "claude": ["user_prompt_submit", "subagent_stop", "permission_request"],
+_EVENT_SUPPORT: dict[str, dict[str, SupportLevel]] = {
+    "claude": {
+        event: "native" for event in _TOOL_EVENT_MAP["claude"]
+    },
+    "gemini": {
+        event: "native" for event in _TOOL_EVENT_MAP["gemini"]
+    },
+    "codex": {
+        "stop": "bridge",
+        "notification": "bridge",
+    },
+}
+
+# Tool-specific events that are not part of hawk event names.
+_TOOL_SPECIFIC_EVENTS: dict[str, list[str]] = {
+    "claude": [],
     "gemini": ["BeforeModel", "AfterModel", "BeforeToolSelection"],
-    "codex": [],
+    "codex": ["agent-turn-complete"],
 }
 
-# Reverse mapping: tool-specific -> canonical
+# Reverse mapping (tool-specific -> hawk event).
 _REVERSE_MAPPING: dict[str, str] = {}
-for canonical, tools in CANONICAL_EVENTS.items():
-    for tool, specific in tools.items():
-        if specific in _REVERSE_MAPPING and _REVERSE_MAPPING[specific] != canonical:
-            import logging
-
-            logging.getLogger(__name__).warning(
-                f"Event mapping collision: '{specific}' maps to both "
-                f"'{_REVERSE_MAPPING[specific]}' and '{canonical}'"
-            )
-        _REVERSE_MAPPING[specific] = canonical
+for tool_name, event_map in _TOOL_EVENT_MAP.items():
+    for hawk_event, tool_event in event_map.items():
+        # Keep first definition if multiple tools share same token.
+        _REVERSE_MAPPING.setdefault(tool_event, hawk_event)
 
 
-def get_tool_event(canonical: str, tool: str) -> str:
-    """Get the tool-specific event name for a canonical event.
+def _normalize_hawk_event(event: str) -> str:
+    """Normalize legacy aliases to hawk event names."""
+    return _ALIASES_TO_HAWK.get(event, event)
 
-    Args:
-        canonical: Canonical event name (e.g., "pre_tool")
-        tool: Tool name ("claude", "gemini", "codex")
 
-    Returns:
-        Tool-specific event name, or canonical if not mapped.
+def get_tool_event(event: str, tool: str) -> str:
+    """Map event to a tool-specific event/matcher name.
+
+    Returns the input event unchanged when no mapping exists.
     """
-    if canonical in CANONICAL_EVENTS:
-        return CANONICAL_EVENTS[canonical].get(tool, canonical)
-    # Pass through tool-specific events as-is
-    return canonical
+    normalized = _normalize_hawk_event(event)
+    mapped = _TOOL_EVENT_MAP.get(tool, {}).get(normalized)
+    if mapped:
+        return mapped
+    return event
+
+
+def get_tool_event_or_none(event: str, tool: str) -> str | None:
+    """Map event to tool-specific name, or None if unsupported."""
+    normalized = _normalize_hawk_event(event)
+    return _TOOL_EVENT_MAP.get(tool, {}).get(normalized)
 
 
 def get_canonical_event(event: str) -> str:
-    """Get the canonical event name from a tool-specific event.
+    """Get canonical event identifier (legacy canonical aliases where defined)."""
+    hawk_event = _REVERSE_MAPPING.get(event, _normalize_hawk_event(event))
+    return _HAWK_TO_ALIASES.get(hawk_event, hawk_event)
 
-    Args:
-        event: Tool-specific or canonical event name.
 
-    Returns:
-        Canonical event name, or event as-is if not found.
-    """
-    return _REVERSE_MAPPING.get(event, event)
+def get_event_support(event: str, tool: str) -> SupportLevel:
+    """Return support level for an event on a tool."""
+    normalized = _normalize_hawk_event(event)
+    return _EVENT_SUPPORT.get(tool, {}).get(normalized, "unsupported")
 
 
 def is_tool_specific_event(event: str, tool: str) -> bool:
-    """Check if an event is specific to a tool (not canonical).
-
-    Args:
-        event: Event name to check.
-        tool: Tool to check support for.
-
-    Returns:
-        True if the event is tool-specific and supported by the tool.
-    """
-    # If it's a canonical event, it's not tool-specific
-    if event in CANONICAL_EVENTS:
-        return False
-    # If it's in the tool's specific events, it's supported
-    if event in TOOL_SPECIFIC_EVENTS.get(tool, []):
-        return True
-    # If it's in another tool's specific events, it's not supported
-    for other_tool, events in TOOL_SPECIFIC_EVENTS.items():
-        if event in events and other_tool != tool:
-            return False
-    return False
+    """Check whether event is tool-specific for the given tool."""
+    return event in _TOOL_SPECIFIC_EVENTS.get(tool, [])
 
 
 def is_event_supported(event: str, tool: str) -> bool:
-    """Check if an event is supported by a tool.
-
-    Args:
-        event: Event name (canonical or tool-specific).
-        tool: Tool to check.
-
-    Returns:
-        True if the tool supports this event.
-    """
-    # Canonical events are supported by all tools
-    if event in CANONICAL_EVENTS:
-        return True
-    # Tool-specific events are only supported by their tool
-    return event in TOOL_SPECIFIC_EVENTS.get(tool, [])
+    """Check whether a tool supports an event natively or via bridge."""
+    return get_event_support(event, tool) != "unsupported" or is_tool_specific_event(event, tool)

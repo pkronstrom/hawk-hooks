@@ -7,6 +7,7 @@ import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
+from typing import Literal
 
 from ..registry import _validate_name
 from ..types import ResolvedSet, SyncResult, Tool
@@ -21,11 +22,21 @@ class ToolAdapter(ABC):
     Each adapter knows how to link/unlink components and manage
     tool-specific configuration files.
     """
+    HOOK_SUPPORT: Literal["native", "bridge", "unsupported"] = "unsupported"
+
+    def __init__(self) -> None:
+        # Adapters can record non-fatal hook warnings during registration.
+        self._hook_warnings: list[str] = []
 
     @property
     @abstractmethod
     def tool(self) -> Tool:
         """Which tool this adapter manages."""
+
+    @property
+    def hook_support(self) -> Literal["native", "bridge", "unsupported"]:
+        """Declared hook capability for this adapter."""
+        return self.HOOK_SUPPORT
 
     @abstractmethod
     def detect_installed(self) -> bool:
@@ -183,8 +194,11 @@ class ToolAdapter(ABC):
 
         # Register hooks
         try:
+            self._set_hook_warnings([])
             registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
             result.linked.extend(f"hook:{h}" for h in registered)
+            for warning in self._take_hook_warnings():
+                result.errors.append(f"hooks: {warning}")
         except Exception as e:
             result.errors.append(f"hooks: {e}")
 
@@ -589,3 +603,22 @@ exit 0
             path.unlink()
             return True
         return False
+
+    def _set_hook_warnings(self, warnings: list[str]) -> None:
+        """Set hook warnings for the current sync cycle."""
+        self._hook_warnings = list(warnings)
+
+    def _take_hook_warnings(self) -> list[str]:
+        """Return and clear hook warnings from the current sync cycle."""
+        warnings = self._hook_warnings
+        self._hook_warnings = []
+        return warnings
+
+    def _warn_hooks_unsupported(self, tool_name: str, hook_names: list[str]) -> None:
+        """Record a standard warning for tools without hook support."""
+        if not hook_names:
+            self._set_hook_warnings([])
+            return
+        self._set_hook_warnings(
+            [f"{tool_name} hook registration is unsupported; skipped {len(hook_names)} hook(s)"]
+        )

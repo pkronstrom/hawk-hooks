@@ -16,6 +16,7 @@ def adapter():
 class TestGeminiAdapter:
     def test_tool(self, adapter):
         assert adapter.tool == Tool.GEMINI
+        assert adapter.hook_support == "native"
 
     def test_global_dir(self, adapter):
         assert str(adapter.get_global_dir()).endswith(".gemini")
@@ -194,3 +195,61 @@ class TestGeminiSync:
         # Commands are converted, not symlinked, so they won't appear in sync result
         # (sync_component checks for symlinks pointing to registry)
         assert result.errors == []
+
+
+class TestGeminiHooks:
+    def test_register_hooks_creates_settings_entries(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "guard.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "import sys\n"
+        )
+
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        registered = adapter.register_hooks(["guard.py"], target, registry_path=registry)
+        assert registered == ["guard.py"]
+
+        settings = json.loads((target / "settings.json").read_text())
+        hawk_hooks = [
+            h for h in settings.get("hooks", [])
+            if any(isinstance(hh, dict) and hh.get("__hawk_managed") for hh in h.get("hooks", []))
+        ]
+        assert len(hawk_hooks) == 1
+        assert hawk_hooks[0]["matcher"] == "BeforeTool"
+        assert (target / "runners" / "pre_tool_use.sh").exists()
+
+    def test_sync_reports_unsupported_prompt_hooks(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "guard.prompt.json").write_text(json.dumps({
+            "prompt": "Check safety",
+            "hawk-hook": {"events": ["pre_tool_use"]},
+        }))
+
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        result = adapter.sync(ResolvedSet(hooks=["guard.prompt.json"]), target, registry)
+        assert any("prompt hooks are unsupported by gemini" in e for e in result.errors)
+
+    def test_sync_reports_unsupported_events(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "ask-permission.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=permission_request\n"
+            "import sys\n"
+        )
+
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        result = adapter.sync(ResolvedSet(hooks=["ask-permission.py"]), target, registry)
+        assert any("permission_request is unsupported by gemini" in e for e in result.errors)
