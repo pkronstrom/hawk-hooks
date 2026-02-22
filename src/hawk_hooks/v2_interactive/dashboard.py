@@ -7,7 +7,10 @@ import shlex
 import subprocess
 from pathlib import Path
 
+import readchar
 from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 from simple_term_menu import TerminalMenu
 
 from .. import __version__, v2_config
@@ -304,7 +307,6 @@ def _build_header(state: dict) -> str:
     total_targets = state.get("sync_targets_total", 0)
     if unsynced > 0:
         header += f"\n[yellow]Sync status: {unsynced} unsynced target(s) of {total_targets}[/yellow]"
-
     return header
 
 
@@ -317,10 +319,18 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
         label = f"{display_name:<14} {count_str}"
         options.append((label, field))
 
+    one_time_items: list[tuple[str, str]] = []
     if state.get("codex_multi_agent_required", _is_codex_multi_agent_setup_required(state)):
-        options.append(("⚠ Codex setup  multi-agent consent required", "codex_multi_agent_setup"))
+        one_time_items.append(("Codex setup required (one-time)", "codex_multi_agent_setup"))
 
-    options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
+    if one_time_items:
+        options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
+        options.append(("One-time setup", None))
+        options.extend(one_time_items)
+        options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
+    else:
+        options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
+
     options.append(("Download       Fetch from git URL", "download"))
 
     # Packages count
@@ -334,10 +344,111 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
-    options.append(("Env", "environment"))
+    options.append(("Environment", "environment"))
     options.append(("Exit", "exit"))
 
     return options
+
+
+def _normalize_main_menu_cursor(options: list[tuple[str, str | None]], cursor_index: int) -> int:
+    """Clamp cursor to the first selectable row when needed."""
+    if not options:
+        return 0
+    cursor = max(0, min(cursor_index, len(options) - 1))
+    if options[cursor][1] is not None:
+        return cursor
+    for i, (_label, action) in enumerate(options):
+        if action is not None:
+            return i
+    return 0
+
+
+def _move_main_menu_cursor(
+    options: list[tuple[str, str | None]],
+    cursor: int,
+    *,
+    direction: int,
+) -> int:
+    """Move cursor up/down, skipping non-selectable separators."""
+    total = len(options)
+    if total == 0:
+        return 0
+    cursor = max(0, min(cursor, total - 1))
+    for _ in range(total):
+        cursor = (cursor + direction) % total
+        if options[cursor][1] is not None:
+            return cursor
+    return cursor
+
+
+def _build_main_menu_display(
+    state: dict,
+    options: list[tuple[str, str | None]],
+    cursor: int,
+) -> str:
+    """Render the main dashboard menu with Rich markup."""
+    lines: list[str] = []
+    lines.append(_build_header(state))
+    lines.append("[dim]" + ("\u2500" * 50) + "[/dim]")
+
+    for i, (label, action) in enumerate(options):
+        if action is None:
+            if label.strip("\u2500"):
+                lines.append(f"  [yellow]{label}[/yellow]")
+            else:
+                lines.append("  [dim]\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500[/dim]")
+            continue
+
+        is_current = i == cursor
+        prefix = "[cyan]\u276f[/cyan] " if is_current else "  "
+
+        if action == "codex_multi_agent_setup":
+            style = "[bold yellow]" if is_current else "[yellow]"
+            end_style = "[/bold yellow]" if is_current else "[/yellow]"
+            lines.append(f"{prefix}{style}{label}{end_style}")
+            continue
+
+        if is_current:
+            lines.append(f"{prefix}[bold cyan]{label}[/bold cyan]")
+        else:
+            lines.append(f"{prefix}{label}")
+
+    lines.append("")
+    lines.append("[dim]\u2191\u2193/jk: navigate  Space/Enter: select  q/Esc: quit[/dim]")
+    return "\n".join(lines)
+
+
+def _run_main_menu(
+    state: dict,
+    options: list[tuple[str, str | None]],
+    *,
+    cursor_index: int,
+) -> int | None:
+    """Show the main dashboard menu and return selected row index."""
+    if not options:
+        return None
+
+    cursor = _normalize_main_menu_cursor(options, cursor_index)
+
+    with Live("", console=console, refresh_per_second=15, transient=True, screen=True) as live:
+        live.update(Text.from_markup(_build_main_menu_display(state, options, cursor)))
+        while True:
+            try:
+                key = readchar.readkey()
+            except (KeyboardInterrupt, EOFError):
+                return None
+
+            if key in (readchar.key.UP, "k"):
+                cursor = _move_main_menu_cursor(options, cursor, direction=-1)
+            elif key in (readchar.key.DOWN, "j"):
+                cursor = _move_main_menu_cursor(options, cursor, direction=1)
+            elif key in (" ", "\r", "\n", readchar.key.ENTER):
+                if options[cursor][1] is not None:
+                    return cursor
+            elif key in ("q", "\x1b", getattr(readchar.key, "CTRL_C", "\x03"), "\x03"):
+                return None
+
+            live.update(Text.from_markup(_build_main_menu_display(state, options, cursor)))
 
 
 def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
@@ -1151,19 +1262,30 @@ def _handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> 
     codex_cfg = tools_cfg.setdefault("codex", {})
     consent = _get_codex_multi_agent_consent(cfg)
 
-    title = (
-        "\nCodex agents need multi-agent mode\n\n"
-        "Hawk can manage Codex multi-agent by writing:\n"
-        "  [features]\n"
-        "  multi_agent = true\n"
-        "in .codex/config.toml with hawk-managed blocks."
-    )
+    body_lines = [
+        "[bold]Enable Codex multi-agent support?[/bold]",
+        "",
+        "To sync Hawk agents into Codex, Codex must have multi-agent mode enabled.",
+        "",
+        "Hawk can manage this in [cyan].codex/config.toml[/cyan] by writing:",
+        "[cyan]  [features][/cyan]",
+        "[cyan]  multi_agent = true[/cyan]",
+        "",
+        "[green]Enable now[/green]: let Hawk manage it automatically.",
+        "[yellow]Not now[/yellow]: skip for now (you will be asked again).",
+        "[red]Never[/red]: do not manage this setting.",
+    ]
     if from_sync:
-        title += "\n\nSync is about to run."
+        body_lines.extend(["", "[yellow]Sync is about to run.[/yellow]"])
+
+    console.print()
+    console.print("[bold yellow]Codex setup required[/bold yellow]")
+    console.print("[dim]" + ("\u2500" * 50) + "[/dim]")
+    console.print("\n".join(body_lines))
 
     menu = TerminalMenu(
         ["Enable now", "Not now", "Never"],
-        title=title,
+        title="\nChoose an option",
         cursor_index=0,
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
@@ -1392,25 +1514,8 @@ def run_dashboard(scope_dir: str | None = None) -> None:
     while True:
         state = _load_state(scope_dir)
 
-        console.clear()
-        header = _build_header(state)
-        console.print(header)
-        console.print("[dim]\u2500" * 50 + "[/dim]")
-
         options = _build_menu_options(state)
-        menu_labels = [label if action is not None else None for label, action in options]
-
-        menu = TerminalMenu(
-            menu_labels,
-            cursor_index=last_cursor,
-            menu_cursor="\u276f ",
-            menu_cursor_style=("fg_cyan", "bold"),
-            menu_highlight_style=("fg_cyan", "bold"),
-            accept_keys=("enter", " "),
-            quit_keys=("q", "\x1b"),
-            status_bar="\u2191\u2193: navigate  Space/Enter: select  q/Esc: quit",
-        )
-        choice = menu.show()
+        choice = _run_main_menu(state, options, cursor_index=last_cursor)
         if choice is not None:
             last_cursor = choice
 
@@ -1430,6 +1535,10 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             _prompt_sync_on_exit(dirty, scope_dir=state.get("scope_dir"))
             console.clear()
             break
+
+        # Main menu uses a transient Rich live view; clear before entering
+        # non-main flows so previous shell buffer lines are not shown above submenus.
+        console.clear()
 
         if action in ("skills", "hooks", "prompts", "agents", "mcp"):
             if _handle_component_toggle(state, action):

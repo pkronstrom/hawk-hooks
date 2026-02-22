@@ -496,14 +496,14 @@ def run_toggle_list(
                 elif is_changed:
                     mark = "[yellow]\u25cb[/yellow]"
                 else:
-                    mark = "[dim]\u25cb[/dim]"
+                    mark = "\u25cb"
 
                 if is_cur:
                     style, end_style = "[bold]", "[/bold]"
                 elif is_checked:
                     style, end_style = "", ""
                 else:
-                    style, end_style = "[dim]", "[/dim]"
+                    style, end_style = "", ""
 
                 # Indent items under groups
                 indent = "  " if groups else ""
