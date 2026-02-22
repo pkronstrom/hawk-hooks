@@ -93,6 +93,7 @@ from hawk_hooks.types import SyncResult, Tool
 def _minimal_state() -> dict:
     resolved = SimpleNamespace(skills=[], hooks=[], prompts=[], agents=[], mcp=[])
     return {
+        "cfg": {"tools": {"codex": {"enabled": True, "multi_agent_consent": "ask"}}},
         "resolved_global": resolved,
         "resolved_active": resolved,
         "scope": "global",
@@ -111,10 +112,57 @@ def test_build_menu_options_has_no_manual_sync_entry():
     assert not any(action == "settings" for _, action in options)
 
 
+def test_build_menu_options_shows_codex_setup_item_when_required():
+    state = _minimal_state()
+    state["resolved_active"].agents = ["architecture-reviewer.md"]
+    state["codex_multi_agent_consent"] = "ask"
+    state["codex_multi_agent_required"] = True
+
+    options = dashboard._build_menu_options(state)
+    assert any(action == "codex_multi_agent_setup" for _, action in options)
+
+
+def test_build_menu_options_hides_codex_setup_item_when_not_required():
+    state = _minimal_state()
+    state["resolved_active"].agents = ["architecture-reviewer.md"]
+    state["codex_multi_agent_consent"] = "denied"
+    state["codex_multi_agent_required"] = False
+
+    options = dashboard._build_menu_options(state)
+    assert not any(action == "codex_multi_agent_setup" for _, action in options)
+
+
+def test_codex_setup_prompt_sets_granted(monkeypatch):
+    state = _minimal_state()
+    state["resolved_active"].agents = ["architecture-reviewer.md"]
+    state["codex_multi_agent_consent"] = "ask"
+
+    monkeypatch.setattr(
+        dashboard,
+        "TerminalMenu",
+        lambda *args, **kwargs: SimpleNamespace(show=lambda: 0),
+    )
+
+    saved_cfg: dict = {}
+
+    def _save(cfg):
+        saved_cfg.clear()
+        saved_cfg.update(cfg)
+
+    monkeypatch.setattr("hawk_hooks.v2_config.save_global_config", _save)
+
+    changed = dashboard._handle_codex_multi_agent_setup(state)
+    assert changed is True
+    codex_cfg = saved_cfg["tools"]["codex"]
+    assert codex_cfg["multi_agent_consent"] == "granted"
+    assert codex_cfg["allow_multi_agent"] is True
+
+
 def test_auto_sync_after_change_returns_clean_on_success(monkeypatch):
     monkeypatch.setattr(
-        "hawk_hooks.v2_sync.sync_all",
-        lambda force=True: {"global": [SyncResult(tool="claude")]},
+        dashboard,
+        "_sync_all_with_preflight",
+        lambda scope_dir=None: {"global": [SyncResult(tool="claude")]},
     )
     monkeypatch.setattr(
         "hawk_hooks.v2_sync.format_sync_results",
@@ -128,8 +176,9 @@ def test_auto_sync_after_change_returns_clean_on_success(monkeypatch):
 
 def test_auto_sync_after_change_keeps_dirty_on_errors(monkeypatch):
     monkeypatch.setattr(
-        "hawk_hooks.v2_sync.sync_all",
-        lambda force=True: {"global": [SyncResult(tool="codex", errors=["hooks: failed"])]},
+        dashboard,
+        "_sync_all_with_preflight",
+        lambda scope_dir=None: {"global": [SyncResult(tool="codex", errors=["hooks: failed"])]},
     )
     monkeypatch.setattr(
         "hawk_hooks.v2_sync.format_sync_results",

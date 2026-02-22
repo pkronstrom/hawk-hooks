@@ -29,6 +29,8 @@ COMPONENT_TYPES = [
     ("MCP Servers", "mcp", ComponentType.MCP),
 ]
 
+_CODEX_CONSENT_OPTIONS = {"ask", "granted", "denied"}
+
 
 def _detect_scope(scope_dir: str | None = None) -> tuple[str, Path | None, str | None]:
     """Detect whether cwd is a hawk-initialized directory.
@@ -101,6 +103,8 @@ def _load_state(scope_dir: str | None = None) -> dict:
         only_installed=True,
     )
 
+    codex_consent = _get_codex_multi_agent_consent(cfg)
+
     return {
         "cfg": cfg,
         "registry": registry,
@@ -116,6 +120,12 @@ def _load_state(scope_dir: str | None = None) -> dict:
         "unsynced_targets": unsynced_targets,
         "sync_targets_total": sync_targets_total,
         "scope_dir": scope_dir,
+        "codex_multi_agent_consent": codex_consent,
+        "codex_multi_agent_required": (
+            tools_status.get(Tool.CODEX, {}).get("enabled", True)
+            and len(getattr(resolved_active, "agents", [])) > 0
+            and codex_consent == "ask"
+        ),
     }
 
 
@@ -132,6 +142,30 @@ def _count_enabled(state: dict, field: str) -> str:
             return f"{total} configured ({g_count} global - {abs(delta)} local)"
         return f"{total} configured ({g_count} global)"
     return f"{g_count} configured"
+
+
+def _get_codex_multi_agent_consent(cfg: dict) -> str:
+    """Return codex multi-agent consent state with backward compatibility."""
+    codex_cfg = cfg.get("tools", {}).get("codex", {})
+    consent = codex_cfg.get("multi_agent_consent")
+    if consent in _CODEX_CONSENT_OPTIONS:
+        return str(consent)
+
+    # Backward compatibility with earlier boolean gate.
+    if codex_cfg.get("allow_multi_agent") is True:
+        return "granted"
+    return "ask"
+
+
+def _is_codex_multi_agent_setup_required(state: dict) -> bool:
+    """Whether codex multi-agent consent should be surfaced to the user."""
+    codex_status = state.get("tools_status", {}).get(Tool.CODEX, {})
+    if not codex_status.get("enabled", True):
+        return False
+    active_agents = len(getattr(state.get("resolved_active"), "agents", []))
+    if active_agents <= 0:
+        return False
+    return state.get("codex_multi_agent_consent", "ask") == "ask"
 
 
 def _human_size(size_bytes: int) -> str:
@@ -282,6 +316,9 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
         count_str = _count_enabled(state, field)
         label = f"{display_name:<14} {count_str}"
         options.append((label, field))
+
+    if state.get("codex_multi_agent_required", _is_codex_multi_agent_setup_required(state)):
+        options.append(("⚠ Codex setup  multi-agent consent required", "codex_multi_agent_setup"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
     options.append(("Download       Fetch from git URL", "download"))
@@ -1107,26 +1144,90 @@ def _run_projects_tree() -> None:
             break
 
 
+def _handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> bool:
+    """Prompt for codex multi-agent consent and persist the chosen state."""
+    cfg = state.get("cfg") or v2_config.load_global_config()
+    tools_cfg = cfg.setdefault("tools", {})
+    codex_cfg = tools_cfg.setdefault("codex", {})
+    consent = _get_codex_multi_agent_consent(cfg)
+
+    title = (
+        "\nCodex agents need multi-agent mode\n\n"
+        "Hawk can manage Codex multi-agent by writing:\n"
+        "  [features]\n"
+        "  multi_agent = true\n"
+        "in .codex/config.toml with hawk-managed blocks."
+    )
+    if from_sync:
+        title += "\n\nSync is about to run."
+
+    menu = TerminalMenu(
+        ["Enable now", "Not now", "Never"],
+        title=title,
+        cursor_index=0,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
+    )
+    choice = menu.show()
+    if choice is None:
+        return False
+
+    if choice == 0:
+        new_consent = "granted"
+    elif choice == 1:
+        new_consent = "ask"
+    else:
+        new_consent = "denied"
+
+    changed = new_consent != consent or codex_cfg.get("allow_multi_agent") != (new_consent == "granted")
+    codex_cfg["multi_agent_consent"] = new_consent
+    # Backward-compatible mirror for older adapter code paths.
+    codex_cfg["allow_multi_agent"] = new_consent == "granted"
+    tools_cfg["codex"] = codex_cfg
+    cfg["tools"] = tools_cfg
+    v2_config.save_global_config(cfg)
+
+    # Update in-memory state for immediate menu refresh.
+    state["cfg"] = cfg
+    state["codex_multi_agent_consent"] = new_consent
+    state["codex_multi_agent_required"] = _is_codex_multi_agent_setup_required(state)
+
+    return changed
+
+
+def _sync_all_with_preflight(scope_dir: str | None = None):
+    """Run sync with codex consent preflight prompt when required."""
+    pre_state = _load_state(scope_dir)
+    if pre_state.get("codex_multi_agent_required", _is_codex_multi_agent_setup_required(pre_state)):
+        _handle_codex_multi_agent_setup(pre_state, from_sync=True)
+
+    from ..v2_sync import sync_all
+
+    return sync_all(force=True)
+
+
 def _handle_sync(state: dict) -> None:
     """Run sync and show results."""
-    from ..v2_sync import format_sync_results, sync_all
+    from ..v2_sync import format_sync_results
 
     console.print("\n[bold]Syncing...[/bold]")
-    all_results = sync_all(force=True)
+    all_results = _sync_all_with_preflight(state.get("scope_dir"))
     formatted = format_sync_results(all_results, verbose=False)
     console.print(formatted or "  No changes.")
     console.print()
     wait_for_continue()
 
 
-def _apply_auto_sync_if_needed(dirty: bool) -> bool:
+def _apply_auto_sync_if_needed(dirty: bool, scope_dir: str | None = None) -> bool:
     """Auto-sync dirty config changes and keep dirty only for real errors."""
     if not dirty:
         return False
 
-    from ..v2_sync import format_sync_results, sync_all
+    from ..v2_sync import format_sync_results
 
-    all_results = sync_all(force=True)
+    all_results = _sync_all_with_preflight(scope_dir)
     has_errors = any(result.errors for scope in all_results.values() for result in scope)
     if has_errors:
         console.print("\n[bold red]Auto-sync encountered errors.[/bold red]")
@@ -1239,7 +1340,7 @@ def _handle_environment(state: dict) -> bool:
     return changed
 
 
-def _prompt_sync_on_exit(dirty: bool) -> None:
+def _prompt_sync_on_exit(dirty: bool, scope_dir: str | None = None) -> None:
     """If changes were made, sync based on sync_on_exit setting."""
     if not dirty:
         return
@@ -1251,10 +1352,10 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
         return
 
     if preference == "always":
-        from ..v2_sync import format_sync_results, sync_all
+        from ..v2_sync import format_sync_results
 
         console.print("\n[bold]Syncing...[/bold]")
-        all_results = sync_all(force=True)
+        all_results = _sync_all_with_preflight(scope_dir)
         formatted = format_sync_results(all_results, verbose=False)
         console.print(formatted or "  No changes.")
         return
@@ -1271,10 +1372,10 @@ def _prompt_sync_on_exit(dirty: bool) -> None:
     )
     result = menu.show()
     if result == 0:
-        from ..v2_sync import format_sync_results, sync_all
+        from ..v2_sync import format_sync_results
 
         console.print("[bold]Syncing...[/bold]")
-        all_results = sync_all(force=True)
+        all_results = _sync_all_with_preflight(scope_dir)
         formatted = format_sync_results(all_results, verbose=False)
         console.print(formatted or "  No changes.")
 
@@ -1315,7 +1416,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
 
         if choice is None:
             # q pressed
-            _prompt_sync_on_exit(dirty)
+            _prompt_sync_on_exit(dirty, scope_dir=state.get("scope_dir"))
             console.clear()
             break
 
@@ -1326,19 +1427,24 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             continue
 
         if action == "exit":
-            _prompt_sync_on_exit(dirty)
+            _prompt_sync_on_exit(dirty, scope_dir=state.get("scope_dir"))
             console.clear()
             break
 
         if action in ("skills", "hooks", "prompts", "agents", "mcp"):
             if _handle_component_toggle(state, action):
                 dirty = True
-                dirty = _apply_auto_sync_if_needed(dirty)
+                dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
+
+        elif action == "codex_multi_agent_setup":
+            if _handle_codex_multi_agent_setup(state):
+                dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
 
         elif action == "packages":
             if _handle_packages(state):
                 dirty = True
-                dirty = _apply_auto_sync_if_needed(dirty)
+                dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
 
         elif action == "registry":
             _handle_registry_browser(state)
@@ -1346,7 +1452,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "environment":
             if _handle_environment(state):
                 dirty = True
-                dirty = _apply_auto_sync_if_needed(dirty)
+                dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
 
         elif action == "download":
             _handle_download()

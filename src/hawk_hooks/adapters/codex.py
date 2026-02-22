@@ -206,7 +206,11 @@ class CodexAdapter(ToolAdapter):
         from .. import v2_config
 
         codex_cfg = v2_config.load_global_config().get("tools", {}).get("codex", {})
-        allow_multi_agent = bool(codex_cfg.get("allow_multi_agent", False))
+        consent = codex_cfg.get("multi_agent_consent")
+        if consent not in {"ask", "granted", "denied"}:
+            # Backward compatibility with boolean gate.
+            consent = "granted" if codex_cfg.get("allow_multi_agent", False) else "ask"
+        allow_multi_agent = consent == "granted"
         trigger_mode = str(codex_cfg.get("agent_trigger_mode", "skills")).lower()
         if trigger_mode not in {"skills", "none"}:
             trigger_mode = "skills"
@@ -266,8 +270,8 @@ class CodexAdapter(ToolAdapter):
                 return
             if not allow_multi_agent:
                 result.skipped.append(
-                    "agents: codex multi-agent is required; set tools.codex.allow_multi_agent: true "
-                    "to let hawk manage features.multi_agent"
+                    "agents: codex multi-agent is required; grant consent in TUI or set "
+                    "tools.codex.multi_agent_consent: granted"
                 )
                 return
             op_result = TomlBlockDriver.apply(

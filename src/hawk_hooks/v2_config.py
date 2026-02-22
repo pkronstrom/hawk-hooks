@@ -40,6 +40,7 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
             "enabled": True,
             "global_dir": "~/.codex",
             "allow_multi_agent": False,
+            "multi_agent_consent": "ask",
             "agent_trigger_mode": "skills",
         },
         "opencode": {"enabled": True, "global_dir": "~/.config/opencode"},
