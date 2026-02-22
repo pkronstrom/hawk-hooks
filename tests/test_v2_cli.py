@@ -164,6 +164,25 @@ class TestArgParsing:
         args = self.parser.parse_args(["clean", "--global"])
         assert args.globals_only is True
 
+    def test_prune_default(self):
+        args = self.parser.parse_args(["prune"])
+        assert args.command == "prune"
+        assert args.dry_run is False
+        assert args.dir is None
+        assert args.tool is None
+
+    def test_prune_dry_run(self):
+        args = self.parser.parse_args(["prune", "--dry-run"])
+        assert args.dry_run is True
+
+    def test_prune_with_tool(self):
+        args = self.parser.parse_args(["prune", "--tool", "claude"])
+        assert args.tool == "claude"
+
+    def test_prune_global(self):
+        args = self.parser.parse_args(["prune", "--global"])
+        assert args.globals_only is True
+
     def test_config(self):
         args = self.parser.parse_args(["config"])
         assert args.command == "config"

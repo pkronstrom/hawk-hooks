@@ -11,6 +11,7 @@ from hawk_hooks.v2_sync import (
     _write_cached_hash,
     clean_global,
     format_sync_results,
+    purge_global,
     sync_directory,
     sync_global,
     SyncResult,
@@ -307,6 +308,47 @@ class TestClean:
 
         # Symlink should still exist
         assert (claude_dir / "skills" / "tdd").is_symlink()
+
+
+class TestPrune:
+    def test_purge_global_removes_dangling_hawk_symlink(self, v2_env, tmp_path, monkeypatch):
+        claude_dir = tmp_path / "fake-claude"
+        commands_dir = claude_dir / "commands"
+        commands_dir.mkdir(parents=True)
+
+        # Dangling symlink into hawk config path (legacy/stale)
+        stale_target = v2_env["config_dir"] / "prompts" / "old.md"
+        (commands_dir / "old.md").symlink_to(stale_target)
+        assert (commands_dir / "old.md").is_symlink()
+        assert not stale_target.exists()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        results = purge_global(tools=[Tool.CLAUDE])
+        assert len(results) == 1
+        assert any("old.md" in item for item in results[0].unlinked)
+        assert not (commands_dir / "old.md").exists()
+
+    def test_purge_global_dry_run_keeps_dangling_hawk_symlink(
+        self, v2_env, tmp_path, monkeypatch
+    ):
+        claude_dir = tmp_path / "fake-claude"
+        commands_dir = claude_dir / "commands"
+        commands_dir.mkdir(parents=True)
+
+        stale_target = v2_env["config_dir"] / "prompts" / "old.md"
+        (commands_dir / "old.md").symlink_to(stale_target)
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        results = purge_global(tools=[Tool.CLAUDE], dry_run=True)
+        assert len(results) == 1
+        assert any("old.md" in item for item in results[0].unlinked)
+        assert (commands_dir / "old.md").is_symlink()
 
 
 class TestFormatResults:

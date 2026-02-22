@@ -1520,6 +1520,31 @@ def cmd_clean(args):
         print("\nAll hawk-managed items removed from tool configs.")
 
 
+def cmd_prune(args):
+    """Aggressively remove hawk-managed and stale hawk-linked artifacts."""
+    from .v2_sync import format_sync_results, purge_all, purge_directory, purge_global
+
+    tools = [Tool(args.tool)] if args.tool else None
+
+    if args.dir:
+        project_dir = Path(args.dir).resolve()
+        results = purge_directory(project_dir, tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results({str(project_dir): results})
+    elif args.globals_only:
+        results = purge_global(tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results({"global": results})
+    else:
+        all_results = purge_all(tools=tools, dry_run=args.dry_run)
+        formatted = format_sync_results(all_results)
+
+    if args.dry_run:
+        print("Dry run (no changes applied):")
+    print(formatted or "  No changes.")
+
+    if not args.dry_run:
+        print("\nPruned hawk-managed and stale hawk-linked artifacts from tool configs.")
+
+
 def cmd_config(args):
     """Open interactive config editor."""
     from .v2_interactive.config_editor import run_config_editor
@@ -1896,6 +1921,19 @@ def build_parser() -> argparse.ArgumentParser:
     clean_p.add_argument("--dry-run", action="store_true", help="Show what would be removed")
     clean_p.add_argument("--global", dest="globals_only", action="store_true", help="Clean global only")
     clean_p.set_defaults(func=cmd_clean)
+
+    # prune
+    prune_p = subparsers.add_parser(
+        "prune",
+        help="Aggressively remove hawk-managed + stale hawk-linked artifacts",
+    )
+    prune_p.add_argument("--dir", help="Prune specific directory only")
+    prune_p.add_argument("--tool", choices=[t.value for t in Tool], help="Prune specific tool")
+    prune_p.add_argument("--dry-run", action="store_true", help="Show what would be removed")
+    prune_p.add_argument(
+        "--global", dest="globals_only", action="store_true", help="Prune global only"
+    )
+    prune_p.set_defaults(func=cmd_prune)
 
     # config
     config_p = subparsers.add_parser("config", help="Interactive settings editor")

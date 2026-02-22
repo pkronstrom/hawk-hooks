@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -294,6 +295,52 @@ def clean_all(
     return all_results
 
 
+def purge_directory(
+    project_dir: Path,
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> list[SyncResult]:
+    """Aggressively clean a directory's tool configs.
+
+    Runs normal clean first, then prunes stale/dangling hawk-linked symlinks.
+    """
+    cleaned = clean_directory(project_dir, tools=tools, dry_run=dry_run)
+    pruned = _prune_scope(project_dir, tools=tools, dry_run=dry_run, is_global=False)
+    return _merge_results(cleaned, pruned)
+
+
+def purge_global(
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> list[SyncResult]:
+    """Aggressively clean global tool configs.
+
+    Runs normal clean first, then prunes stale/dangling hawk-linked symlinks.
+    """
+    cleaned = clean_global(tools=tools, dry_run=dry_run)
+    pruned = _prune_scope(None, tools=tools, dry_run=dry_run, is_global=True)
+    return _merge_results(cleaned, pruned)
+
+
+def purge_all(
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> dict[str, list[SyncResult]]:
+    """Aggressively clean global + registered directory tool configs."""
+    results: dict[str, list[SyncResult]] = {
+        "global": purge_global(tools=tools, dry_run=dry_run)
+    }
+
+    for dir_path_str in v2_config.get_registered_directories():
+        dir_path = Path(dir_path_str)
+        if dir_path.exists():
+            results[dir_path_str] = purge_directory(
+                dir_path, tools=tools, dry_run=dry_run
+            )
+
+    return results
+
+
 def _compute_would_unlink(
     registry_path: Path,
     adapter,
@@ -320,6 +367,111 @@ def _compute_would_unlink(
                 except (OSError, ValueError):
                     pass
     return would_unlink
+
+
+def _merge_results(
+    primary: list[SyncResult],
+    secondary: list[SyncResult],
+) -> list[SyncResult]:
+    """Merge per-tool SyncResults by tool name."""
+    merged: dict[str, SyncResult] = {}
+    ordered_tools: list[str] = []
+
+    for result in primary + secondary:
+        if result.tool not in merged:
+            merged[result.tool] = SyncResult(tool=result.tool)
+            ordered_tools.append(result.tool)
+        target = merged[result.tool]
+        target.linked.extend(result.linked)
+        target.unlinked.extend(result.unlinked)
+        target.errors.extend(result.errors)
+
+    return [merged[t] for t in ordered_tools]
+
+
+def _prune_scope(
+    project_dir: Path | None,
+    tools: list[Tool] | None,
+    dry_run: bool,
+    *,
+    is_global: bool,
+) -> list[SyncResult]:
+    """Prune stale hawk-linked symlinks for one scope."""
+    cfg = v2_config.load_global_config()
+    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+    registry = Registry(v2_config.get_registry_path(cfg))
+    hawk_roots = [v2_config.get_config_dir().resolve(), registry.path.resolve()]
+
+    results: list[SyncResult] = []
+    for tool in enabled_tools:
+        adapter = get_adapter(tool)
+        target_dir = adapter.get_global_dir() if is_global else adapter.get_project_dir(project_dir)  # type: ignore[arg-type]
+        result = SyncResult(tool=str(tool))
+
+        result.unlinked.extend(
+            _prune_tool_symlinks(adapter, target_dir, hawk_roots, dry_run=dry_run)
+        )
+
+        results.append(result)
+
+    return results
+
+
+def _prune_tool_symlinks(
+    adapter,
+    target_dir: Path,
+    hawk_roots: list[Path],
+    *,
+    dry_run: bool,
+) -> list[str]:
+    """Prune stale hawk-linked symlinks under a tool target directory."""
+    removed: list[str] = []
+    specs = [
+        ("skill", adapter.get_skills_dir, adapter.unlink_skill),
+        ("agent", adapter.get_agents_dir, adapter.unlink_agent),
+        ("prompt", adapter.get_prompts_dir, adapter.unlink_prompt),
+    ]
+
+    for prefix, get_dir_fn, unlink_fn in specs:
+        comp_dir = get_dir_fn(target_dir)
+        if not comp_dir.exists():
+            continue
+        for entry in comp_dir.iterdir():
+            if not entry.is_symlink():
+                continue
+            if not _is_hawk_link(entry, hawk_roots):
+                continue
+
+            removed.append(f"{prefix}:{entry.name}")
+            if not dry_run:
+                try:
+                    unlink_fn(entry.name, target_dir)
+                except Exception:
+                    # Best-effort prune; cleanup errors are surfaced by normal clean.
+                    pass
+
+    return removed
+
+
+def _is_hawk_link(link_path: Path, hawk_roots: list[Path]) -> bool:
+    """Return True if symlink target points into hawk config/registry roots."""
+    try:
+        raw_target = Path(os.readlink(link_path))
+    except OSError:
+        return False
+
+    if not raw_target.is_absolute():
+        target = (link_path.parent / raw_target).resolve(strict=False)
+    else:
+        target = raw_target.resolve(strict=False)
+
+    for root in hawk_roots:
+        try:
+            if target == root or target.is_relative_to(root):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
 
 
 def _compute_would_link(
