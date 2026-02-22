@@ -108,3 +108,21 @@ def test_run_wizard_no_git_download_prompt(v2_env, monkeypatch):
     monkeypatch.setattr(v2_cli, "cmd_download", _unexpected_download)
 
     assert wizard.run_wizard() is True
+
+
+def test_run_wizard_next_steps_do_not_recommend_manual_sync(v2_env, monkeypatch):
+    printed: list[str] = []
+
+    def _capture_print(*args, **kwargs):
+        printed.append(" ".join(str(a) for a in args))
+
+    monkeypatch.setattr(wizard, "TerminalMenu", _MenuAccept)
+    monkeypatch.setattr(wizard, "get_adapter", lambda _tool: _AdapterStub())
+    monkeypatch.setattr(wizard, "_offer_builtins_install", lambda: None)
+    monkeypatch.setattr(wizard.console, "input", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(wizard.console, "print", _capture_print)
+
+    assert wizard.run_wizard() is True
+
+    output = "\n".join(printed)
+    assert "hawk sync" not in output

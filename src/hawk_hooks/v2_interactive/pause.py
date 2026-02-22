@@ -8,7 +8,7 @@ from rich.console import Console
 console = Console(highlight=False)
 
 
-def wait_for_continue(prompt: str = "[dim]Press Enter to continue...[/dim]") -> None:
+def wait_for_continue(prompt: str = "[dim]Press Enter/q/Ctrl+C to continue...[/dim]") -> None:
     """Wait for Enter, q, or Ctrl+C before returning.
 
     This keeps lightweight info/error screens skippable with a single key,

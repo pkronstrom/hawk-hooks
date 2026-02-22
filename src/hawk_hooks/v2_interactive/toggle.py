@@ -21,6 +21,7 @@ from rich.live import Live
 from rich.text import Text
 
 from ..types import ToggleGroup, ToggleScope  # noqa: F401 — re-exported
+from .pause import wait_for_continue
 
 console = Console(highlight=False)
 
@@ -209,7 +210,7 @@ def _view_in_terminal(path: Path) -> None:
         content = path.read_text()
     except OSError:
         console.print(f"[red]Cannot read: {path}[/red]")
-        console.input("[dim]Press Enter to go back...[/dim]")
+        wait_for_continue("[dim]Press Enter/q/Ctrl+C to go back...[/dim]")
         return
 
     # Render to string with ANSI codes
@@ -232,7 +233,7 @@ def _view_in_terminal(path: Path) -> None:
     except FileNotFoundError:
         # No less available — fall back to print + wait
         console.print(rendered)
-        console.input("[dim]Press Enter to go back...[/dim]")
+        wait_for_continue("[dim]Press Enter/q/Ctrl+C to go back...[/dim]")
 
 
 def _open_in_finder(path: Path) -> None:
@@ -775,4 +776,4 @@ def _show_empty(component_type: str, scope_label: str) -> None:
     console.print("  [dim](none in registry)[/dim]")
     console.print(f"\n  Run [cyan]hawk download <url>[/cyan] to add {component_type.lower()}.")
     console.print()
-    console.input("[dim]Press Enter to continue...[/dim]")
+    wait_for_continue()

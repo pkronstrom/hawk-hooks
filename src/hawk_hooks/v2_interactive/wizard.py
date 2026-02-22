@@ -10,6 +10,7 @@ from simple_term_menu import TerminalMenu
 from .. import __version__, v2_config
 from ..adapters import get_adapter
 from ..types import Tool
+from .pause import wait_for_continue
 
 console = Console()
 
@@ -87,10 +88,9 @@ def run_wizard() -> bool:
     console.print("[dim]Next steps:[/dim]")
     console.print("  [cyan]hawk download <url>[/cyan]   Add components from git")
     console.print("  [cyan]hawk add <type> <path>[/cyan] Add a local component")
-    console.print("  [cyan]hawk sync[/cyan]              Sync to tool configs")
     console.print("  [cyan]hawk[/cyan]                   Open interactive menu")
     console.print()
-    console.input("[dim]Press Enter to continue to the menu...[/dim]")
+    wait_for_continue("[dim]Press Enter/q/Ctrl+C to continue to the menu...[/dim]")
     return True
 
 

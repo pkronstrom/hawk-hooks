@@ -570,7 +570,6 @@ def cmd_download(args):
         # 3. Let user select (unless --all)
         if args.all:
             selected_items = content.items
-            do_sync = False
         else:
             pkg = content.package_meta.name if content.package_meta else ""
             selected_items, action = _interactive_select_items(
@@ -580,7 +579,6 @@ def cmd_download(args):
             if not selected_items or action == "cancel":
                 print("\nNo components selected.")
                 return
-            do_sync = action == "add_sync"
 
         # 4. Check for clashes
         clashes = check_clashes(selected_items, registry)
@@ -630,13 +628,7 @@ def cmd_download(args):
             for name in skipped:
                 print(f"  - {name}")
 
-        if added and do_sync:
-            from .v2_sync import format_sync_results, sync_all
-            print("\nSyncing to tools...")
-            all_results = sync_all(force=True)
-            formatted = format_sync_results(all_results)
-            print(formatted or "  No changes.")
-        elif added:
+        if added:
             print("\nRun 'hawk sync' to apply changes.")
     finally:
         # Clean up temp dir
@@ -869,7 +861,7 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
 
         # Action row
         lines.append("")
-        actions = ["Save", "Save & Sync"]
+        actions = ["Save"]
         action_parts = []
         for ai, label in enumerate(actions):
             if ai == action_idx:
@@ -879,11 +871,11 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
         lines.append("  ".join(action_parts))
 
         lines.append("")
-        lines.append("[dim]Space: toggle  a: all  n: none  v: view  o: open  Tab: action  Enter: confirm  q: quit[/dim]")
+        lines.append("[dim]Space: toggle  a: all  n: none  v: view  o: open  Enter: confirm  q: quit[/dim]")
         return "\n".join(lines)
 
-    action_idx = 0  # 0 = Save, 1 = Save & Sync
-    _ACTION_KEYS = ["add", "add_sync"]
+    action_idx = 0
+    _ACTION_KEYS = ["add"]
 
     with Live("", console=console, refresh_per_second=15, transient=True) as live:
         live.update(Text.from_markup(_build_display()))
@@ -903,9 +895,6 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
                 cursor = (cursor - 1) % total_rows
             elif key in (readchar.key.DOWN, "j"):
                 cursor = (cursor + 1) % total_rows
-
-            elif key == "\t":
-                action_idx = (action_idx + 1) % len(_ACTION_KEYS)
 
             elif key in ("\r", "\n", readchar.key.ENTER):
                 break
@@ -1004,7 +993,6 @@ def cmd_scan(args):
     # Let user select (unless --all)
     if args.all:
         selected_items = content.items
-        do_sync = False
     else:
         pkg = content.package_meta.name if content.package_meta else ""
         selected_items, action = _interactive_select_items(
@@ -1014,7 +1002,6 @@ def cmd_scan(args):
         if not selected_items or action == "cancel":
             print("\nNo components selected.")
             return
-        do_sync = action == "add_sync"
 
     # Check clashes
     clashes = check_clashes(selected_items, registry)
@@ -1116,13 +1103,7 @@ def cmd_scan(args):
         for name in skipped:
             print(f"  - {name}")
 
-    if added and do_sync:
-        from .v2_sync import format_sync_results, sync_all
-        print("\nSyncing to tools...")
-        all_results = sync_all(force=True)
-        formatted = format_sync_results(all_results)
-        print(formatted or "  No changes.")
-    elif added:
+    if added:
         print("\nRun 'hawk sync' to apply changes.")
 
 
