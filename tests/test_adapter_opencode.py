@@ -36,8 +36,8 @@ class TestOpenCodeMCP:
         adapter.write_mcp_config(servers, target)
 
         data = json.loads((target / "opencode.json").read_text())
-        assert "github" in data["mcpServers"]
-        assert data["mcpServers"]["github"][HAWK_MCP_MARKER] is True
+        assert "github" in data["mcp"]
+        assert HAWK_MCP_MARKER not in data["mcp"]["github"]
 
     def test_preserves_manual(self, adapter, tmp_path):
         target = tmp_path / "opencode"
@@ -45,15 +45,15 @@ class TestOpenCodeMCP:
 
         config_path = target / "opencode.json"
         config_path.write_text(json.dumps({
-            "mcpServers": {"manual": {"command": "m"}},
+            "mcp": {"manual": {"command": "m"}},
             "theme": "dark",
         }))
 
         adapter.write_mcp_config({"hawk": {"command": "h"}}, target)
 
         data = json.loads(config_path.read_text())
-        assert "manual" in data["mcpServers"]
-        assert "hawk" in data["mcpServers"]
+        assert "manual" in data["mcp"]
+        assert "hawk" in data["mcp"]
         assert data["theme"] == "dark"
 
     def test_replaces_hawk_entries(self, adapter, tmp_path):
@@ -64,8 +64,36 @@ class TestOpenCodeMCP:
         adapter.write_mcp_config({"new": {"command": "new"}}, target)
 
         data = json.loads((target / "opencode.json").read_text())
-        assert "old" not in data["mcpServers"]
-        assert "new" in data["mcpServers"]
+        assert "old" not in data["mcp"]
+        assert "new" in data["mcp"]
+
+    def test_migrates_legacy_mcp_servers(self, adapter, tmp_path):
+        target = tmp_path / "opencode"
+        target.mkdir()
+
+        config_path = target / "opencode.json"
+        config_path.write_text(json.dumps({
+            "mcpServers": {
+                "manual": {"command": "m"},
+                "old_hawk": {"command": "old", HAWK_MCP_MARKER: True},
+            },
+            "other": {"x": 1},
+        }))
+
+        adapter.write_mcp_config({"new_hawk": {"command": "new"}}, target)
+        data = json.loads(config_path.read_text())
+
+        assert "mcpServers" not in data
+        assert "manual" in data["mcp"]
+        assert "old_hawk" not in data["mcp"]
+        assert "new_hawk" in data["mcp"]
+        assert data["other"] == {"x": 1}
+
+
+class TestOpenCodePrompts:
+    def test_prompts_dir_maps_to_commands(self, adapter, tmp_path):
+        target = tmp_path / ".opencode"
+        assert adapter.get_prompts_dir(target) == target / "commands"
 
 
 class TestOpenCodeHooks:
