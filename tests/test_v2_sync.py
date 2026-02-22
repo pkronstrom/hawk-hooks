@@ -10,8 +10,10 @@ from hawk_hooks.v2_sync import (
     _read_cached_hash,
     _write_cached_hash,
     clean_global,
+    count_unsynced_targets,
     format_sync_results,
     purge_global,
+    uninstall_all,
     sync_directory,
     sync_global,
     SyncResult,
@@ -247,6 +249,58 @@ class TestSyncCache:
         assert results[0].tool == "claude"
 
 
+class TestUnsyncedCounts:
+    def test_count_unsynced_global_before_and_after_sync(self, v2_env, tmp_path, monkeypatch):
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        unsynced_before, total_before = count_unsynced_targets(tools=[Tool.CLAUDE])
+        assert total_before == 1
+        assert unsynced_before == 1
+
+        sync_global(tools=[Tool.CLAUDE])
+
+        unsynced_after, total_after = count_unsynced_targets(tools=[Tool.CLAUDE])
+        assert total_after == 1
+        assert unsynced_after == 0
+
+    def test_count_unsynced_project_scope(self, v2_env, tmp_path, monkeypatch):
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+        monkeypatch.setattr(ClaudeAdapter, "get_project_dir", lambda self, _d: claude_dir)
+
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.register_directory(project)
+        v2_config.save_dir_config(project, {"skills": {"enabled": ["tdd"], "disabled": []}})
+
+        unsynced_before, total_before = count_unsynced_targets(
+            project_dir=project,
+            tools=[Tool.CLAUDE],
+        )
+        # global + project for one tool
+        assert total_before == 2
+        assert unsynced_before == 2
+
+        sync_global(tools=[Tool.CLAUDE])
+        sync_directory(project, tools=[Tool.CLAUDE])
+
+        unsynced_after, total_after = count_unsynced_targets(
+            project_dir=project,
+            tools=[Tool.CLAUDE],
+        )
+        assert total_after == 2
+        assert unsynced_after == 0
+
+
 class TestClean:
     def test_clean_removes_symlinks(self, v2_env, tmp_path, monkeypatch):
         """Clean should remove all hawk-managed symlinks."""
@@ -349,6 +403,100 @@ class TestPrune:
         assert len(results) == 1
         assert any("old.md" in item for item in results[0].unlinked)
         assert (commands_dir / "old.md").is_symlink()
+
+
+class TestUninstall:
+    def test_uninstall_all_cleans_state(self, v2_env, tmp_path, monkeypatch):
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        # Seed package index
+        v2_config.record_package(
+            "starter",
+            "",
+            "",
+            [{"type": "skill", "name": "tdd", "hash": "deadbeef"}],
+            path=str(tmp_path / "builtins"),
+        )
+
+        # Seed directory registration/config
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {"prompts": {"enabled": ["deploy.md"], "disabled": []}})
+        v2_config.register_directory(project)
+
+        # Seed global enabled entries
+        cfg = v2_config.load_global_config()
+        cfg["global"]["skills"] = ["tdd"]
+        cfg["global"]["prompts"] = ["deploy.md"]
+        cfg["global"]["commands"] = ["deploy.md"]
+        v2_config.save_global_config(cfg)
+
+        # Seed a stale hawk symlink in tool config to verify purge path is used
+        claude_dir = tmp_path / "fake-claude"
+        commands_dir = claude_dir / "commands"
+        commands_dir.mkdir(parents=True)
+        stale_target = v2_env["config_dir"] / "prompts" / "old.md"
+        (commands_dir / "old.md").symlink_to(stale_target)
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        uninstall_all(tools=[Tool.CLAUDE])
+
+        cfg_after = v2_config.load_global_config()
+        assert cfg_after["global"]["skills"] == []
+        assert cfg_after["global"]["prompts"] == []
+        assert cfg_after["global"]["commands"] == []
+        assert cfg_after.get("directories", {}) == {}
+        assert v2_config.load_packages() == {}
+        assert not v2_env["registry"].list(ComponentType.SKILL)[ComponentType.SKILL]
+        assert not (project / ".hawk" / "config.yaml").exists()
+        assert not (commands_dir / "old.md").exists()
+
+    def test_uninstall_all_dry_run_keeps_state(self, v2_env, tmp_path, monkeypatch):
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        v2_config.record_package(
+            "starter",
+            "",
+            "",
+            [{"type": "skill", "name": "tdd", "hash": "deadbeef"}],
+            path=str(tmp_path / "builtins"),
+        )
+        cfg = v2_config.load_global_config()
+        cfg["global"]["skills"] = ["tdd"]
+        cfg["global"]["commands"] = ["deploy.md"]
+        v2_config.save_global_config(cfg)
+
+        claude_dir = tmp_path / "fake-claude"
+        commands_dir = claude_dir / "commands"
+        commands_dir.mkdir(parents=True)
+        stale_target = v2_env["config_dir"] / "prompts" / "old.md"
+        (commands_dir / "old.md").symlink_to(stale_target)
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        uninstall_all(tools=[Tool.CLAUDE], dry_run=True)
+
+        cfg_after = v2_config.load_global_config()
+        assert cfg_after["global"]["skills"] == ["tdd"]
+        assert cfg_after["global"]["commands"] == ["deploy.md"]
+        assert "starter" in v2_config.load_packages()
+        assert (commands_dir / "old.md").is_symlink()
+
+    def test_uninstall_all_leaves_no_global_unsynced_targets(
+        self, v2_env, tmp_path, monkeypatch
+    ):
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        uninstall_all(tools=[Tool.CLAUDE])
+
+        unsynced, total = count_unsynced_targets(tools=[Tool.CLAUDE])
+        assert total == 1
+        assert unsynced == 0
 
 
 class TestFormatResults:

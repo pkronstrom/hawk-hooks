@@ -51,6 +51,8 @@ def _detect_scope(scope_dir: str | None = None) -> tuple[str, Path | None, str |
 
 def _load_state(scope_dir: str | None = None) -> dict:
     """Load all state needed for the dashboard."""
+    from ..v2_sync import count_unsynced_targets
+
     cfg = v2_config.load_global_config()
     registry = Registry(v2_config.get_registry_path(cfg))
     contents = registry.list()
@@ -93,6 +95,12 @@ def _load_state(scope_dir: str | None = None) -> dict:
         enabled = tool_cfg.get("enabled", True)
         tools_status[tool] = {"installed": installed, "enabled": enabled}
 
+    unsynced_targets, sync_targets_total = count_unsynced_targets(
+        project_dir=project_dir if scope == "local" else None,
+        include_global=True,
+        only_installed=True,
+    )
+
     return {
         "cfg": cfg,
         "registry": registry,
@@ -105,23 +113,25 @@ def _load_state(scope_dir: str | None = None) -> dict:
         "resolved_global": resolved_global,
         "resolved_active": resolved_active,
         "tools_status": tools_status,
+        "unsynced_targets": unsynced_targets,
+        "sync_targets_total": sync_targets_total,
         "scope_dir": scope_dir,
     }
 
 
 def _count_enabled(state: dict, field: str) -> str:
-    """Count enabled items for a component field."""
+    """Count configured items for a component field."""
     g_count = len(getattr(state["resolved_global"], field, []))
 
     if state["scope"] == "local" and state["project_dir"] is not None:
         total = len(getattr(state["resolved_active"], field, []))
         delta = total - g_count
         if delta > 0:
-            return f"{total} enabled ({g_count} global + {delta} local)"
+            return f"{total} configured ({g_count} global + {delta} local)"
         if delta < 0:
-            return f"{total} enabled ({g_count} global - {abs(delta)} local)"
-        return f"{total} enabled ({g_count} global)"
-    return f"{g_count} enabled"
+            return f"{total} configured ({g_count} global - {abs(delta)} local)"
+        return f"{total} configured ({g_count} global)"
+    return f"{g_count} configured"
 
 
 def _human_size(size_bytes: int) -> str:
@@ -255,6 +265,11 @@ def _build_header(state: dict) -> str:
         header += f"\n[dim]\U0001f4cd {state['project_dir']}[/dim]"
     else:
         header += f"\n[dim]\U0001f310 Global[/dim]"
+
+    unsynced = state.get("unsynced_targets", 0)
+    total_targets = state.get("sync_targets_total", 0)
+    if unsynced > 0:
+        header += f"\n[yellow]Sync status: {unsynced} unsynced target(s) of {total_targets}[/yellow]"
 
     return header
 

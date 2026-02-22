@@ -12,8 +12,10 @@ import readchar
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
+from simple_term_menu import TerminalMenu
 
 from .. import v2_config
+from .pause import wait_for_continue
 from .toggle import _get_terminal_height, _calculate_visible_range
 
 console = Console()
@@ -25,6 +27,7 @@ SETTINGS = [
     ("editor", "Editor", "text", ""),
     ("sync_on_exit", "Sync on exit", "cycle", ["ask", "always", "never"]),
     ("registry_path", "Registry path", "text", "~/.config/hawk-hooks/registry"),
+    ("unlink_uninstall", "Unlink and uninstall", "action", None),
 ]
 
 
@@ -48,6 +51,8 @@ def _display_value(key: str, value, setting_type: str, options=None) -> str:
         if value:
             return str(value)
         return f"[dim]{options}[/dim]" if options else "[dim](empty)[/dim]"
+    if setting_type == "action":
+        return "[red]Run cleanup[/red]"
     return str(value)
 
 
@@ -137,8 +142,40 @@ def run_config_editor() -> None:
 
         elif setting_type == "text":
             return ""  # Handled separately (needs input)
+        elif setting_type == "action":
+            return ""  # Handled separately (needs confirmation + output)
 
         return ""
+
+    def _handle_uninstall_action() -> str:
+        """Unlink from tools and clear hawk-managed local state."""
+        nonlocal cfg
+        menu = TerminalMenu(
+            ["No", "Yes, unlink + uninstall"],
+            title=(
+                "\nUnlink and uninstall hawk-managed state?\n"
+                "This will purge tool links and clear registry/packages/config selections."
+            ),
+            cursor_index=0,
+            menu_cursor="\u276f ",
+            menu_cursor_style=("fg_cyan", "bold"),
+            menu_highlight_style=("fg_cyan", "bold"),
+            quit_keys=("q", "\x1b"),
+        )
+        choice = menu.show()
+        if choice != 1:
+            return "Uninstall cancelled"
+
+        from ..v2_sync import format_sync_results, uninstall_all
+
+        console.print("\n[bold red]Unlinking and uninstalling...[/bold red]")
+        results = uninstall_all()
+        formatted = format_sync_results(results, verbose=False)
+        console.print(formatted or "  No changes.")
+        console.print("\n[green]\u2714 Cleared hawk-managed config, packages, and registry state.[/green]\n")
+        cfg = v2_config.load_global_config()
+        wait_for_continue()
+        return "Uninstall cleanup completed"
 
     def _handle_text_edit(idx: int) -> str:
         """Handle editing a text setting via $EDITOR or inline fallback."""
@@ -224,6 +261,10 @@ def run_config_editor() -> None:
                     if setting_type == "text":
                         live.stop()
                         status_msg = _handle_text_edit(cursor)
+                        live.start()
+                    elif setting_type == "action":
+                        live.stop()
+                        status_msg = _handle_uninstall_action()
                         live.start()
                     else:
                         status_msg = _handle_change(cursor)

@@ -79,39 +79,7 @@ def run_wizard() -> bool:
     console.print(f"\n[green]\u2714[/green] Config created at [cyan]{v2_config.get_global_config_path()}[/cyan]")
 
     # Step 3a: Install bundled builtins
-    _offer_builtins_install(cfg)
-
-    # Step 3b: Offer git download
-    console.print()
-    menu = TerminalMenu(
-        ["Yes, download more", "No, I'm done"],
-        title="Download additional components from git?",
-        cursor_index=1,
-        menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q", "\x1b"),
-    )
-    result = menu.show()
-    if result == 0:
-        try:
-            url = console.input("\n[cyan]Git URL:[/cyan] ")
-        except KeyboardInterrupt:
-            return
-        if url and url.strip():
-            from ..v2_cli import cmd_download
-
-            class Args:
-                pass
-
-            args = Args()
-            args.url = url.strip()
-            args.all = False
-            args.replace = False
-            try:
-                cmd_download(args)
-            except SystemExit:
-                pass
+    _offer_builtins_install()
 
     # Done
     console.print(f"\n[green]\u2714[/green] [bold]Setup complete![/bold]")
@@ -126,11 +94,11 @@ def run_wizard() -> bool:
     return True
 
 
-def _offer_builtins_install(cfg: dict) -> None:
-    """Offer to install bundled agents, prompts & hooks."""
-    from ..downloader import add_items_to_registry, classify
-    from ..registry import Registry
+def _offer_builtins_install() -> None:
+    """Offer to install bundled starter components as a local package."""
+    from ..downloader import classify
     from ..types import ComponentType
+    from ..v2_cli import cmd_scan
 
     builtins_path = _get_builtins_path()
     if not builtins_path:
@@ -166,22 +134,18 @@ def _offer_builtins_install(cfg: dict) -> None:
     if result != 0:
         return
 
-    registry = Registry(v2_config.get_registry_path(cfg))
-    registry.ensure_dirs()
-    added, skipped = add_items_to_registry(content.items, registry, replace=False)
+    class Args:
+        pass
 
-    # Enable in global config
-    if added:
-        global_section = cfg.get("global", {})
-        for item_str in added:
-            ct_str, name = item_str.split("/", 1)
-            field = ct_str + "s" if ct_str != "mcp" else "mcp"
-            existing = global_section.get(field, [])
-            if name not in existing:
-                existing.append(name)
-            global_section[field] = existing
-        cfg["global"] = global_section
-        v2_config.save_global_config(cfg)
-        console.print(f"  [green]\u2714[/green] Installed {len(added)} components")
-    if skipped:
-        console.print(f"  [dim]Skipped {len(skipped)} (already in registry)[/dim]")
+    args = Args()
+    args.path = str(builtins_path)
+    args.all = True
+    args.replace = False
+    args.depth = 5
+    args.no_enable = False
+
+    try:
+        cmd_scan(args)
+    except SystemExit:
+        # cmd_scan reports conflicts/summary; wizard should continue either way
+        pass

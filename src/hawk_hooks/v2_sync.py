@@ -40,6 +40,65 @@ def _write_cached_hash(scope: str, tool: Tool, hash_val: str) -> None:
     (cache_dir / _cache_key(scope, tool)).write_text(hash_val)
 
 
+def count_unsynced_targets(
+    project_dir: Path | None = None,
+    tools: list[Tool] | None = None,
+    *,
+    include_global: bool = True,
+    only_installed: bool = False,
+) -> tuple[int, int]:
+    """Count unsynced scope/tool targets using resolved-set cache hashes.
+
+    Returns:
+        (unsynced_count, total_targets_checked)
+    """
+    cfg = v2_config.load_global_config()
+    registry = Registry(v2_config.get_registry_path(cfg))
+    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+
+    selected_tools: list[Tool] = []
+    for tool in enabled_tools:
+        if only_installed and not get_adapter(tool).detect_installed():
+            continue
+        selected_tools.append(tool)
+
+    unsynced = 0
+    total = 0
+
+    if include_global:
+        resolved_global = resolve(cfg)
+        global_hash = resolved_global.hash_key(registry_path=registry.path)
+        for tool in selected_tools:
+            total += 1
+            if _read_cached_hash("global", tool) != global_hash:
+                unsynced += 1
+
+    if project_dir is not None:
+        dir_chain: list[tuple[dict, dict | None]] = []
+        for chain_dir, chain_config in v2_config.get_config_chain(project_dir):
+            profile_name = _load_profile_for_dir(chain_config, chain_dir, cfg)
+            profile = v2_config.load_profile(profile_name) if profile_name else None
+            dir_chain.append((chain_config, profile))
+
+        if not dir_chain:
+            dir_config = v2_config.load_dir_config(project_dir)
+            if dir_config:
+                profile_name = _load_profile_for_dir(dir_config, project_dir, cfg)
+                profile = v2_config.load_profile(profile_name) if profile_name else None
+                dir_chain.append((dir_config, profile))
+
+        resolved_project = resolve(cfg, dir_chain=dir_chain) if dir_chain else resolve(cfg)
+        project_hash = resolved_project.hash_key(registry_path=registry.path)
+        scope_key = str(project_dir.resolve())
+
+        for tool in selected_tools:
+            total += 1
+            if _read_cached_hash(scope_key, tool) != project_hash:
+                unsynced += 1
+
+    return unsynced, total
+
+
 def _load_profile_for_dir(
     dir_config: dict | None, project_dir: Path, cfg: dict
 ) -> str | None:
@@ -339,6 +398,75 @@ def purge_all(
             )
 
     return results
+
+
+def uninstall_all(
+    tools: list[Tool] | None = None,
+    dry_run: bool = False,
+) -> dict[str, list[SyncResult]]:
+    """Full teardown for hawk-managed state.
+
+    Performs aggressive unlink/prune from tool configs, then clears hawk
+    configuration selections, package index, registry items, directory
+    registrations, and sync cache.
+    """
+    purge_results = purge_all(tools=tools, dry_run=dry_run)
+    if dry_run:
+        return purge_results
+
+    cfg = v2_config.load_global_config()
+    registered_dirs = list(v2_config.get_registered_directories().keys())
+
+    # Remove per-project hawk config files for registered directories.
+    for dir_path_str in registered_dirs:
+        cfg_path = v2_config.get_dir_config_path(Path(dir_path_str))
+        try:
+            if cfg_path.exists():
+                cfg_path.unlink()
+            if cfg_path.parent.exists() and not any(cfg_path.parent.iterdir()):
+                cfg_path.parent.rmdir()
+        except OSError:
+            # Best effort: keep going even if one project can't be cleaned.
+            pass
+
+    # Clear global component selections + directory registrations.
+    global_section = cfg.get("global", {})
+    for field in ["skills", "hooks", "prompts", "commands", "agents", "mcp"]:
+        global_section[field] = []
+    cfg["global"] = global_section
+    cfg["directories"] = {}
+    v2_config.save_global_config(cfg)
+
+    # Clear package index.
+    v2_config.save_packages({})
+
+    # Remove all registry items.
+    registry = Registry(v2_config.get_registry_path(cfg))
+    for ct, names in registry.list().items():
+        for name in list(names):
+            try:
+                registry.remove(ct, name)
+            except Exception:
+                pass
+
+    # Clear sync cache.
+    cache_dir = _get_cache_dir()
+    if cache_dir.exists():
+        for entry in cache_dir.iterdir():
+            try:
+                if entry.is_file() or entry.is_symlink():
+                    entry.unlink()
+            except OSError:
+                pass
+
+    # Seed global cache to represent the empty post-uninstall state.
+    # This prevents a false "unsynced" signal immediately after uninstall.
+    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+    empty_hash = resolve(cfg).hash_key(registry_path=registry.path)
+    for tool in enabled_tools:
+        _write_cached_hash("global", tool, empty_hash)
+
+    return purge_results
 
 
 def _compute_would_unlink(
