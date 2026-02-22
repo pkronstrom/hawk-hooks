@@ -311,7 +311,6 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     options.append((f"Tools          {tools_str}", "tools"))
     options.append(("Projects       Manage registered directories", "projects"))
     options.append(("Settings       Editor, paths, behavior", "settings"))
-    options.append(("Sync           Apply changes to tools", "sync"))
     options.append(("Exit", "exit"))
 
     return options
@@ -1133,6 +1132,26 @@ def _handle_sync(state: dict) -> None:
     wait_for_continue()
 
 
+def _apply_auto_sync_if_needed(dirty: bool) -> bool:
+    """Auto-sync dirty config changes and keep dirty only for real errors."""
+    if not dirty:
+        return False
+
+    from ..v2_sync import format_sync_results, sync_all
+
+    all_results = sync_all(force=True)
+    has_errors = any(result.errors for scope in all_results.values() for result in scope)
+    if has_errors:
+        console.print("\n[bold red]Auto-sync encountered errors.[/bold red]")
+        formatted = format_sync_results(all_results, verbose=False)
+        console.print(formatted or "  No changes.")
+        console.print()
+        wait_for_continue()
+        return True
+
+    return False
+
+
 def _handle_download() -> None:
     """Run download flow."""
     console.print("\n[bold]Download components from git[/bold]")
@@ -1257,14 +1276,17 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         if action in ("skills", "hooks", "prompts", "agents", "mcp"):
             if _handle_component_toggle(state, action):
                 dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty)
 
         elif action == "tools":
             if _handle_tools_toggle(state):
                 dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty)
 
         elif action == "packages":
             if _handle_packages(state):
                 dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty)
 
         elif action == "registry":
             _handle_registry_browser(state)
@@ -1272,13 +1294,11 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "projects":
             _handle_projects(state)
 
-        elif action == "sync":
-            _handle_sync(state)
-            dirty = False  # Just synced
-
         elif action == "settings":
             from .config_editor import run_config_editor
-            run_config_editor()
+            if run_config_editor():
+                dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty)
 
         elif action == "download":
             _handle_download()

@@ -96,7 +96,7 @@ class TestCodexHooks:
         target.mkdir()
 
         result = adapter.sync(ResolvedSet(hooks=["guard.py"]), target, registry)
-        assert any("pre_tool_use is unsupported by codex" in e for e in result.errors)
+        assert any("pre_tool_use is unsupported by codex" in e for e in result.skipped)
 
     def test_sync_respects_manual_notify_key(self, adapter, tmp_path):
         registry = tmp_path / "registry"

@@ -236,7 +236,7 @@ class TestGeminiHooks:
         target.mkdir()
 
         result = adapter.sync(ResolvedSet(hooks=["guard.prompt.json"]), target, registry)
-        assert any("prompt hooks are unsupported by gemini" in e for e in result.errors)
+        assert any("prompt hooks are unsupported by gemini" in e for e in result.skipped)
 
     def test_sync_reports_unsupported_events(self, adapter, tmp_path):
         registry = tmp_path / "registry"
@@ -252,4 +252,4 @@ class TestGeminiHooks:
         target.mkdir()
 
         result = adapter.sync(ResolvedSet(hooks=["ask-permission.py"]), target, registry)
-        assert any("permission_request is unsupported by gemini" in e for e in result.errors)
+        assert any("permission_request is unsupported by gemini" in e for e in result.skipped)

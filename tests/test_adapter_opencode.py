@@ -75,4 +75,4 @@ class TestOpenCodeHooks:
         target.mkdir(parents=True)
 
         result = adapter.sync(ResolvedSet(hooks=["guard.py"]), target, registry)
-        assert any("opencode hook registration is unsupported" in e for e in result.errors)
+        assert any("opencode hook registration is unsupported" in e for e in result.skipped)

@@ -50,7 +50,8 @@ class CodexAdapter(ToolAdapter):
         from ..event_mapping import get_event_support
         from ..hook_meta import parse_hook_meta
 
-        warnings: list[str] = []
+        skipped: list[str] = []
+        errors: list[str] = []
         runners_dir = target_dir / "runners"
         config_path = target_dir / "config.toml"
 
@@ -60,7 +61,7 @@ class CodexAdapter(ToolAdapter):
                 for f in runners_dir.iterdir():
                     if f.suffix == ".sh":
                         f.unlink()
-            self._set_hook_warnings([])
+            self._set_hook_diagnostics(skipped=[], errors=[])
             return []
 
         hooks_dir = registry_path / "hooks"
@@ -74,7 +75,7 @@ class CodexAdapter(ToolAdapter):
                 script_hooks.append(name)
 
         if prompt_hooks:
-            warnings.append(
+            skipped.append(
                 f"prompt hooks are unsupported by codex and were skipped: {', '.join(sorted(prompt_hooks))}"
             )
 
@@ -87,12 +88,12 @@ class CodexAdapter(ToolAdapter):
                 notify_commands.append(str(runner_path))
                 bridged_events.add(event_name)
             else:
-                warnings.append(f"{event_name} is unsupported by codex and was skipped")
+                skipped.append(f"{event_name} is unsupported by codex and was skipped")
                 runner_path.unlink(missing_ok=True)
 
         if self._has_manual_notify_key_outside_block(config_path):
-            warnings.append("codex config.toml has a manual notify key; hawk notify bridge was not modified")
-            self._set_hook_warnings(warnings)
+            errors.append("codex config.toml has a manual notify key; hawk notify bridge was not modified")
+            self._set_hook_diagnostics(skipped=skipped, errors=errors)
             return []
 
         self._update_notify_block(config_path, notify_commands)
@@ -106,7 +107,7 @@ class CodexAdapter(ToolAdapter):
             if any(event in bridged_events for event in events):
                 registered.append(name)
 
-        self._set_hook_warnings(warnings)
+        self._set_hook_diagnostics(skipped=skipped, errors=errors)
         return registered
 
     def write_mcp_config(

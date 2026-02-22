@@ -40,6 +40,15 @@ def _write_cached_hash(scope: str, tool: Tool, hash_val: str) -> None:
     (cache_dir / _cache_key(scope, tool)).write_text(hash_val)
 
 
+def _cache_identity(resolved_hash: str, adapter) -> str:
+    """Compose cache identity from desired state hash + tool capabilities."""
+    try:
+        fingerprint = adapter.capability_fingerprint()
+    except Exception:
+        fingerprint = "unknown"
+    return f"{resolved_hash}|cap:{fingerprint}"
+
+
 def count_unsynced_targets(
     project_dir: Path | None = None,
     tools: list[Tool] | None = None,
@@ -69,8 +78,10 @@ def count_unsynced_targets(
         resolved_global = resolve(cfg)
         global_hash = resolved_global.hash_key(registry_path=registry.path)
         for tool in selected_tools:
+            adapter = get_adapter(tool)
+            expected = _cache_identity(global_hash, adapter)
             total += 1
-            if _read_cached_hash("global", tool) != global_hash:
+            if _read_cached_hash("global", tool) != expected:
                 unsynced += 1
 
     if project_dir is not None:
@@ -92,8 +103,10 @@ def count_unsynced_targets(
         scope_key = str(project_dir.resolve())
 
         for tool in selected_tools:
+            adapter = get_adapter(tool)
+            expected = _cache_identity(project_hash, adapter)
             total += 1
-            if _read_cached_hash(scope_key, tool) != project_hash:
+            if _read_cached_hash(scope_key, tool) != expected:
                 unsynced += 1
 
     return unsynced, total
@@ -173,7 +186,8 @@ def sync_directory(
 
         # Check cache — skip if resolved set hasn't changed
         current_hash = resolved.hash_key(registry_path=registry.path)
-        if not force and _read_cached_hash(scope_key, tool) == current_hash:
+        identity = _cache_identity(current_hash, adapter)
+        if not force and _read_cached_hash(scope_key, tool) == identity:
             results.append(SyncResult(tool=str(tool)))
             continue
 
@@ -185,7 +199,7 @@ def sync_directory(
 
         # Update cache after successful sync
         if not result.errors:
-            _write_cached_hash(scope_key, tool, current_hash)
+            _write_cached_hash(scope_key, tool, identity)
 
     return results
 
@@ -222,7 +236,8 @@ def sync_global(
 
         # Check cache — skip if resolved set hasn't changed
         current_hash = resolved.hash_key(registry_path=registry.path)
-        if not force and _read_cached_hash("global", tool) == current_hash:
+        identity = _cache_identity(current_hash, adapter)
+        if not force and _read_cached_hash("global", tool) == identity:
             results.append(SyncResult(tool=str(tool)))
             continue
 
@@ -232,7 +247,7 @@ def sync_global(
 
         # Update cache after successful sync
         if not result.errors:
-            _write_cached_hash("global", tool, current_hash)
+            _write_cached_hash("global", tool, identity)
 
     return results
 
@@ -464,7 +479,8 @@ def uninstall_all(
     enabled_tools = tools or v2_config.get_enabled_tools(cfg)
     empty_hash = resolve(cfg).hash_key(registry_path=registry.path)
     for tool in enabled_tools:
-        _write_cached_hash("global", tool, empty_hash)
+        adapter = get_adapter(tool)
+        _write_cached_hash("global", tool, _cache_identity(empty_hash, adapter))
 
     return purge_results
 
@@ -512,6 +528,7 @@ def _merge_results(
         target = merged[result.tool]
         target.linked.extend(result.linked)
         target.unlinked.extend(result.unlinked)
+        target.skipped.extend(result.skipped)
         target.errors.extend(result.errors)
 
     return [merged[t] for t in ordered_tools]
@@ -643,7 +660,7 @@ def format_sync_results(
     for scope, tool_results in results.items():
         lines.append(f"\n  {scope}:")
         for result in tool_results:
-            if not result.linked and not result.unlinked and not result.errors:
+            if not result.linked and not result.unlinked and not result.skipped and not result.errors:
                 lines.append(f"    {result.tool}: no changes")
                 continue
 
@@ -652,6 +669,8 @@ def format_sync_results(
                 parts.append(f"+{len(result.linked)} linked")
             if result.unlinked:
                 parts.append(f"-{len(result.unlinked)} unlinked")
+            if result.skipped:
+                parts.append(f"~{len(result.skipped)} skipped")
             if result.errors:
                 parts.append(f"!{len(result.errors)} errors")
             lines.append(f"    {result.tool}: {', '.join(parts)}")
@@ -661,6 +680,8 @@ def format_sync_results(
                     lines.append(f"      + {item}")
                 for item in result.unlinked:
                     lines.append(f"      - {item}")
+                for skipped in result.skipped:
+                    lines.append(f"      ~ {skipped}")
                 for err in result.errors:
                     lines.append(f"      ! {err}")
 

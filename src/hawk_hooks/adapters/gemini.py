@@ -153,11 +153,13 @@ class GeminiAdapter(ToolAdapter):
         )
 
         try:
-            self._set_hook_warnings([])
+            self._set_hook_diagnostics(skipped=[], errors=[])
             registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
             result.linked.extend(f"hook:{h}" for h in registered)
-            for warning in self._take_hook_warnings():
-                result.errors.append(f"hooks: {warning}")
+            for skipped in self._take_hook_skipped():
+                result.skipped.append(f"hooks: {skipped}")
+            for hook_error in self._take_hook_errors():
+                result.errors.append(f"hooks: {hook_error}")
         except Exception as e:
             result.errors.append(f"hooks: {e}")
 
@@ -179,7 +181,7 @@ class GeminiAdapter(ToolAdapter):
         from ..event_mapping import get_event_support, get_tool_event_or_none
         from ..hook_meta import parse_hook_meta
 
-        warnings: list[str] = []
+        skipped: list[str] = []
         runners_dir = target_dir / "runners"
 
         if not hook_names or registry_path is None:
@@ -188,7 +190,7 @@ class GeminiAdapter(ToolAdapter):
                 for f in runners_dir.iterdir():
                     if f.suffix == ".sh":
                         f.unlink()
-            self._set_hook_warnings([])
+            self._set_hook_diagnostics(skipped=[], errors=[])
             return []
 
         hooks_dir = registry_path / "hooks"
@@ -202,7 +204,7 @@ class GeminiAdapter(ToolAdapter):
                 script_hooks.append(name)
 
         if prompt_hooks:
-            warnings.append(
+            skipped.append(
                 f"prompt hooks are unsupported by gemini and were skipped: {', '.join(sorted(prompt_hooks))}"
             )
 
@@ -232,7 +234,7 @@ class GeminiAdapter(ToolAdapter):
             support = get_event_support(event_name, "gemini")
             matcher = get_tool_event_or_none(event_name, "gemini")
             if support == "unsupported" or not matcher:
-                warnings.append(f"{event_name} is unsupported by gemini and was skipped")
+                skipped.append(f"{event_name} is unsupported by gemini and was skipped")
                 runner_path.unlink(missing_ok=True)
                 continue
 
@@ -264,7 +266,7 @@ class GeminiAdapter(ToolAdapter):
             if any(event in registered_events for event in events):
                 registered.append(name)
 
-        self._set_hook_warnings(warnings)
+        self._set_hook_diagnostics(skipped=skipped, errors=[])
         return registered
 
     def write_mcp_config(

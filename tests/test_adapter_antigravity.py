@@ -31,7 +31,7 @@ class TestAntigravityHooks:
         target.mkdir(parents=True)
 
         result = adapter.sync(ResolvedSet(hooks=["guard.py"]), target, registry)
-        assert any("antigravity hook registration is unsupported" in e for e in result.errors)
+        assert any("antigravity hook registration is unsupported" in e for e in result.skipped)
 
 
 class TestAntigravityMCP:

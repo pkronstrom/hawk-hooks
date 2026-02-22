@@ -25,8 +25,9 @@ class ToolAdapter(ABC):
     HOOK_SUPPORT: Literal["native", "bridge", "unsupported"] = "unsupported"
 
     def __init__(self) -> None:
-        # Adapters can record non-fatal hook warnings during registration.
-        self._hook_warnings: list[str] = []
+        # Adapters can record non-fatal hook skips and fatal hook errors.
+        self._hook_skipped: list[str] = []
+        self._hook_errors: list[str] = []
 
     @property
     @abstractmethod
@@ -37,6 +38,21 @@ class ToolAdapter(ABC):
     def hook_support(self) -> Literal["native", "bridge", "unsupported"]:
         """Declared hook capability for this adapter."""
         return self.HOOK_SUPPORT
+
+    def capability_fingerprint(self) -> str:
+        """Fingerprint of sync-relevant tool capabilities.
+
+        This is used by v2 sync cache identity to force re-sync when
+        adapter-declared capabilities change.
+        """
+        from ..event_mapping import get_event_support
+        from ..events import EVENTS
+
+        event_caps = ",".join(
+            f"{event}:{get_event_support(event, str(self.tool))}"
+            for event in sorted(EVENTS.keys())
+        )
+        return f"tool={self.tool}|hook_support={self.hook_support}|events={event_caps}"
 
     @abstractmethod
     def detect_installed(self) -> bool:
@@ -194,11 +210,13 @@ class ToolAdapter(ABC):
 
         # Register hooks
         try:
-            self._set_hook_warnings([])
+            self._set_hook_diagnostics(skipped=[], errors=[])
             registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
             result.linked.extend(f"hook:{h}" for h in registered)
-            for warning in self._take_hook_warnings():
-                result.errors.append(f"hooks: {warning}")
+            for skipped in self._take_hook_skipped():
+                result.skipped.append(f"hooks: {skipped}")
+            for hook_error in self._take_hook_errors():
+                result.errors.append(f"hooks: {hook_error}")
         except Exception as e:
             result.errors.append(f"hooks: {e}")
 
@@ -604,21 +622,38 @@ exit 0
             return True
         return False
 
-    def _set_hook_warnings(self, warnings: list[str]) -> None:
-        """Set hook warnings for the current sync cycle."""
-        self._hook_warnings = list(warnings)
+    def _set_hook_diagnostics(
+        self,
+        *,
+        skipped: list[str] | None = None,
+        errors: list[str] | None = None,
+    ) -> None:
+        """Set hook diagnostics for the current sync cycle."""
+        self._hook_skipped = list(skipped or [])
+        self._hook_errors = list(errors or [])
 
-    def _take_hook_warnings(self) -> list[str]:
-        """Return and clear hook warnings from the current sync cycle."""
-        warnings = self._hook_warnings
-        self._hook_warnings = []
-        return warnings
+    def _take_hook_skipped(self) -> list[str]:
+        """Return and clear hook skipped diagnostics from current sync cycle."""
+        skipped = self._hook_skipped
+        self._hook_skipped = []
+        return skipped
+
+    def _take_hook_errors(self) -> list[str]:
+        """Return and clear hook error diagnostics from current sync cycle."""
+        errors = self._hook_errors
+        self._hook_errors = []
+        return errors
+
+    def _set_hook_warnings(self, warnings: list[str]) -> None:
+        """Backwards-compatible alias for skipped hook diagnostics."""
+        self._set_hook_diagnostics(skipped=warnings, errors=[])
 
     def _warn_hooks_unsupported(self, tool_name: str, hook_names: list[str]) -> None:
         """Record a standard warning for tools without hook support."""
         if not hook_names:
-            self._set_hook_warnings([])
+            self._set_hook_diagnostics(skipped=[], errors=[])
             return
-        self._set_hook_warnings(
-            [f"{tool_name} hook registration is unsupported; skipped {len(hook_names)} hook(s)"]
+        self._set_hook_diagnostics(
+            skipped=[f"{tool_name} hook registration is unsupported; skipped {len(hook_names)} hook(s)"],
+            errors=[],
         )

@@ -248,6 +248,41 @@ class TestSyncCache:
         # so tool name should still be set
         assert results[0].tool == "claude"
 
+    def test_capability_change_invalidates_cache(self, v2_env, tmp_path, monkeypatch):
+        """Capability fingerprint changes should force a resync attempt."""
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        sync_calls = {"count": 0}
+        original_sync = ClaudeAdapter.sync
+
+        def _counting_sync(self, resolved, target_dir, registry_path):
+            sync_calls["count"] += 1
+            return original_sync(self, resolved, target_dir, registry_path)
+
+        monkeypatch.setattr(ClaudeAdapter, "sync", _counting_sync)
+
+        sync_global(tools=[Tool.CLAUDE])
+        assert sync_calls["count"] == 1
+
+        # Cache hit: no sync call
+        sync_global(tools=[Tool.CLAUDE])
+        assert sync_calls["count"] == 1
+
+        # Capability change should invalidate cache and invoke sync again
+        monkeypatch.setattr(
+            ClaudeAdapter,
+            "capability_fingerprint",
+            lambda self: "hooks:native|events:changed",
+            raising=False,
+        )
+        sync_global(tools=[Tool.CLAUDE])
+        assert sync_calls["count"] == 2
+
 
 class TestUnsyncedCounts:
     def test_count_unsynced_global_before_and_after_sync(self, v2_env, tmp_path, monkeypatch):
@@ -533,3 +568,23 @@ class TestFormatResults:
         }
         output = format_sync_results(results)
         assert "!1 errors" in output
+
+    def test_format_with_skipped_compact(self):
+        results = {
+            "global": [
+                SyncResult(tool="codex", skipped=["hooks: pre_tool_use is unsupported by codex"]),
+            ]
+        }
+        output = format_sync_results(results, verbose=False)
+        assert "~1 skipped" in output
+        assert "unsupported by codex" not in output
+
+    def test_format_with_skipped_verbose(self):
+        results = {
+            "global": [
+                SyncResult(tool="codex", skipped=["hooks: pre_tool_use is unsupported by codex"]),
+            ]
+        }
+        output = format_sync_results(results, verbose=True)
+        assert "~1 skipped" in output
+        assert "~ hooks: pre_tool_use is unsupported by codex" in output

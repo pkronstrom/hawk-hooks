@@ -139,6 +139,7 @@ class SyncResult:
     tool: str
     linked: list[str] = field(default_factory=list)
     unlinked: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 

@@ -56,9 +56,10 @@ def _display_value(key: str, value, setting_type: str, options=None) -> str:
     return str(value)
 
 
-def run_config_editor() -> None:
+def run_config_editor() -> bool:
     """Run the interactive config editor."""
     cfg = v2_config.load_global_config()
+    dirty = False
 
     cursor = 0
     status_msg = ""
@@ -261,13 +262,19 @@ def run_config_editor() -> None:
                     if setting_type == "text":
                         live.stop()
                         status_msg = _handle_text_edit(cursor)
+                        if "→" in status_msg:
+                            dirty = True
                         live.start()
                     elif setting_type == "action":
                         live.stop()
                         status_msg = _handle_uninstall_action()
+                        if status_msg == "Uninstall cleanup completed":
+                            dirty = True
                         live.start()
                     else:
                         status_msg = _handle_change(cursor)
+                        if status_msg:
+                            dirty = True
                 elif cursor == len(items) + 1:
                     # Done
                     break
@@ -277,3 +284,5 @@ def run_config_editor() -> None:
                 break
 
             live.update(Text.from_markup(_build_display()))
+
+    return dirty
