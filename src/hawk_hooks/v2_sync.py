@@ -450,6 +450,15 @@ def uninstall_all(
         global_section[field] = []
     cfg["global"] = global_section
     cfg["directories"] = {}
+
+    # Reset Codex multi-agent consent state as part of hawk-managed teardown.
+    tools_cfg = cfg.setdefault("tools", {})
+    codex_cfg = tools_cfg.setdefault("codex", {})
+    codex_cfg["multi_agent_consent"] = "ask"
+    codex_cfg["allow_multi_agent"] = False
+    tools_cfg["codex"] = codex_cfg
+    cfg["tools"] = tools_cfg
+
     v2_config.save_global_config(cfg)
 
     # Clear package index.

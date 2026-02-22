@@ -464,6 +464,8 @@ class TestUninstall:
         cfg["global"]["skills"] = ["tdd"]
         cfg["global"]["prompts"] = ["deploy.md"]
         cfg["global"]["commands"] = ["deploy.md"]
+        cfg.setdefault("tools", {}).setdefault("codex", {})["multi_agent_consent"] = "granted"
+        cfg.setdefault("tools", {}).setdefault("codex", {})["allow_multi_agent"] = True
         v2_config.save_global_config(cfg)
 
         # Seed a stale hawk symlink in tool config to verify purge path is used
@@ -481,6 +483,8 @@ class TestUninstall:
         assert cfg_after["global"]["skills"] == []
         assert cfg_after["global"]["prompts"] == []
         assert cfg_after["global"]["commands"] == []
+        assert cfg_after["tools"]["codex"]["multi_agent_consent"] == "ask"
+        assert cfg_after["tools"]["codex"]["allow_multi_agent"] is False
         assert cfg_after.get("directories", {}) == {}
         assert v2_config.load_packages() == {}
         assert not v2_env["registry"].list(ComponentType.SKILL)[ComponentType.SKILL]
