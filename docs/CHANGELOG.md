@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-02-22 (v0.8.0)
+
+### Added
+
+- Cross-tool hook registration rollout:
+  - Canonical event contract + support levels in `event_mapping.py`
+  - Gemini native hook registration
+  - Codex notify-style hook bridge
+  - Explicit unsupported-hook warnings for OpenCode/Cursor/Antigravity
+- Dashboard Registry browser:
+  - New `Registry` action in TUI
+  - Read-only grouped browse by component type
+  - Per-item metadata: type, owning package, and file size
+  - Enter opens selected item in `$EDITOR`
+
+### Changed
+
+- `hawk sync` output is compact by default (per-tool counts).
+- `hawk sync -v/--verbose` restores per-item detailed output.
+- Dashboard sync display now uses compact formatting.
+- Continue prompts in dashboard flows now accept Enter, `q`, and Ctrl+C.
+- Dashboard scope detection now resolves nearest registered ancestor directory.
+- Dashboard component counts now reflect resolved chain output (global + parent layers + local overrides).
+
+### Docs
+
+- `CLAUDE.md` updated to describe v2 as the primary architecture.
+- v2 completion plan reconciled with implemented Phase A/B/C/D/E status.
+
 ## 2026-02-21
 
 ### Breaking
