@@ -1,8 +1,8 @@
 # v2 Completion Plan
 
-## Current Status (2026-02-21)
+## Current Status (2026-02-22)
 
-Branch `v2` — 63 commits ahead of `main`, 476 tests passing.
+Branch `v2` — completion pass in progress with A/B/C/D/E implemented.
 
 ### What's Done
 
@@ -17,28 +17,26 @@ Branch `v2` — 63 commits ahead of `main`, 476 tests passing.
 | Hook format | Metadata parser (`hawk-hook:` headers), flat hooks, runner generation, Claude event registration | `hook_meta.py`, `adapters/base.py`, `adapters/claude.py` |
 | Downloader | Flat hooks, legacy event dirs, hooks.json explosion, MCP fan-out, package manifests, path traversal sanitization | `downloader.py` |
 | TUI | Dashboard, N-scope toggles, package grouping, wizard, config editor, select menu (view/open/sync) | `v2_interactive/` |
+| TUI polish (Phase A) | Scope ancestor detection, resolved-count dashboard badges, registry browser action | `v2_interactive/dashboard.py`, `v2_config.py` |
 | Tests | 476 passing across all v2 modules | `tests/` |
 | Security | Path traversal sanitization, atomic registry replace, sync cache content hashing, adapter hook contract fix | recent review commit |
+| Pre-merge cleanup (Phase D) | Plan reconciliation, v2-first `CLAUDE.md`, full-suite verification, TODO/FIXME/HACK sweep | `docs/plans/`, `CLAUDE.md` |
 
 ### What's Incomplete
 
 | Gap | Plan Reference | Current State |
 |-----|---------------|---------------|
-| TUI scope detection | `v2-tui-design.md:13` | Exact cwd match only, should walk ancestor registered dirs |
-| TUI enabled counts | `v2-tui-design.md:52` | Approximate (global + local delta), not resolved-chain counts |
-| Registry Browser | `v2-tui-design.md:111` | Not implemented — planned as TUI action |
-| Scan package updates | `package-grouping-design.md:270` | `hawk scan` records empty `url`/`commit`, so `hawk update` skips them |
-| Migration schema | `migration.py:58` | Missing `prompts` key, only seeds 4 tools (defaults fill on load) |
-| Cross-tool hooks (Gemini/Codex/others) | Phase E (below) | Claude + Gemini native, Codex bridge, OpenCode/Cursor/Antigravity explicit unsupported warnings |
 | Builtins | `hawk-hook-format-plan.md:354` | Curated to 4 hooks (plan had 15) — intentional reduction |
 
 ---
 
 ## Phases
 
-### Phase A — TUI Polish (2 parallel agents)
+### Phase A — TUI Polish (completed 2026-02-22)
 
-These are independent UI fixes, no shared state.
+Status:
+- A1 complete: `_detect_scope()` now resolves nearest registered ancestor; counts use resolved chain output.
+- A2 complete: dashboard includes a Registry browser action with grouped rows and `$EDITOR` open on Enter.
 
 **Agent A1: Scope Detection & Counts**
 ```
@@ -108,7 +106,13 @@ Status:
 - Verified by `tests/test_downloader.py::TestClassifyFlatHooks::test_root_md_with_hawk_hook_metadata_is_hook_even_with_structured_dirs`
 - Verified by `tests/test_downloader.py::TestScanDirectoryHooks::test_detects_root_md_with_hawk_hook_frontmatter`
 
-### Phase D — Pre-Merge Cleanup (1 agent, after A+B+C)
+### Phase D — Pre-Merge Cleanup (completed 2026-02-22)
+
+Status:
+- Plan reconciliation updated in this document.
+- `CLAUDE.md` updated to v2-first architecture.
+- TODO/FIXME/HACK sweep: no unresolved code markers found.
+- Verification run completed with `uv run pytest tests/ --ignore=tests/test_cli.py -q` (515 passed).
 
 **Agent D1: Plan Doc Reconciliation & Final Checks**
 ```

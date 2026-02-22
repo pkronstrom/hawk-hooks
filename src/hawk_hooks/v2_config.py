@@ -242,6 +242,18 @@ def get_config_chain(from_dir: Path) -> list[tuple[Path, dict[str, Any]]]:
     return chain
 
 
+def get_nearest_registered_directory(from_dir: Path) -> Path | None:
+    """Return the innermost registered ancestor for ``from_dir``.
+
+    Only directories that are both registered and have a valid local
+    ``.hawk/config.yaml`` are considered.
+    """
+    chain = get_config_chain(from_dir.resolve())
+    if not chain:
+        return None
+    return chain[-1][0]
+
+
 def auto_register_if_needed(cwd: Path) -> None:
     """If cwd has .hawk/config.yaml but isn't registered, register it."""
     cwd = cwd.resolve()

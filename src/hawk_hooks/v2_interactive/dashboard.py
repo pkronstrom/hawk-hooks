@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
 from pathlib import Path
 
 from rich.console import Console
@@ -13,7 +16,7 @@ from ..registry import Registry
 from ..resolver import resolve
 from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
 from .pause import wait_for_continue
-from .toggle import run_toggle_list
+from .toggle import _open_in_editor, run_toggle_list
 
 console = Console(highlight=False)
 
@@ -39,11 +42,9 @@ def _detect_scope(scope_dir: str | None = None) -> tuple[str, Path | None, str |
     if dir_config is not None:
         return "local", cwd, cwd.name
 
-    # Also check if registered in global index
-    dirs = v2_config.get_registered_directories()
-    cwd_str = str(cwd)
-    if cwd_str in dirs:
-        return "local", cwd, cwd.name
+    nearest = v2_config.get_nearest_registered_directory(cwd)
+    if nearest is not None:
+        return "local", nearest, nearest.name
 
     return "global", None, None
 
@@ -63,6 +64,26 @@ def _load_state(scope_dir: str | None = None) -> dict:
     if project_dir:
         local_cfg = v2_config.load_dir_config(project_dir) or {}
 
+    resolved_global = resolve(cfg)
+    resolved_active = resolved_global
+    if project_dir:
+        dir_chain: list[tuple[dict, dict | None]] = []
+        for chain_dir, chain_config in v2_config.get_config_chain(project_dir):
+            profile_name = chain_config.get("profile")
+            if not profile_name:
+                dir_entry = cfg.get("directories", {}).get(str(chain_dir.resolve()), {})
+                profile_name = dir_entry.get("profile")
+            profile = v2_config.load_profile(profile_name) if profile_name else None
+            dir_chain.append((chain_config, profile))
+
+        if not dir_chain and local_cfg is not None:
+            profile_name = local_cfg.get("profile")
+            profile = v2_config.load_profile(profile_name) if profile_name else None
+            dir_chain.append((local_cfg, profile))
+
+        if dir_chain:
+            resolved_active = resolve(cfg, dir_chain=dir_chain)
+
     # Detect tools
     tools_status = {}
     for tool in Tool.all():
@@ -81,6 +102,8 @@ def _load_state(scope_dir: str | None = None) -> dict:
         "project_name": project_name,
         "global_cfg": global_cfg,
         "local_cfg": local_cfg,
+        "resolved_global": resolved_global,
+        "resolved_active": resolved_active,
         "tools_status": tools_status,
         "scope_dir": scope_dir,
     }
@@ -88,21 +111,137 @@ def _load_state(scope_dir: str | None = None) -> dict:
 
 def _count_enabled(state: dict, field: str) -> str:
     """Count enabled items for a component field."""
-    global_list = state["global_cfg"].get(field, [])
-    g_count = len(global_list)
+    g_count = len(getattr(state["resolved_global"], field, []))
 
-    if state["scope"] == "local" and state["local_cfg"] is not None:
-        local_extra = state["local_cfg"].get(field, {})
-        if isinstance(local_extra, dict):
-            l_enabled = local_extra.get("enabled", [])
-            l_disabled = local_extra.get("disabled", [])
-            l_count = len(l_enabled)
-            total = g_count + l_count - len(set(l_disabled) & set(global_list))
-        else:
-            l_count = 0
-            total = g_count
-        return f"{total} enabled ({g_count} global + {l_count} local)"
+    if state["scope"] == "local" and state["project_dir"] is not None:
+        total = len(getattr(state["resolved_active"], field, []))
+        delta = total - g_count
+        if delta > 0:
+            return f"{total} enabled ({g_count} global + {delta} local)"
+        if delta < 0:
+            return f"{total} enabled ({g_count} global - {abs(delta)} local)"
+        return f"{total} enabled ({g_count} global)"
     return f"{g_count} enabled"
+
+
+def _human_size(size_bytes: int) -> str:
+    """Format bytes into a short human-readable size string."""
+    units = ["B", "KB", "MB", "GB"]
+    size = float(size_bytes)
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)}{unit}"
+            return f"{size:.1f}{unit}"
+        size /= 1024.0
+    return f"{int(size_bytes)}B"
+
+
+def _path_size(path: Path) -> int:
+    """Compute total bytes for a file or directory."""
+    try:
+        if path.is_file():
+            return path.stat().st_size
+        if path.is_dir():
+            total = 0
+            for child in path.rglob("*"):
+                if child.is_file():
+                    try:
+                        total += child.stat().st_size
+                    except OSError:
+                        continue
+            return total
+    except OSError:
+        return 0
+    return 0
+
+
+def _run_editor_command(path: Path) -> bool:
+    """Open a path in $EDITOR (or fallback to default editor flow)."""
+    editor = os.environ.get("EDITOR", "").strip()
+    if not editor:
+        _open_in_editor(path)
+        return True
+
+    try:
+        cmd = shlex.split(editor)
+        if not cmd:
+            _open_in_editor(path)
+            return True
+        subprocess.run(cmd + [str(path)], check=False)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _handle_registry_browser(state: dict) -> None:
+    """Read-only registry browser with grouped rows and open-in-editor."""
+    registry = state["registry"]
+    contents = state["contents"]
+    item_types = [ComponentType.SKILL, ComponentType.HOOK, ComponentType.PROMPT, ComponentType.AGENT, ComponentType.MCP, ComponentType.COMMAND]
+
+    if not any(contents.get(ct, []) for ct in item_types):
+        console.print("\n[dim]Registry is empty.[/dim]")
+        wait_for_continue()
+        return
+
+    rows: list[str | None] = []
+    row_items: list[tuple[ComponentType, str, Path] | None] = []
+
+    rows.append("name                         type      package            size")
+    row_items.append(None)
+    rows.append("────────────────────────────────────────────────────────────────")
+    row_items.append(None)
+
+    for ct in item_types:
+        names = contents.get(ct, [])
+        if not names:
+            continue
+        rows.append(f"{ct.registry_dir}/ ({len(names)})")
+        row_items.append(None)
+
+        for name in names:
+            item_path = registry.get_path(ct, name)
+            if item_path is None:
+                continue
+            pkg = v2_config.get_package_for_item(ct.value, name) or "-"
+            size_label = _human_size(_path_size(item_path))
+            pkg_short = pkg if len(pkg) <= 16 else (pkg[:13] + "...")
+            name_short = name if len(name) <= 28 else (name[:25] + "...")
+            rows.append(f"  {name_short:<28} {ct.value:<9} {pkg_short:<16} {size_label:>8}")
+            row_items.append((ct, name, item_path))
+
+    rows.append("────────────────────────────────────────────────────────────────")
+    row_items.append(None)
+    rows.append("Back")
+    row_items.append(None)
+
+    menu = TerminalMenu(
+        rows,
+        title="\nRegistry Browser\n────────────────────────────────────────",
+        menu_cursor="❯ ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
+        status_bar="Enter: open in $EDITOR  q/Esc: back",
+    )
+
+    while True:
+        choice = menu.show()
+        if choice is None:
+            break
+
+        selected = rows[choice]
+        if selected == "Back":
+            break
+
+        item = row_items[choice]
+        if item is None:
+            continue
+        _, _, item_path = item
+        if not _run_editor_command(item_path):
+            console.print(f"\n[red]Could not open {item_path} in $EDITOR[/red]")
+            wait_for_continue()
 
 
 def _build_header(state: dict) -> str:
@@ -139,6 +278,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
         options.append((f"Packages       {pkg_count} installed, manage & update", "packages"))
     else:
         options.append(("Packages       (none installed)", "packages"))
+    options.append(("Registry       Browse installed components", "registry"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
@@ -1110,6 +1250,9 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "packages":
             if _handle_packages(state):
                 dirty = True
+
+        elif action == "registry":
+            _handle_registry_browser(state)
 
         elif action == "projects":
             _handle_projects(state)

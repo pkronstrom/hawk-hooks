@@ -1,75 +1,56 @@
-# hawk-hooks
+# hawk-hooks (v2)
 
-A modular Claude Code hooks manager. Part of the **dodo/owl/hawk** trio:
-- [dodo-tasks](https://github.com/pkronstrom/dodo-tasks) - Task tracking
-- [owl-afk](https://github.com/pkronstrom/owl-afk) - Background/away management
-- **hawk-hooks** - Event interception & orchestration
+`hawk-hooks` is now a multi-tool component manager with registry-backed sync.
+The primary architecture is the v2 stack (`v2_cli.py`, `v2_config.py`, `v2_sync.py`, adapters, resolver, and `v2_interactive/`).
 
-## Architecture
+## Primary Architecture (v2)
 
 ```
 src/hawk_hooks/
-├── cli.py              # Interactive CLI with Rich
-├── config.py           # Configuration loading/saving (JSON)
-├── event_mapping.py    # Canonical event mapping between AI tools
-├── events.py           # Event definitions and metadata
-├── frontmatter.py      # YAML/comment frontmatter parsing
-├── generator.py        # Generates bash runners for command/stdout hooks
-├── hook_manager.py     # Hook lifecycle management
-├── installer.py        # Registers hooks in Claude settings + syncs prompt hooks
-├── interactive/        # Interactive menu components
-├── interactive.py      # Interactive mode entry point
-├── prompt_scanner.py   # Scans for prompt.json hooks
-├── rich_menu.py        # Custom Rich-based interactive menu system
-├── scanner.py          # Auto-discovery of hook scripts
-├── sync.py             # Sync hooks between config and Claude settings
-├── templates.py        # Hook templates for scaffolding
-└── types.py            # Type definitions
+├── v2_cli.py               # Main CLI entry (sync, scan, download, packages, update, clean, migrate)
+├── v2_config.py            # YAML config + directory index + package index
+├── v2_sync.py              # Sync/clean orchestration + cache + result formatting
+├── resolver.py             # Global/profile/dir-chain resolution
+├── registry.py             # Registry add/remove/replace/list operations
+├── downloader.py           # Git/local package scan + metadata-aware classification
+├── event_mapping.py        # Canonical hook event contract + per-tool support
+├── adapters/               # Claude, Gemini, Codex, OpenCode, Cursor, Antigravity
+└── v2_interactive/         # Dashboard, toggles, wizard, settings editor
 ```
 
-## Hook Types
+## Config + Data Locations
 
-| Pattern | Type | How it works |
-|---------|------|--------------|
-| `*.py`, `*.sh`, `*.js`, `*.ts` | Command | Executed, receives JSON stdin |
-| `*.stdout.md`, `*.stdout.txt` | Stdout | Content cat'd to stdout (context injection) |
-| `*.prompt.json` | Native Prompt | Registered as `type: "prompt"` in Claude settings |
+- Global config: `~/.config/hawk-hooks/config.yaml`
+- Registry: `~/.config/hawk-hooks/registry/`
+- Profiles: `~/.config/hawk-hooks/profiles/*.yaml`
+- Packages index: `~/.config/hawk-hooks/packages.yaml`
+- Per-project config: `<project>/.hawk/config.yaml`
+- Sync cache: `~/.config/hawk-hooks/cache/resolved/`
 
-## Key Concepts
+## Core Concepts
 
-- **Command hooks**: Scripts that process JSON input and can block/modify
-- **Stdout hooks**: Files that inject text into Claude's context
-- **Native prompt hooks**: LLM-evaluated hooks (Haiku decides approve/block)
-- **Runners**: Generated bash scripts that chain enabled command/stdout hooks
-- **Events**: pre_tool_use, post_tool_use, stop, subagent_stop, notification, user_prompt_submit, session_start, session_end, pre_compact, permission_request
+- Registry-managed components: `skills`, `hooks`, `prompts`, `agents`, `mcp`.
+- Resolution chain: `global` -> registered parent dirs -> current project (with optional profiles).
+- Per-tool adapters own concrete sync behavior and capability warnings.
+- Hook events use a canonical contract in `event_mapping.py` with explicit unsupported handling.
 
-## File Locations
-
-- Global config: `~/.config/hawk-hooks/config.json`
-- Hooks: `~/.config/hawk-hooks/hooks/{event}/`
-- Runners: `~/.config/hawk-hooks/runners/{event}.sh`
-- Venv: `~/.config/hawk-hooks/.venv/`
-
-## How It Works
-
-1. `hawk install` → registers bash runners in `~/.claude/settings.json`
-2. `hawk toggle` → enables/disables hooks, regenerates runners, syncs prompt hooks
-3. Claude triggers event → bash runner executes → chains enabled hooks
-4. Native prompt hooks are registered directly as `type: "prompt"` in Claude settings
-
-## Development
+## Typical Workflow
 
 ```bash
-pip install -e .
-hawk  # Run the CLI (or `hawk-hooks`)
+hawk init
+hawk add <type> <path>
+hawk sync
+hawk status
 ```
 
-After modifying hook-related code:
-1. Run `hawk toggle` to regenerate runners
-2. Test with a Claude Code session
+For package-based workflows:
 
-## Adding New Hook Types
+```bash
+hawk download <url>
+hawk packages
+hawk update
+```
 
-1. Update `scanner.py` to detect the pattern
-2. Update `generator.py` if it needs runner handling
-3. Update `installer.py` if it needs direct Claude registration
+## Legacy (v1) Note
+
+Legacy v1 modules (`cli.py`, `config.py`, `sync.py`, `interactive/`, etc.) remain for migration and compatibility, but new development should target v2 modules.

@@ -214,6 +214,32 @@ class TestConfigChain:
         assert len(chain) == 1
         assert chain[0][0] == root.resolve()
 
+    def test_nearest_registered_directory_for_nested_subdir(self, v2_env, tmp_path):
+        root = tmp_path / "monorepo"
+        root.mkdir()
+        child = root / "apps" / "frontend"
+        child.mkdir(parents=True)
+
+        v2_config.save_dir_config(root, {"profile": "fullstack"})
+        v2_config.register_directory(root)
+
+        nearest = v2_config.get_nearest_registered_directory(child)
+        assert nearest == root.resolve()
+
+    def test_nearest_registered_directory_prefers_innermost(self, v2_env, tmp_path):
+        root = tmp_path / "monorepo"
+        child = root / "apps" / "frontend"
+        leaf = child / "src"
+        leaf.mkdir(parents=True)
+
+        v2_config.save_dir_config(root, {"skills": {"enabled": ["base"]}})
+        v2_config.register_directory(root)
+        v2_config.save_dir_config(child, {"skills": {"enabled": ["ui"]}})
+        v2_config.register_directory(child)
+
+        nearest = v2_config.get_nearest_registered_directory(leaf)
+        assert nearest == child.resolve()
+
 
 class TestAutoRegister:
     def test_auto_registers_when_config_exists(self, v2_env, tmp_path):
