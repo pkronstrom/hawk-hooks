@@ -2,18 +2,40 @@
 
 from __future__ import annotations
 
-import re
+from dataclasses import dataclass
+import json
 from pathlib import Path
+import re
+import shutil
+import tomllib
 
-from ..types import Tool
+from ..managed_config import ManagedConfigOp, TomlBlockDriver
+from ..registry import _validate_name
+from ..types import ResolvedSet, SyncResult, Tool
 from .base import HAWK_MCP_MARKER, ToolAdapter
 
 _BEGIN_NOTIFY_BLOCK = "# >>> hawk-hooks notify >>>"
 _END_NOTIFY_BLOCK = "# <<< hawk-hooks notify <<<"
 
+_AGENT_SIDECAR = ".hawk-codex-agents.json"
+_MULTI_AGENT_UNIT = "codex-multi-agent"
+_AGENT_UNIT_PREFIX = "codex-agent-"
+_ROLE_FILE_MARKER = "hawk-hooks managed: codex-agent-role"
+_LAUNCHER_MARKER = "hawk-hooks managed: codex-agent-launcher"
+
+
+@dataclass
+class _CodexAgentSpec:
+    source_name: str
+    role_key: str
+    launcher_skill: str
+    description: str
+    instructions: str
+
 
 class CodexAdapter(ToolAdapter):
     """Adapter for Codex CLI."""
+
     HOOK_SUPPORT = "bridge"
 
     @property
@@ -30,23 +52,78 @@ class CodexAdapter(ToolAdapter):
         return project / ".codex"
 
     def get_skills_dir(self, target_dir: Path) -> Path:
-        """Codex uses a flat agents/ dir for skills."""
-        return target_dir / "agents"
+        """Codex native skills live in ~/.agents/skills or .agents/skills."""
+        return target_dir.parent / ".agents" / "skills"
 
     def get_agents_dir(self, target_dir: Path) -> Path:
-        """Codex doesn't have a separate agents concept, reuse agents/."""
+        """Codex role config files for multi-agent mode."""
         return target_dir / "agents"
 
     def get_commands_dir(self, target_dir: Path) -> Path:
-        """Codex doesn't have slash commands; commands become skills."""
-        return target_dir / "agents"
+        """Legacy command alias: map to Codex custom prompts directory."""
+        return target_dir / "prompts"
 
-    def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """Register limited hook bridge using Codex notify callbacks.
+    def sync(
+        self,
+        resolved: ResolvedSet,
+        target_dir: Path,
+        registry_path: Path,
+    ) -> SyncResult:
+        """Custom sync for Codex native layout and generated agent launchers."""
+        result = SyncResult(tool=str(self.tool))
 
-        Codex currently exposes a minimal notify callback path (turn-complete),
-        so we bridge only stop/notification class events.
-        """
+        for dir_getter in [self.get_skills_dir, self.get_agents_dir, self.get_prompts_dir]:
+            dir_getter(target_dir).mkdir(parents=True, exist_ok=True)
+
+        self._sync_component(
+            resolved.skills,
+            registry_path / "skills",
+            target_dir,
+            self.link_skill,
+            self.unlink_skill,
+            self.get_skills_dir,
+            result,
+        )
+
+        self._sync_component(
+            resolved.prompts,
+            registry_path / "prompts",
+            target_dir,
+            self.link_prompt,
+            self.unlink_prompt,
+            self.get_prompts_dir,
+            result,
+        )
+
+        try:
+            self._sync_codex_agents(resolved.agents, target_dir, registry_path, result)
+        except Exception as exc:
+            result.errors.append(f"agents: {exc}")
+
+        try:
+            self._set_hook_diagnostics(skipped=[], errors=[])
+            registered = self.register_hooks(resolved.hooks, target_dir, registry_path=registry_path)
+            result.linked.extend(f"hook:{h}" for h in registered)
+            for skipped in self._take_hook_skipped():
+                result.skipped.append(f"hooks: {skipped}")
+            for hook_error in self._take_hook_errors():
+                result.errors.append(f"hooks: {hook_error}")
+        except Exception as exc:
+            result.errors.append(f"hooks: {exc}")
+
+        try:
+            servers = self._load_mcp_servers(resolved.mcp, registry_path / "mcp") if resolved.mcp else {}
+            self.write_mcp_config(servers, target_dir)
+            result.linked.extend(f"mcp:{name}" for name in servers)
+        except Exception as exc:
+            result.errors.append(f"mcp: {exc}")
+
+        return result
+
+    def register_hooks(
+        self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None
+    ) -> list[str]:
+        """Register limited hook bridge using Codex notify callbacks."""
         from ..event_mapping import get_event_support
         from ..hook_meta import parse_hook_meta
 
@@ -117,6 +194,336 @@ class CodexAdapter(ToolAdapter):
     ) -> None:
         """Write MCP config for Codex (mcp.json)."""
         self._merge_mcp_json(target_dir / "mcp.json", servers)
+
+    def _sync_codex_agents(
+        self,
+        agent_names: list[str],
+        target_dir: Path,
+        registry_path: Path,
+        result: SyncResult,
+    ) -> None:
+        """Generate Codex multi-agent role config + launcher skills."""
+        from .. import v2_config
+
+        codex_cfg = v2_config.load_global_config().get("tools", {}).get("codex", {})
+        allow_multi_agent = bool(codex_cfg.get("allow_multi_agent", False))
+        trigger_mode = str(codex_cfg.get("agent_trigger_mode", "skills")).lower()
+        if trigger_mode not in {"skills", "none"}:
+            trigger_mode = "skills"
+
+        config_path = target_dir / "config.toml"
+        roles_dir = self.get_agents_dir(target_dir)
+        skills_dir = self.get_skills_dir(target_dir)
+
+        old_roles, old_launchers = self._load_agent_sidecar(target_dir)
+
+        specs: dict[str, _CodexAgentSpec] = {}
+        for name in agent_names:
+            try:
+                _validate_name(name)
+            except ValueError as exc:
+                result.errors.append(f"agents: invalid name {name!r}: {exc}")
+                continue
+            source = registry_path / "agents" / name
+            if not source.is_file():
+                continue
+            spec = self._build_agent_spec(source, name)
+            if spec.role_key in specs:
+                result.errors.append(
+                    f"agents: role key collision for {name!r} -> {spec.role_key!r}"
+                )
+                continue
+            specs[spec.role_key] = spec
+
+        desired_roles = set(specs.keys())
+        desired_launchers = (
+            {spec.launcher_skill for spec in specs.values()} if trigger_mode == "skills" else set()
+        )
+
+        if not desired_roles:
+            self._cleanup_stale_agents(
+                target_dir=target_dir,
+                stale_roles=old_roles,
+                stale_launchers=old_launchers,
+                result=result,
+            )
+            self._save_agent_sidecar(target_dir, set(), set())
+            TomlBlockDriver.apply(
+                [ManagedConfigOp(file=config_path, unit_id=_MULTI_AGENT_UNIT, action="remove")]
+            )
+            return
+
+        manual_text = self._manual_codex_toml(config_path)
+        current_multi = self._read_multi_agent_flag(config_path)
+        manual_features_table = bool(re.search(r"(?m)^\s*\[features\]\s*$", manual_text))
+
+        if current_multi is not True:
+            if manual_features_table:
+                result.errors.append(
+                    "agents: codex config.toml already has a manual [features] table; "
+                    "set multi_agent = true manually to enable codex agents"
+                )
+                return
+            if not allow_multi_agent:
+                result.skipped.append(
+                    "agents: codex multi-agent is required; set tools.codex.allow_multi_agent: true "
+                    "to let hawk manage features.multi_agent"
+                )
+                return
+            op_result = TomlBlockDriver.apply(
+                [
+                    ManagedConfigOp(
+                        file=config_path,
+                        unit_id=_MULTI_AGENT_UNIT,
+                        action="upsert",
+                        payload="[features]\nmulti_agent = true",
+                    )
+                ]
+            )
+            result.errors.extend(f"agents: {e}" for e in op_result.errors)
+            if op_result.errors:
+                return
+
+        managed_roles: set[str] = set()
+        managed_launchers: set[str] = set()
+
+        for spec in specs.values():
+            if self._has_manual_agent_table(manual_text, spec.role_key):
+                result.skipped.append(
+                    f"agents: manual [agents.{spec.role_key}] exists; skipped {spec.source_name}"
+                )
+                continue
+
+            role_file = roles_dir / f"{spec.role_key}.toml"
+            if role_file.exists() and spec.role_key not in old_roles and not self._is_hawk_role_file(role_file):
+                result.skipped.append(
+                    f"agents: role file already exists and is not hawk-managed: {role_file}"
+                )
+                continue
+
+            role_file.write_text(self._role_file_content(spec.instructions))
+            managed_roles.add(spec.role_key)
+            if spec.role_key not in old_roles:
+                result.linked.append(f"agent:{spec.source_name}")
+
+            agent_payload = (
+                f"[agents.{spec.role_key}]\n"
+                f'description = "{self._escape_toml_string(spec.description)}"\n'
+                f'config_file = "agents/{spec.role_key}.toml"'
+            )
+            op_result = TomlBlockDriver.apply(
+                [
+                    ManagedConfigOp(
+                        file=config_path,
+                        unit_id=f"{_AGENT_UNIT_PREFIX}{spec.role_key}",
+                        action="upsert",
+                        payload=agent_payload,
+                    )
+                ]
+            )
+            result.errors.extend(f"agents: {e}" for e in op_result.errors)
+            if op_result.errors:
+                continue
+
+            if trigger_mode == "skills":
+                launcher_dir = skills_dir / spec.launcher_skill
+                if (
+                    launcher_dir.exists()
+                    and spec.launcher_skill not in old_launchers
+                    and not self._is_hawk_launcher_skill(launcher_dir)
+                ):
+                    result.skipped.append(
+                        f"agents: launcher skill already exists and is not hawk-managed: {launcher_dir}"
+                    )
+                    continue
+                self._write_launcher_skill(launcher_dir, spec)
+                managed_launchers.add(spec.launcher_skill)
+                if spec.launcher_skill not in old_launchers:
+                    result.linked.append(f"skill:{spec.launcher_skill}")
+
+        stale_roles = old_roles - managed_roles
+        stale_launchers = old_launchers - managed_launchers
+        self._cleanup_stale_agents(
+            target_dir=target_dir,
+            stale_roles=stale_roles,
+            stale_launchers=stale_launchers,
+            result=result,
+        )
+
+        self._save_agent_sidecar(target_dir, managed_roles, managed_launchers)
+
+        if not managed_roles:
+            TomlBlockDriver.apply(
+                [ManagedConfigOp(file=config_path, unit_id=_MULTI_AGENT_UNIT, action="remove")]
+            )
+
+    def _cleanup_stale_agents(
+        self,
+        *,
+        target_dir: Path,
+        stale_roles: set[str],
+        stale_launchers: set[str],
+        result: SyncResult,
+    ) -> None:
+        """Cleanup stale hawk-managed codex role files + launcher skills."""
+        config_path = target_dir / "config.toml"
+        roles_dir = self.get_agents_dir(target_dir)
+        skills_dir = self.get_skills_dir(target_dir)
+
+        remove_ops: list[ManagedConfigOp] = []
+        for role in sorted(stale_roles):
+            remove_ops.append(
+                ManagedConfigOp(
+                    file=config_path,
+                    unit_id=f"{_AGENT_UNIT_PREFIX}{role}",
+                    action="remove",
+                )
+            )
+            role_file = roles_dir / f"{role}.toml"
+            if self._is_hawk_role_file(role_file):
+                role_file.unlink(missing_ok=True)
+            result.unlinked.append(f"agent:{role}")
+
+        op_result = TomlBlockDriver.apply(remove_ops)
+        result.errors.extend(f"agents: {e}" for e in op_result.errors)
+
+        for launcher in sorted(stale_launchers):
+            launcher_dir = skills_dir / launcher
+            if self._is_hawk_launcher_skill(launcher_dir):
+                shutil.rmtree(launcher_dir, ignore_errors=True)
+            result.unlinked.append(f"skill:{launcher}")
+
+    def _build_agent_spec(self, source: Path, source_name: str) -> _CodexAgentSpec:
+        """Convert registry agent markdown into codex role + launcher names."""
+        from ..frontmatter import parse_frontmatter
+
+        raw = source.read_text()
+        description = f"Hawk-managed Codex agent for {source.stem}"
+        instructions = raw.strip()
+
+        try:
+            frontmatter, body = parse_frontmatter(raw)
+        except ValueError:
+            frontmatter, body = None, raw
+
+        if frontmatter is not None and frontmatter.description.strip():
+            description = frontmatter.description.strip()
+
+        body_text = body.strip()
+        if body_text:
+            instructions = body_text
+
+        stem_slug = self._slug(source.stem)
+        role_key = stem_slug.replace("-", "_")
+        if role_key and role_key[0].isdigit():
+            role_key = f"agent_{role_key}"
+        launcher_skill = f"agent-{stem_slug}"
+
+        return _CodexAgentSpec(
+            source_name=source_name,
+            role_key=role_key or "agent_default",
+            launcher_skill=launcher_skill,
+            description=description,
+            instructions=instructions or f"Use instructions from {source_name}.",
+        )
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+        return slug or "agent"
+
+    @staticmethod
+    def _escape_toml_string(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    @staticmethod
+    def _role_file_content(instructions: str) -> str:
+        body = instructions.replace('"""', '\\"""')
+        return (
+            f"# {_ROLE_FILE_MARKER}\n\n"
+            "developer_instructions = \"\"\"\n"
+            f"{body}\n"
+            "\"\"\"\n"
+        )
+
+    def _write_launcher_skill(self, launcher_dir: Path, spec: _CodexAgentSpec) -> None:
+        launcher_dir.mkdir(parents=True, exist_ok=True)
+        skill_path = launcher_dir / "SKILL.md"
+        content = (
+            "---\n"
+            f"name: {spec.launcher_skill}\n"
+            f"description: Invoke Codex agent role {spec.role_key}\n"
+            "---\n\n"
+            f"<!-- {_LAUNCHER_MARKER} -->\n\n"
+            f"Use the Codex multi-agent role `{spec.role_key}` for this task.\n"
+        )
+        skill_path.write_text(content)
+
+    @staticmethod
+    def _load_agent_sidecar(target_dir: Path) -> tuple[set[str], set[str]]:
+        sidecar = target_dir / _AGENT_SIDECAR
+        if not sidecar.exists():
+            return set(), set()
+        try:
+            data = json.loads(sidecar.read_text())
+        except (json.JSONDecodeError, OSError):
+            return set(), set()
+        roles = set(data.get("roles", [])) if isinstance(data, dict) else set()
+        launchers = set(data.get("launchers", [])) if isinstance(data, dict) else set()
+        return roles, launchers
+
+    @staticmethod
+    def _save_agent_sidecar(target_dir: Path, roles: set[str], launchers: set[str]) -> None:
+        sidecar = target_dir / _AGENT_SIDECAR
+        if not roles and not launchers:
+            sidecar.unlink(missing_ok=True)
+            return
+        payload = {"roles": sorted(roles), "launchers": sorted(launchers)}
+        sidecar.write_text(json.dumps(payload, indent=2) + "\n")
+
+    @staticmethod
+    def _manual_codex_toml(config_path: Path) -> str:
+        text = config_path.read_text() if config_path.exists() else ""
+        return TomlBlockDriver.strip_all(text)
+
+    @staticmethod
+    def _read_multi_agent_flag(config_path: Path) -> bool | None:
+        if not config_path.exists():
+            return None
+        try:
+            data = tomllib.loads(config_path.read_text())
+        except (tomllib.TOMLDecodeError, OSError):
+            return None
+        features = data.get("features", {})
+        if isinstance(features, dict):
+            val = features.get("multi_agent")
+            if isinstance(val, bool):
+                return val
+        return None
+
+    @staticmethod
+    def _has_manual_agent_table(manual_text: str, role_key: str) -> bool:
+        pattern = rf"(?m)^\s*\[agents\.{re.escape(role_key)}\]\s*$"
+        return bool(re.search(pattern, manual_text))
+
+    @staticmethod
+    def _is_hawk_role_file(path: Path) -> bool:
+        if not path.is_file():
+            return False
+        try:
+            return _ROLE_FILE_MARKER in path.read_text(errors="replace")
+        except OSError:
+            return False
+
+    @staticmethod
+    def _is_hawk_launcher_skill(path: Path) -> bool:
+        skill_file = path / "SKILL.md"
+        if not skill_file.is_file():
+            return False
+        try:
+            return _LAUNCHER_MARKER in skill_file.read_text(errors="replace")
+        except OSError:
+            return False
 
     @staticmethod
     def _update_notify_block(config_path: Path, commands: list[str]) -> None:

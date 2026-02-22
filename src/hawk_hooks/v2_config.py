@@ -36,7 +36,12 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
     "tools": {
         "claude": {"enabled": True, "global_dir": "~/.claude"},
         "gemini": {"enabled": True, "global_dir": "~/.gemini"},
-        "codex": {"enabled": True, "global_dir": "~/.codex"},
+        "codex": {
+            "enabled": True,
+            "global_dir": "~/.codex",
+            "allow_multi_agent": False,
+            "agent_trigger_mode": "skills",
+        },
         "opencode": {"enabled": True, "global_dir": "~/.config/opencode"},
         "cursor": {"enabled": True, "global_dir": "~/.cursor"},
         "antigravity": {"enabled": True, "global_dir": "~/.gemini/antigravity"},

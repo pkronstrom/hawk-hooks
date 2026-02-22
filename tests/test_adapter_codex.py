@@ -21,15 +21,18 @@ class TestCodexAdapter:
     def test_global_dir(self, adapter):
         assert str(adapter.get_global_dir()).endswith(".codex")
 
-    def test_skills_dir_is_agents(self, adapter, tmp_path):
-        assert adapter.get_skills_dir(tmp_path) == tmp_path / "agents"
+    def test_skills_dir_is_agents_skills(self, adapter, tmp_path):
+        codex_dir = tmp_path / ".codex"
+        assert adapter.get_skills_dir(codex_dir) == tmp_path / ".agents" / "skills"
 
-    def test_agents_dir_is_agents(self, adapter, tmp_path):
-        assert adapter.get_agents_dir(tmp_path) == tmp_path / "agents"
+    def test_agents_dir_is_codex_agents(self, adapter, tmp_path):
+        codex_dir = tmp_path / ".codex"
+        assert adapter.get_agents_dir(codex_dir) == codex_dir / "agents"
 
-    def test_commands_dir_is_agents(self, adapter, tmp_path):
-        """Codex doesn't have slash commands, so commands go to agents/."""
-        assert adapter.get_commands_dir(tmp_path) == tmp_path / "agents"
+    def test_commands_dir_is_prompts(self, adapter, tmp_path):
+        """Legacy commands map to Codex prompts directory."""
+        codex_dir = tmp_path / ".codex"
+        assert adapter.get_commands_dir(codex_dir) == codex_dir / "prompts"
 
 
 class TestCodexMCP:
@@ -118,3 +121,112 @@ class TestCodexHooks:
         config_text = (target / "config.toml").read_text()
         assert 'notify = ["/usr/local/bin/manual-notify"]' in config_text
         assert "# >>> hawk-hooks notify >>>" not in config_text
+
+
+class TestCodexAgents:
+    def test_sync_agents_requires_multi_agent_opt_in(self, adapter, tmp_path, monkeypatch):
+        registry = tmp_path / "registry"
+        agents = registry / "agents"
+        agents.mkdir(parents=True)
+        (agents / "architecture-reviewer.md").write_text(
+            "---\n"
+            "name: architecture-reviewer\n"
+            "description: Architecture review specialist\n"
+            "tools: [codex]\n"
+            "---\n\n"
+            "Review architecture and boundaries.\n"
+        )
+        target = tmp_path / ".codex"
+        target.mkdir()
+
+        monkeypatch.setattr(
+            "hawk_hooks.v2_config.load_global_config",
+            lambda: {"tools": {"codex": {"allow_multi_agent": False, "agent_trigger_mode": "skills"}}},
+        )
+
+        result = adapter.sync(ResolvedSet(agents=["architecture-reviewer.md"]), target, registry)
+
+        assert any("multi-agent is required" in line for line in result.skipped)
+        assert not (target / "agents" / "architecture_reviewer.toml").exists()
+        assert not (tmp_path / ".agents" / "skills" / "agent-architecture-reviewer").exists()
+
+    def test_sync_agents_generates_role_and_launcher(self, adapter, tmp_path, monkeypatch):
+        registry = tmp_path / "registry"
+        agents = registry / "agents"
+        agents.mkdir(parents=True)
+        (agents / "architecture-reviewer.md").write_text(
+            "---\n"
+            "name: architecture-reviewer\n"
+            "description: Architecture review specialist\n"
+            "tools: [codex]\n"
+            "---\n\n"
+            "Review architecture and identify coupling risks.\n"
+        )
+        target = tmp_path / ".codex"
+        target.mkdir()
+
+        monkeypatch.setattr(
+            "hawk_hooks.v2_config.load_global_config",
+            lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
+        )
+
+        result = adapter.sync(ResolvedSet(agents=["architecture-reviewer.md"]), target, registry)
+        assert any(item == "agent:architecture-reviewer.md" for item in result.linked)
+        assert any(item == "skill:agent-architecture-reviewer" for item in result.linked)
+
+        config_text = (target / "config.toml").read_text()
+        assert "hawk-hooks managed: codex-multi-agent" in config_text
+        assert "[agents.architecture_reviewer]" in config_text
+        assert 'config_file = "agents/architecture_reviewer.toml"' in config_text
+
+        role_file = target / "agents" / "architecture_reviewer.toml"
+        assert role_file.exists()
+        assert "hawk-hooks managed: codex-agent-role" in role_file.read_text()
+
+        launcher_skill = (
+            tmp_path
+            / ".agents"
+            / "skills"
+            / "agent-architecture-reviewer"
+            / "SKILL.md"
+        )
+        assert launcher_skill.exists()
+        assert "hawk-hooks managed: codex-agent-launcher" in launcher_skill.read_text()
+
+    def test_sync_agents_conflicts_with_manual_features_table(self, adapter, tmp_path, monkeypatch):
+        registry = tmp_path / "registry"
+        agents = registry / "agents"
+        agents.mkdir(parents=True)
+        (agents / "architecture-reviewer.md").write_text("# architecture review\n")
+        target = tmp_path / ".codex"
+        target.mkdir()
+        (target / "config.toml").write_text("[features]\nfoo = true\n")
+
+        monkeypatch.setattr(
+            "hawk_hooks.v2_config.load_global_config",
+            lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
+        )
+
+        result = adapter.sync(ResolvedSet(agents=["architecture-reviewer.md"]), target, registry)
+        assert any("manual [features] table" in line for line in result.errors)
+
+    def test_sync_agents_cleanup_stale_managed_outputs(self, adapter, tmp_path, monkeypatch):
+        registry = tmp_path / "registry"
+        agents = registry / "agents"
+        agents.mkdir(parents=True)
+        (agents / "architecture-reviewer.md").write_text("# architecture review\n")
+        target = tmp_path / ".codex"
+        target.mkdir()
+
+        monkeypatch.setattr(
+            "hawk_hooks.v2_config.load_global_config",
+            lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
+        )
+
+        adapter.sync(ResolvedSet(agents=["architecture-reviewer.md"]), target, registry)
+        assert (target / "agents" / "architecture_reviewer.toml").exists()
+
+        result = adapter.sync(ResolvedSet(agents=[]), target, registry)
+        assert any(item == "agent:architecture_reviewer" for item in result.unlinked)
+        assert not (target / "agents" / "architecture_reviewer.toml").exists()
+        assert not (tmp_path / ".agents" / "skills" / "agent-architecture-reviewer").exists()
