@@ -356,18 +356,22 @@ class TestClaudeHookWiring:
         assert settings_path.exists()
 
         settings = json.loads(settings_path.read_text())
-        hooks = settings.get("hooks", [])
+        hooks = settings.get("hooks", {})
 
-        # Should have 2 entries (one per event)
-        hawk_hooks = [h for h in hooks if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
-        )]
-        assert len(hawk_hooks) == 2
+        # hooks should be a record (object), not an array
+        assert isinstance(hooks, dict)
 
-        # Check matchers use PascalCase Claude event names
-        matchers = {h["matcher"] for h in hawk_hooks}
-        assert "PreToolUse" in matchers
-        assert "Stop" in matchers
+        # Should have 2 event keys with hawk-managed entries
+        hawk_events = {
+            event for event, rules in hooks.items()
+            for rule in rules
+            if any(hh.get("__hawk_managed") for hh in rule.get("hooks", []))
+        }
+        assert len(hawk_events) == 2
+
+        # Check event keys use PascalCase Claude event names
+        assert "PreToolUse" in hawk_events
+        assert "Stop" in hawk_events
 
     def test_event_name_mapping(self, hook_env):
         """Verify canonical snake_case -> Claude PascalCase mapping."""
@@ -382,23 +386,24 @@ class TestClaudeHookWiring:
         )
 
         settings = json.loads((hook_env["target"] / "settings.json").read_text())
-        matchers = {h["matcher"] for h in settings["hooks"]}
-        assert "PreToolUse" in matchers
-        assert "Stop" in matchers
-        assert "SessionStart" in matchers
+        event_keys = set(settings["hooks"].keys())
+        assert "PreToolUse" in event_keys
+        assert "Stop" in event_keys
+        assert "SessionStart" in event_keys
         # Should NOT have snake_case
-        assert "pre_tool_use" not in matchers
-        assert "session_start" not in matchers
+        assert "pre_tool_use" not in event_keys
+        assert "session_start" not in event_keys
 
     def test_preserves_user_hooks(self, hook_env):
         """Hawk should not remove manually-added hook entries."""
-        # Write a user hook first
+        # Write a user hook in the new record format
         settings_path = hook_env["target"] / "settings.json"
         settings_path.write_text(json.dumps({
-            "hooks": [{
-                "matcher": "PreToolUse",
-                "hooks": [{"type": "command", "command": "/usr/local/bin/my-hook"}],
-            }]
+            "hooks": {
+                "PreToolUse": [
+                    {"hooks": [{"type": "command", "command": "/usr/local/bin/my-hook"}]},
+                ]
+            }
         }))
 
         adapter = ClaudeAdapter()
@@ -410,19 +415,19 @@ class TestClaudeHookWiring:
 
         settings = json.loads(settings_path.read_text())
         hooks = settings["hooks"]
+        assert isinstance(hooks, dict)
 
-        # User hook preserved
-        user_hooks = [h for h in hooks if not any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        # PreToolUse should have both user and hawk entries
+        pre_tool_rules = hooks.get("PreToolUse", [])
+        user_rules = [r for r in pre_tool_rules if not any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        assert len(user_hooks) == 1
-        assert user_hooks[0]["hooks"][0]["command"] == "/usr/local/bin/my-hook"
-
-        # Hawk hook added
-        hawk_hooks = [h for h in hooks if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        hawk_rules = [r for r in pre_tool_rules if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        assert len(hawk_hooks) == 1
+        assert len(user_rules) == 1
+        assert user_rules[0]["hooks"][0]["command"] == "/usr/local/bin/my-hook"
+        assert len(hawk_rules) == 1
 
     def test_cleanup_on_empty_hooks(self, hook_env):
         """When hook list becomes empty, remove all hawk entries from settings.json."""
@@ -435,11 +440,11 @@ class TestClaudeHookWiring:
             registry_path=hook_env["registry"],
         )
         settings = json.loads((hook_env["target"] / "settings.json").read_text())
+        assert isinstance(settings["hooks"], dict)
         assert len(settings["hooks"]) > 0
 
-        # Add a user hook
-        settings["hooks"].append({
-            "matcher": "Stop",
+        # Add a user hook under Stop event
+        settings["hooks"].setdefault("Stop", []).append({
             "hooks": [{"type": "command", "command": "/usr/local/bin/my-stop-hook"}],
         })
         (hook_env["target"] / "settings.json").write_text(json.dumps(settings, indent=2))
@@ -452,9 +457,14 @@ class TestClaudeHookWiring:
         )
 
         settings = json.loads((hook_env["target"] / "settings.json").read_text())
-        # User hook preserved
-        assert len(settings["hooks"]) == 1
-        assert settings["hooks"][0]["hooks"][0]["command"] == "/usr/local/bin/my-stop-hook"
+        hooks = settings["hooks"]
+        assert isinstance(hooks, dict)
+        # User hook preserved under Stop
+        assert "Stop" in hooks
+        assert len(hooks["Stop"]) == 1
+        assert hooks["Stop"][0]["hooks"][0]["command"] == "/usr/local/bin/my-stop-hook"
+        # Hawk event keys should be gone
+        assert "PreToolUse" not in hooks
 
     def test_stale_runners_cleaned_up(self, hook_env):
         """Runners for events that no longer have hooks should be deleted."""
@@ -576,12 +586,14 @@ class TestClaudePromptHooks:
         assert "guard.prompt.json" in registered
 
         settings = json.loads((prompt_hook_env["target"] / "settings.json").read_text())
-        hawk_hooks = [h for h in settings["hooks"] if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        hooks = settings["hooks"]
+        assert isinstance(hooks, dict)
+        assert "PreToolUse" in hooks
+        hawk_rules = [r for r in hooks["PreToolUse"] if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        assert len(hawk_hooks) == 1
-        entry = hawk_hooks[0]
-        assert entry["matcher"] == "PreToolUse"
+        assert len(hawk_rules) == 1
+        entry = hawk_rules[0]
         assert entry["hooks"][0]["type"] == "prompt"
         assert entry["hooks"][0]["prompt"] == "Evaluate if this action is safe."
         assert entry["hooks"][0]["timeout"] == 30
@@ -602,11 +614,13 @@ class TestClaudePromptHooks:
         )
 
         settings = json.loads((prompt_hook_env["target"] / "settings.json").read_text())
-        hawk_hooks = [h for h in settings["hooks"] if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        hooks = settings["hooks"]
+        assert isinstance(hooks, dict)
+        assert "PreToolUse" in hooks
+        hawk_rules = [r for r in hooks["PreToolUse"] if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        assert len(hawk_hooks) == 1
-        assert hawk_hooks[0]["matcher"] == "PreToolUse"
+        assert len(hawk_rules) == 1
 
     def test_mixed_script_and_prompt_hooks(self, prompt_hook_env):
         """Both script and prompt hooks can be registered together."""
@@ -630,12 +644,18 @@ class TestClaudePromptHooks:
         assert "eval.prompt.json" in registered
 
         settings = json.loads((prompt_hook_env["target"] / "settings.json").read_text())
-        hawk_hooks = [h for h in settings["hooks"] if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
-        )]
-        assert len(hawk_hooks) == 2
+        hooks = settings["hooks"]
+        assert isinstance(hooks, dict)
 
-        types = {h["hooks"][0]["type"] for h in hawk_hooks}
+        # Collect all hawk-managed rules across all events
+        hawk_rules = []
+        for rules in hooks.values():
+            for rule in rules:
+                if any(hh.get("__hawk_managed") for hh in rule.get("hooks", [])):
+                    hawk_rules.append(rule)
+        assert len(hawk_rules) == 2
+
+        types = {r["hooks"][0]["type"] for r in hawk_rules}
         assert types == {"command", "prompt"}
 
     def test_prompt_json_without_prompt_field_skipped(self, prompt_hook_env):
@@ -656,10 +676,14 @@ class TestClaudePromptHooks:
         settings_path = prompt_hook_env["target"] / "settings.json"
         if settings_path.exists():
             settings = json.loads(settings_path.read_text())
-            hawk_hooks = [h for h in settings.get("hooks", []) if any(
-                hh.get("__hawk_managed") for hh in h.get("hooks", [])
-            )]
-            assert len(hawk_hooks) == 0
+            hooks = settings.get("hooks", {})
+            hawk_rules = []
+            if isinstance(hooks, dict):
+                for rules in hooks.values():
+                    for rule in rules:
+                        if any(hh.get("__hawk_managed") for hh in rule.get("hooks", [])):
+                            hawk_rules.append(rule)
+            assert len(hawk_rules) == 0
 
 
 class TestClaudeTimeoutPropagation:
@@ -697,10 +721,11 @@ class TestClaudeTimeoutPropagation:
         )
 
         settings = json.loads((timeout_env["target"] / "settings.json").read_text())
-        hawk_hooks = [h for h in settings["hooks"] if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        hooks = settings["hooks"]
+        hawk_rules = [r for r in hooks.get("PreToolUse", []) if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        assert hawk_hooks[0]["hooks"][0].get("timeout") == 60
+        assert hawk_rules[0]["hooks"][0].get("timeout") == 60
 
     def test_max_timeout_across_hooks(self, timeout_env):
         hooks_dir = timeout_env["hooks_dir"]
@@ -719,11 +744,11 @@ class TestClaudeTimeoutPropagation:
         )
 
         settings = json.loads((timeout_env["target"] / "settings.json").read_text())
-        hawk_hooks = [h for h in settings["hooks"] if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        hooks = settings["hooks"]
+        hawk_rules = [r for r in hooks.get("PreToolUse", []) if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        pre_tool = [h for h in hawk_hooks if h["matcher"] == "PreToolUse"][0]
-        assert pre_tool["hooks"][0]["timeout"] == 120
+        assert hawk_rules[0]["hooks"][0]["timeout"] == 120
 
     def test_no_timeout_when_zero(self, timeout_env):
         hooks_dir = timeout_env["hooks_dir"]
@@ -739,10 +764,118 @@ class TestClaudeTimeoutPropagation:
         )
 
         settings = json.loads((timeout_env["target"] / "settings.json").read_text())
-        hawk_hooks = [h for h in settings["hooks"] if any(
-            hh.get("__hawk_managed") for hh in h.get("hooks", [])
+        hooks = settings["hooks"]
+        hawk_rules = [r for r in hooks.get("PreToolUse", []) if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
         )]
-        assert "timeout" not in hawk_hooks[0]["hooks"][0]
+        assert "timeout" not in hawk_rules[0]["hooks"][0]
+
+
+class TestClaudeHookMigration:
+    """Tests for migrating old array-format hooks to record format."""
+
+    def test_migrates_old_array_format(self, tmp_path, monkeypatch):
+        """Settings with old array-format hooks are migrated to record."""
+        config_dir = tmp_path / "hawk-config"
+        config_dir.mkdir()
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "guard.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n"
+        )
+
+        target = tmp_path / "claude"
+        target.mkdir()
+
+        # Write old array-format hooks (user + hawk entries)
+        settings_path = target / "settings.json"
+        settings_path.write_text(json.dumps({
+            "hooks": [
+                {
+                    "matcher": "Stop",
+                    "hooks": [{"type": "command", "command": "/usr/local/bin/user-stop"}],
+                },
+                {
+                    "matcher": "PreToolUse",
+                    "hooks": [{"type": "command", "command": "/old/runner.sh", "__hawk_managed": True}],
+                },
+            ]
+        }))
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(["guard.py"], target, registry_path=registry)
+
+        settings = json.loads(settings_path.read_text())
+        hooks = settings["hooks"]
+
+        # Should now be a record, not an array
+        assert isinstance(hooks, dict)
+
+        # User Stop entry preserved
+        assert "Stop" in hooks
+        assert hooks["Stop"][0]["hooks"][0]["command"] == "/usr/local/bin/user-stop"
+
+        # Old hawk PreToolUse replaced with new one
+        hawk_rules = [r for r in hooks.get("PreToolUse", []) if any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
+        )]
+        assert len(hawk_rules) == 1
+        assert "/old/runner.sh" not in hawk_rules[0]["hooks"][0]["command"]
+
+    def test_migrates_mixed_object_in_array(self, tmp_path, monkeypatch):
+        """Settings with objects containing event keys inside an array are migrated."""
+        config_dir = tmp_path / "hawk-config"
+        config_dir.mkdir()
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        (hooks_dir / "guard.py").write_text(
+            "#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n"
+        )
+
+        target = tmp_path / "claude"
+        target.mkdir()
+
+        # Write the mixed format (e.g., owl + hawk in an array)
+        settings_path = target / "settings.json"
+        settings_path.write_text(json.dumps({
+            "hooks": [
+                {
+                    "PreToolUse": [{"matcher": "Bash|Edit", "hooks": [{"type": "command", "command": "owl hook PreToolUse"}]}],
+                    "Stop": [{"hooks": [{"type": "command", "command": "owl hook Stop"}]}],
+                },
+                {
+                    "matcher": "PreToolUse",
+                    "hooks": [{"type": "command", "command": "/old/runner.sh", "__hawk_managed": True}],
+                },
+            ]
+        }))
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(["guard.py"], target, registry_path=registry)
+
+        settings = json.loads(settings_path.read_text())
+        hooks = settings["hooks"]
+        assert isinstance(hooks, dict)
+
+        # Owl entries preserved under their event keys
+        owl_pre_tool = [r for r in hooks.get("PreToolUse", []) if not any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
+        )]
+        assert len(owl_pre_tool) == 1
+        assert owl_pre_tool[0]["hooks"][0]["command"] == "owl hook PreToolUse"
+
+        assert "Stop" in hooks
+        owl_stop = [r for r in hooks["Stop"] if not any(
+            hh.get("__hawk_managed") for hh in r.get("hooks", [])
+        )]
+        assert len(owl_stop) == 1
+        assert owl_stop[0]["hooks"][0]["command"] == "owl hook Stop"
 
 
 class TestClaudePromptSync:

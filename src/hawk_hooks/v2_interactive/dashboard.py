@@ -297,20 +297,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
-    # Tools summary
-    tool_parts = []
-    for tool in Tool.all():
-        ts = state["tools_status"][tool]
-        if ts["installed"] and ts["enabled"]:
-            tool_parts.append(f"{tool} \u2714")
-        elif ts["installed"]:
-            tool_parts.append(f"{tool} \u2716")
-        else:
-            tool_parts.append(str(tool))
-    tools_str = "  ".join(tool_parts)
-    options.append((f"Tools          {tools_str}", "tools"))
-    options.append(("Projects       Manage registered directories", "projects"))
-    options.append(("Settings       Editor, paths, behavior", "settings"))
+    options.append(("Env", "environment"))
     options.append(("Exit", "exit"))
 
     return options
@@ -1182,6 +1169,76 @@ def _handle_download() -> None:
     wait_for_continue()
 
 
+def _handle_uninstall_from_environment() -> bool:
+    """Run unlink + uninstall flow from Environment menu."""
+    from ..v2_sync import format_sync_results, uninstall_all
+
+    menu = TerminalMenu(
+        ["No", "Yes, unlink + uninstall"],
+        title=(
+            "\nUnlink and uninstall hawk-managed state?\n"
+            "This will purge tool links and clear registry/packages/config selections."
+        ),
+        cursor_index=0,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
+    )
+    choice = menu.show()
+    if choice != 1:
+        return False
+
+    console.print("\n[bold red]Unlinking and uninstalling...[/bold red]")
+    results = uninstall_all()
+    formatted = format_sync_results(results, verbose=False)
+    console.print(formatted or "  No changes.")
+    console.print("\n[green]\u2714 Cleared hawk-managed config, packages, and registry state.[/green]\n")
+    wait_for_continue()
+    return True
+
+
+def _handle_environment(state: dict) -> bool:
+    """Environment submenu (tools, projects, preferences, uninstall)."""
+    changed = False
+
+    while True:
+        menu = TerminalMenu(
+            [
+                "Tool Integrations",
+                "Project Scopes",
+                "Preferences",
+                "Unlink and uninstall",
+                "Back",
+            ],
+            title="\nEnvironment",
+            cursor_index=0,
+            menu_cursor="\u276f ",
+            menu_cursor_style=("fg_cyan", "bold"),
+            menu_highlight_style=("fg_cyan", "bold"),
+            quit_keys=("q", "\x1b"),
+        )
+        choice = menu.show()
+        if choice is None or choice == 4:
+            break
+
+        if choice == 0:
+            if _handle_tools_toggle(state):
+                changed = True
+        elif choice == 1:
+            _handle_projects(state)
+        elif choice == 2:
+            from .config_editor import run_config_editor
+
+            if run_config_editor():
+                changed = True
+        elif choice == 3:
+            if _handle_uninstall_from_environment():
+                changed = True
+
+    return changed
+
+
 def _prompt_sync_on_exit(dirty: bool) -> None:
     """If changes were made, sync based on sync_on_exit setting."""
     if not dirty:
@@ -1278,11 +1335,6 @@ def run_dashboard(scope_dir: str | None = None) -> None:
                 dirty = True
                 dirty = _apply_auto_sync_if_needed(dirty)
 
-        elif action == "tools":
-            if _handle_tools_toggle(state):
-                dirty = True
-                dirty = _apply_auto_sync_if_needed(dirty)
-
         elif action == "packages":
             if _handle_packages(state):
                 dirty = True
@@ -1291,12 +1343,8 @@ def run_dashboard(scope_dir: str | None = None) -> None:
         elif action == "registry":
             _handle_registry_browser(state)
 
-        elif action == "projects":
-            _handle_projects(state)
-
-        elif action == "settings":
-            from .config_editor import run_config_editor
-            if run_config_editor():
+        elif action == "environment":
+            if _handle_environment(state):
                 dirty = True
                 dirty = _apply_auto_sync_if_needed(dirty)
 

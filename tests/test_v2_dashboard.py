@@ -105,6 +105,10 @@ def _minimal_state() -> dict:
 def test_build_menu_options_has_no_manual_sync_entry():
     options = dashboard._build_menu_options(_minimal_state())
     assert not any(action == "sync" for _, action in options)
+    assert any(action == "environment" for _, action in options)
+    assert not any(action == "tools" for _, action in options)
+    assert not any(action == "projects" for _, action in options)
+    assert not any(action == "settings" for _, action in options)
 
 
 def test_auto_sync_after_change_returns_clean_on_success(monkeypatch):

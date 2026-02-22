@@ -45,6 +45,9 @@ class ClaudeAdapter(ToolAdapter):
         4. Register .prompt.json as type: "prompt" entries.
         5. Compute max timeout per event across all hooks.
         6. Remove stale hawk-managed entries.
+
+        Hooks are written as a record (object keyed by event name), matching
+        the format Claude Code expects since the matcher-based update.
         """
         from ..events import EVENTS
         from ..hook_meta import parse_hook_meta
@@ -90,18 +93,23 @@ class ClaudeAdapter(ToolAdapter):
         settings_path = target_dir / "settings.json"
         settings = self._load_json(settings_path)
 
-        # Remove existing hawk-managed hook entries
-        existing_hooks = settings.get("hooks", [])
-        if not isinstance(existing_hooks, list):
-            existing_hooks = [existing_hooks] if existing_hooks else []
-        user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
+        # Normalize hooks to record format (migrates from old array format)
+        hooks_record = self._normalize_hooks_to_record(settings.get("hooks", {}))
+
+        # Remove hawk-managed entries from each event
+        for event_name in list(hooks_record.keys()):
+            hooks_record[event_name] = [
+                rule for rule in hooks_record[event_name]
+                if not self._is_hawk_rule(rule)
+            ]
+            if not hooks_record[event_name]:
+                del hooks_record[event_name]
 
         # Add hawk entries for each runner (command hooks)
-        hawk_entries = []
         for event_name, runner_path in sorted(runners.items()):
-            # Map canonical event name to Claude's PascalCase matcher
+            # Map canonical event name to Claude's PascalCase event key
             event_def = EVENTS.get(event_name)
-            matcher = event_def.claude_name if event_def else event_name
+            claude_event = event_def.claude_name if event_def else event_name
 
             hook_def: dict = {
                 "type": "command",
@@ -111,8 +119,7 @@ class ClaudeAdapter(ToolAdapter):
             if event_name in event_timeouts:
                 hook_def["timeout"] = event_timeouts[event_name]
 
-            hawk_entries.append({
-                "matcher": matcher,
+            hooks_record.setdefault(claude_event, []).append({
                 "hooks": [hook_def],
             })
 
@@ -145,7 +152,7 @@ class ClaudeAdapter(ToolAdapter):
                 event_def = EVENTS.get(event)
                 if not event_def:
                     continue
-                matcher = event_def.claude_name
+                claude_event = event_def.claude_name
 
                 hook_def = {
                     "type": "prompt",
@@ -155,13 +162,12 @@ class ClaudeAdapter(ToolAdapter):
                 if timeout > 0:
                     hook_def["timeout"] = timeout
 
-                hawk_entries.append({
-                    "matcher": matcher,
+                hooks_record.setdefault(claude_event, []).append({
                     "hooks": [hook_def],
                 })
                 registered_prompt_hooks.add(name)
 
-        settings["hooks"] = user_hooks + hawk_entries
+        settings["hooks"] = hooks_record
         self._save_json(settings_path, settings)
 
         # Return hook names that ended up registered
@@ -193,26 +199,73 @@ class ClaudeAdapter(ToolAdapter):
         """Remove all hawk-managed hook entries from settings.json."""
         settings_path = target_dir / "settings.json"
         settings = self._load_json(settings_path)
-        existing_hooks = settings.get("hooks", [])
-        if not isinstance(existing_hooks, list):
-            existing_hooks = [existing_hooks] if existing_hooks else []
-        user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
-        if len(user_hooks) != len(existing_hooks):
-            settings["hooks"] = user_hooks
+        hooks_record = self._normalize_hooks_to_record(settings.get("hooks", {}))
+
+        changed = False
+        for event_name in list(hooks_record.keys()):
+            original_len = len(hooks_record[event_name])
+            hooks_record[event_name] = [
+                rule for rule in hooks_record[event_name]
+                if not self._is_hawk_rule(rule)
+            ]
+            if len(hooks_record[event_name]) != original_len:
+                changed = True
+            if not hooks_record[event_name]:
+                del hooks_record[event_name]
+
+        if changed:
+            settings["hooks"] = hooks_record
             self._save_json(settings_path, settings)
 
     @staticmethod
-    def _is_hawk_hook(hook_entry: object) -> bool:
-        """Check if a hook entry is hawk-managed.
+    def _normalize_hooks_to_record(raw_hooks: object) -> dict[str, list]:
+        """Convert hooks from any format to the new record format.
+
+        Handles:
+        - dict (already a record) → return as-is (deep copy of lists)
+        - list (old array format) → migrate entries into a record
+        """
+        if isinstance(raw_hooks, dict):
+            # Already a record; shallow-copy each event's list
+            return {k: list(v) for k, v in raw_hooks.items() if isinstance(v, list)}
+
+        if not isinstance(raw_hooks, list):
+            return {}
+
+        record: dict[str, list] = {}
+        for entry in raw_hooks:
+            if not isinstance(entry, dict):
+                continue
+
+            if "hooks" in entry and "matcher" in entry and isinstance(entry.get("matcher"), str):
+                # Old array format: {"matcher": "EventName", "hooks": [...]}
+                # The matcher was the event name; convert to record key
+                event_name = entry["matcher"]
+                rule: dict = {"hooks": entry["hooks"]}
+                record.setdefault(event_name, []).append(rule)
+            else:
+                # Object with event-name keys (e.g. other tools' entries)
+                for key, value in entry.items():
+                    if isinstance(value, list):
+                        record.setdefault(key, []).extend(value)
+
+        return record
+
+    @staticmethod
+    def _is_hawk_rule(rule: object) -> bool:
+        """Check if a hook rule (matcher group) is hawk-managed.
 
         Defensive against malformed legacy entries (e.g. strings).
         """
-        if not isinstance(hook_entry, dict):
+        if not isinstance(rule, dict):
             return False
-        hooks = hook_entry.get("hooks", [])
+        hooks = rule.get("hooks", [])
         if not isinstance(hooks, list):
             return False
         return any(isinstance(h, dict) and h.get(_HAWK_HOOK_MARKER) for h in hooks)
+
+    # Keep old name as alias for backward compatibility in tests
+    _is_hawk_hook = _is_hawk_rule
 
     @staticmethod
     def _load_json(path: Path) -> dict:
