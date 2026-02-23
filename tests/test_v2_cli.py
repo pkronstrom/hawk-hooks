@@ -697,6 +697,68 @@ class TestCmdScanPackageRecording:
         }
         assert item_names == {"figma.json", "linear.json"}
 
+    def test_scan_partial_selection_preserves_existing_package_items(self, tmp_path, monkeypatch):
+        """Partial re-scan should merge package ownership instead of replacing existing items."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.cli import cmd_scan
+
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text("name: test-pkg\n")
+        (scan_dir / "commands").mkdir()
+        (scan_dir / "commands" / "old.md").write_text("# Old")
+        (scan_dir / "commands" / "new.md").write_text("# New")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "prompts").mkdir(parents=True)
+        (registry_dir / "prompts" / "old.md").write_text("# Old")
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        v2_config.save_packages({
+            "test-pkg": {
+                "url": "",
+                "path": str(scan_dir),
+                "installed": "2026-02-23",
+                "commit": "",
+                "items": [{"type": "prompt", "name": "old.md", "hash": "deadbeef"}],
+            }
+        })
+
+        # Simulate interactive partial selection: select only "new.md".
+        monkeypatch.setattr(
+            "hawk_hooks.cli._interactive_select_items",
+            lambda items, *_args, **_kwargs: (
+                [next(i for i in items if i.name == "new.md")],
+                "enter",
+            ),
+        )
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=False,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        packages = v2_config.load_packages()
+        assert "test-pkg" in packages
+        item_names = {
+            item["name"] for item in packages["test-pkg"]["items"]
+            if item["type"] == "prompt"
+        }
+        assert item_names == {"old.md", "new.md"}
+
     def test_scan_checks_conflicts_for_clashing_selected_package(self, tmp_path, monkeypatch):
         """Source-type conflict check covers selected package clashes too."""
         import argparse

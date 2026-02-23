@@ -561,6 +561,31 @@ def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[st
     return pkg_items
 
 
+def _merge_package_items(
+    existing_items: list[dict[str, str]] | None,
+    new_items: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Merge package items by (type,name), with new items overwriting existing ones."""
+    merged: dict[tuple[str, str], dict[str, str]] = {}
+    for item in existing_items or []:
+        item_type = item.get("type")
+        item_name = item.get("name")
+        if isinstance(item_type, str) and isinstance(item_name, str):
+            merged[(item_type, item_name)] = {
+                "type": item_type,
+                "name": item_name,
+                "hash": str(item.get("hash", "")),
+            }
+
+    for item in new_items:
+        item_type = item.get("type")
+        item_name = item.get("name")
+        if isinstance(item_type, str) and isinstance(item_name, str):
+            merged[(item_type, item_name)] = item
+
+    return sorted(merged.values(), key=lambda i: (i["type"], i["name"]))
+
+
 def _package_source_type(pkg_data: dict) -> str:
     """Infer package source type from package metadata."""
     if pkg_data.get("url"):
@@ -1098,6 +1123,7 @@ def cmd_scan(args):
 
     # Record packages — group items by their per-item .package tag
     if content.packages:
+        existing_packages = v2_config.load_packages()
         items_by_pkg: dict[str, list] = {}
         for item in selected_items:
             pkg_name = item.package or (
@@ -1109,8 +1135,10 @@ def cmd_scan(args):
         for pkg_name, pkg_item_list in items_by_pkg.items():
             pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
             if pkg_items:
+                existing_items = existing_packages.get(pkg_name, {}).get("items", [])
+                merged_items = _merge_package_items(existing_items, pkg_items)
                 v2_config.record_package(
-                    pkg_name, "", "", pkg_items,
+                    pkg_name, "", "", merged_items,
                     path=str(scan_path),
                 )
                 meta = pkg_meta_by_name.get(pkg_name)
