@@ -2094,6 +2094,37 @@ def _handle_uninstall_from_environment() -> bool:
     return run_uninstall_wizard(console)
 
 
+def _build_environment_menu_entries(state: dict) -> tuple[list[str], str]:
+    """Build Environment submenu entries + title with lightweight status context."""
+    tools_total = len(Tool.all())
+    tools_enabled = sum(
+        1
+        for tool_state in state.get("tools_status", {}).values()
+        if tool_state.get("enabled", True)
+    )
+    scopes_count = len(v2_config.get_registered_directories())
+    sync_pref = str((state.get("cfg") or {}).get("sync_on_exit", "ask"))
+
+    entries = [
+        f"Tool Integrations  {tools_enabled}/{tools_total} enabled",
+        f"Project Scopes     {scopes_count} registered",
+        f"Preferences        sync on exit: {sync_pref}",
+        "Unlink and uninstall  (destructive)",
+        "Back",
+    ]
+
+    pending: list[str] = []
+    if state.get("codex_multi_agent_required", False):
+        pending.append("codex setup")
+    if state.get("missing_components_required", False):
+        pending.append("missing components")
+
+    title = "\nEnvironment\nManage tools, scopes, and preferences"
+    if pending:
+        title += f"\nPending one-time setup: {', '.join(pending)}"
+    return entries, title
+
+
 def _handle_environment(state: dict) -> bool:
     """Environment submenu (tools, projects, preferences, uninstall)."""
     changed = False
@@ -2101,20 +2132,16 @@ def _handle_environment(state: dict) -> bool:
     while True:
         # Clear transient output from submenu actions before re-rendering menu.
         console.clear()
+        menu_entries, menu_title = _build_environment_menu_entries(state)
         menu = TerminalMenu(
-            [
-                "Tool Integrations",
-                "Project Scopes",
-                "Preferences",
-                "Unlink and uninstall",
-                "Back",
-            ],
-            title="\nEnvironment",
+            menu_entries,
+            title=menu_title,
             cursor_index=0,
             menu_cursor="\u276f ",
-            **terminal_menu_style_kwargs(),
+            **terminal_menu_style_kwargs(include_status_bar=True),
             accept_keys=("enter", " "),
             quit_keys=("q", "\x1b"),
+            status_bar="Enter/Space: select  q/Esc: back",
         )
         choice = menu.show()
         if choice is None or choice == 4:

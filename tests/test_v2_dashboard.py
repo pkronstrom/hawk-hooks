@@ -161,6 +161,31 @@ def test_compute_missing_components_treats_mcp_yaml_as_present():
     assert missing == {"skills": ["python-core-reviewer.md"]}
 
 
+def test_build_environment_menu_entries_includes_status_context(monkeypatch):
+    state = _minimal_state()
+    state["tools_status"] = {
+        Tool.CLAUDE: {"enabled": True, "installed": True},
+        Tool.GEMINI: {"enabled": False, "installed": True},
+        Tool.CODEX: {"enabled": True, "installed": True},
+        Tool.OPENCODE: {"enabled": True, "installed": False},
+        Tool.CURSOR: {"enabled": False, "installed": False},
+        Tool.ANTIGRAVITY: {"enabled": True, "installed": False},
+    }
+    state["cfg"] = {"sync_on_exit": "always"}
+    state["codex_multi_agent_required"] = True
+    state["missing_components_required"] = True
+    monkeypatch.setattr("hawk_hooks.v2_config.get_registered_directories", lambda: {"/tmp/p": {}})
+
+    entries, title = dashboard._build_environment_menu_entries(state)
+
+    assert entries[0].startswith("Tool Integrations")
+    assert "4/6 enabled" in entries[0]
+    assert "1 registered" in entries[1]
+    assert "sync on exit: always" in entries[2]
+    assert "(destructive)" in entries[3]
+    assert "Pending one-time setup" in title
+
+
 def test_codex_setup_prompt_sets_granted(monkeypatch):
     state = _minimal_state()
     state["resolved_active"].agents = ["architecture-reviewer.md"]
