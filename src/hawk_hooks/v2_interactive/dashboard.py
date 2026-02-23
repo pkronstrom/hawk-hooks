@@ -843,6 +843,7 @@ def _handle_tools_toggle(state: dict) -> bool:
 
     selected = set(result) if isinstance(result, tuple) else {result}
     changed = False
+    disabled_tools: list[Tool] = []
     cfg = state["cfg"]
     tools_cfg = cfg.get("tools", {})
 
@@ -851,6 +852,8 @@ def _handle_tools_toggle(state: dict) -> bool:
         old_enabled = state["tools_status"][tool]["enabled"]
         if new_enabled != old_enabled:
             changed = True
+            if old_enabled and not new_enabled:
+                disabled_tools.append(tool)
             tool_key = str(tool)
             if tool_key not in tools_cfg:
                 tools_cfg[tool_key] = {}
@@ -860,8 +863,26 @@ def _handle_tools_toggle(state: dict) -> bool:
     if changed:
         cfg["tools"] = tools_cfg
         v2_config.save_global_config(cfg)
+        if disabled_tools:
+            _prune_disabled_tools(disabled_tools)
 
     return changed
+
+
+def _prune_disabled_tools(disabled_tools: list[Tool]) -> None:
+    """Opinionated cleanup for disabled tools (no clean/prune choice in TUI)."""
+    if not disabled_tools:
+        return
+
+    from ..v2_sync import format_sync_results, purge_all
+
+    tool_labels = ", ".join(str(tool) for tool in disabled_tools)
+    console.print(f"\n[bold]Cleaning disabled tool integrations:[/bold] {tool_labels}")
+    all_results = purge_all(tools=disabled_tools)
+    formatted = format_sync_results(all_results, verbose=False)
+    console.print(formatted or "  No changes.")
+    console.print()
+    wait_for_continue()
 
 
 def _handle_packages(state: dict) -> bool:

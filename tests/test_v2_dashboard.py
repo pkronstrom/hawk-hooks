@@ -197,6 +197,58 @@ def test_build_environment_menu_entries_includes_status_context(monkeypatch):
     assert "Pending one-time setup" in title
 
 
+def test_handle_tools_toggle_prunes_when_disabling(monkeypatch):
+    state = _minimal_state()
+    tools = Tool.all()
+    selected = tuple(i for i, tool in enumerate(tools) if tool != Tool.CLAUDE)
+
+    monkeypatch.setattr(
+        dashboard,
+        "TerminalMenu",
+        lambda *args, **kwargs: SimpleNamespace(show=lambda: selected),
+    )
+
+    saved_cfg: dict = {}
+
+    def _save(cfg):
+        saved_cfg.clear()
+        saved_cfg.update(cfg)
+
+    pruned: list[list[Tool]] = []
+    monkeypatch.setattr("hawk_hooks.v2_config.save_global_config", _save)
+    monkeypatch.setattr(dashboard, "_prune_disabled_tools", lambda ds: pruned.append(ds))
+
+    changed = dashboard._handle_tools_toggle(state)
+
+    assert changed is True
+    assert state["tools_status"][Tool.CLAUDE]["enabled"] is False
+    assert saved_cfg["tools"]["claude"]["enabled"] is False
+    assert pruned == [[Tool.CLAUDE]]
+
+
+def test_handle_tools_toggle_no_prune_when_only_enabling(monkeypatch):
+    state = _minimal_state()
+    state["tools_status"][Tool.CLAUDE]["enabled"] = False
+    state["cfg"]["tools"]["claude"] = {"enabled": False}
+    selected = tuple(range(len(Tool.all())))
+
+    monkeypatch.setattr(
+        dashboard,
+        "TerminalMenu",
+        lambda *args, **kwargs: SimpleNamespace(show=lambda: selected),
+    )
+
+    pruned: list[list[Tool]] = []
+    monkeypatch.setattr("hawk_hooks.v2_config.save_global_config", lambda _cfg: None)
+    monkeypatch.setattr(dashboard, "_prune_disabled_tools", lambda ds: pruned.append(ds))
+
+    changed = dashboard._handle_tools_toggle(state)
+
+    assert changed is True
+    assert state["tools_status"][Tool.CLAUDE]["enabled"] is True
+    assert pruned == []
+
+
 def test_codex_setup_prompt_sets_granted(monkeypatch):
     state = _minimal_state()
     state["resolved_active"].agents = ["architecture-reviewer.md"]
