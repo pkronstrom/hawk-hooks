@@ -22,6 +22,16 @@ from rich.text import Text
 
 from ..types import ToggleGroup, ToggleScope  # noqa: F401 — re-exported
 from .pause import wait_for_continue
+from .theme import (
+    action_style,
+    cursor_prefix,
+    dim_separator,
+    enabled_count_style,
+    get_theme,
+    row_style,
+    scoped_header,
+    terminal_menu_style_kwargs,
+)
 
 console = Console(highlight=False)
 
@@ -109,8 +119,7 @@ def _pick_file(path: Path) -> Path | None:
         labels,
         title=f"\n{path.name}/ \u2014 {len(files)} files",
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice = menu.show()
@@ -158,12 +167,15 @@ def _browse_files(path: Path, initial_action: str = "view") -> None:
     cursor = 0
 
     def _build() -> str:
+        accent = get_theme().accent_rich
         lines = [f"[bold]{path.name}/[/bold] \u2014 {len(files)} files"]
         lines.append("[dim]\u2500" * 40 + "[/dim]")
         for i, f in enumerate(files):
             prefix = "\u276f " if i == cursor else "  "
-            style = "bold cyan" if i == cursor else ""
-            lines.append(f"[{style}]{prefix}{f.name}[/{style}]")
+            if i == cursor:
+                lines.append(f"[bold {accent}]{prefix}{f.name}[/bold {accent}]")
+            else:
+                lines.append(f"{prefix}{f.name}")
         lines.append("")
         lines.append("[dim]v/Enter: view  e: edit  o: open in finder  q: back[/dim]")
         return "\n".join(lines)
@@ -440,8 +452,10 @@ def run_toggle_list(
         # Header with scope label + Tab hint
         current_scope = scopes[scope_index]
         scope_label = current_scope.label
+        theme = get_theme()
+        warning = theme.warning_rich
         if current_scope.is_new:
-            scope_label += " [yellow](new)[/yellow]"
+            scope_label += f" [{warning}](new)[/{warning}]"
 
         if num_scopes > 1:
             next_idx = (scope_index + 1) % num_scopes
@@ -450,8 +464,8 @@ def run_toggle_list(
         else:
             tab_hint = ""
 
-        lines.append(f"[bold cyan]{component_type}[/bold cyan] \u2014 {scope_label}    [dim]{tab_hint}[/dim]")
-        lines.append("[dim]\u2500" * 50 + "[/dim]")
+        lines.append(scoped_header(component_type, scope_label, tab_hint))
+        lines.append(dim_separator())
 
         total = len(row_list)
         max_visible = _get_terminal_height() - 7
@@ -472,15 +486,19 @@ def run_toggle_list(
         for i in range(vis_start, vis_end):
             kind, value, gi = row_list[i]
             is_cur = i == cursor
-            prefix = "[cyan]\u276f[/cyan] " if is_cur else "  "
+            prefix = cursor_prefix(is_cur)
 
             if kind == ROW_GROUP_HEADER:
                 group = groups[gi]
                 en, tot = _group_enabled_count(group)
                 arrow = "\u25b6" if group.collapsed else "\u25bc"
-                style = "[bold]" if is_cur else ""
-                end_style = "[/bold]" if is_cur else ""
-                count_style = "green" if en > 0 else "dim"
+                if is_cur:
+                    style, end_style = row_style(True)
+                elif en == 0:
+                    style, end_style = "[dim]", "[/dim]"
+                else:
+                    style, end_style = "", ""
+                count_style = enabled_count_style(en)
                 lines.append(f"{prefix}{style}{group.label}  [{count_style}]({en}/{tot})[/{count_style}]  {arrow}{end_style}")
 
             elif kind == ROW_ITEM:
@@ -490,11 +508,11 @@ def run_toggle_list(
                 is_changed = is_checked != was_checked
 
                 if is_checked and is_changed:
-                    mark = "[yellow]\u25cf[/yellow]"
+                    mark = f"[{warning}]\u25cf[/{warning}]"
                 elif is_checked:
-                    mark = "[green]\u25cf[/green]"
+                    mark = "\u25cf"
                 elif is_changed:
-                    mark = "[yellow]\u25cb[/yellow]"
+                    mark = f"[{warning}]\u25cb[/{warning}]"
                 else:
                     mark = "\u25cb"
 
@@ -517,7 +535,7 @@ def run_toggle_list(
                     if parent_label:
                         hint = f"  [dim](enabled in {parent_label})[/dim]"
                 if not hint and is_changed:
-                    hint = "[bold yellow]*[/bold yellow]"
+                    hint = f"[bold {warning}]*[/bold {warning}]"
 
                 lines.append(f"{prefix}{indent}{mark} {style}{name}{end_style}{hint}")
 
@@ -526,8 +544,7 @@ def run_toggle_list(
 
             elif kind == ROW_ACTION:
                 label = _action_label(value)
-                style = "[cyan bold]" if is_cur else "[dim]"
-                end = "[/cyan bold]" if is_cur else "[/dim]"
+                style, end = action_style(is_cur)
                 lines.append(f"{prefix}{style}{label}{end}")
 
         # Scroll indicator (below)
@@ -771,8 +788,8 @@ def run_toggle_list(
 
 def _show_empty(component_type: str, scope_label: str) -> None:
     """Show empty state for a component type."""
-    console.print(f"\n[bold]{component_type}[/bold] \u2014 {scope_label}")
-    console.print("[dim]\u2500" * 40 + "[/dim]")
+    console.print(f"\n{scoped_header(component_type, scope_label)}")
+    console.print(dim_separator(40))
     console.print("  [dim](none in registry)[/dim]")
     console.print(f"\n  Run [cyan]hawk download <url>[/cyan] to add {component_type.lower()}.")
     console.print()

@@ -11,6 +11,7 @@ from .. import __version__, v2_config
 from ..adapters import get_adapter
 from ..types import Tool
 from .pause import wait_for_continue
+from .theme import get_theme, terminal_menu_style_kwargs
 
 console = Console()
 
@@ -54,8 +55,7 @@ def run_wizard() -> bool:
         title="Create hawk config with detected tools?",
         cursor_index=0,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     result = menu.show()
@@ -77,7 +77,8 @@ def run_wizard() -> bool:
     cfg["tools"] = tools_cfg
     v2_config.save_global_config(cfg)
 
-    console.print(f"\n[green]\u2714[/green] Config created at [cyan]{v2_config.get_global_config_path()}[/cyan]")
+    accent = get_theme().accent_rich
+    console.print(f"\n[green]\u2714[/green] Config created at [{accent}]{v2_config.get_global_config_path()}[/{accent}]")
 
     # Step 3a: Install bundled builtins
     _offer_builtins_install()
@@ -86,9 +87,9 @@ def run_wizard() -> bool:
     console.print(f"\n[green]\u2714[/green] [bold]Setup complete![/bold]")
     console.print()
     console.print("[dim]Next steps:[/dim]")
-    console.print("  [cyan]hawk download <url>[/cyan]   Add components from git")
-    console.print("  [cyan]hawk add <type> <path>[/cyan] Add a local component")
-    console.print("  [cyan]hawk[/cyan]                   Open interactive menu")
+    console.print(f"  [{accent}]hawk download <url>[/{accent}]   Add components from git")
+    console.print(f"  [{accent}]hawk add <type> <path>[/{accent}] Add a local component")
+    console.print(f"  [{accent}]hawk[/{accent}]                   Open interactive menu")
     console.print()
     wait_for_continue("[dim]Press Enter/q/Ctrl+C to continue to the menu...[/dim]")
     return True
@@ -126,8 +127,7 @@ def _offer_builtins_install() -> None:
         title="Install bundled components?",
         cursor_index=0,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     result = menu.show()

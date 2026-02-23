@@ -17,7 +17,11 @@ def v2_interactive_menu(scope_dir: str | None = None) -> None:
 
     from .. import v2_config
     from .dashboard import run_dashboard
+    from .theme import set_project_theme
     from .wizard import run_wizard
+
+    cwd = Path(scope_dir).resolve() if scope_dir else Path.cwd().resolve()
+    set_project_theme(cwd)
 
     # First-run: guided wizard
     if not v2_config.get_global_config_path().exists():
@@ -25,7 +29,6 @@ def v2_interactive_menu(scope_dir: str | None = None) -> None:
             return
 
     # Auto-register cwd if it has .hawk/config.yaml
-    cwd = Path(scope_dir).resolve() if scope_dir else Path.cwd().resolve()
     v2_config.auto_register_if_needed(cwd)
     v2_config.prune_stale_directories()
 

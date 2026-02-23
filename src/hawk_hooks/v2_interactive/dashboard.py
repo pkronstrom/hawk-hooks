@@ -28,6 +28,9 @@ from .theme import (
     enabled_count_style,
     row_style,
     scoped_header,
+    set_project_theme,
+    terminal_menu_style_kwargs,
+    warning_style,
 )
 from .toggle import _open_in_editor, run_toggle_list
 from .uninstall_flow import run_uninstall_wizard
@@ -319,8 +322,7 @@ def _handle_registry_browser(state: dict) -> None:
         rows,
         title="\nRegistry Browser\n────────────────────────────────────────",
         menu_cursor="❯ ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(include_status_bar=True),
         quit_keys=("q", "\x1b"),
         status_bar="Enter: open in $EDITOR  q/Esc: back",
     )
@@ -355,7 +357,8 @@ def _build_header(state: dict) -> str:
     unsynced = state.get("unsynced_targets", 0)
     total_targets = state.get("sync_targets_total", 0)
     if unsynced > 0:
-        header += f"\n[yellow]Sync status: {unsynced} unsynced target(s) of {total_targets}[/yellow]"
+        warn_start, warn_end = warning_style(False)
+        header += f"\n{warn_start}Sync status: {unsynced} unsynced target(s) of {total_targets}{warn_end}"
     return header
 
 
@@ -445,7 +448,8 @@ def _build_main_menu_display(
     for i, (label, action) in enumerate(options):
         if action is None:
             if label.strip("\u2500"):
-                lines.append(f"  [yellow]{label}[/yellow]")
+                warn_start, warn_end = warning_style(False)
+                lines.append(f"  {warn_start}{label}{warn_end}")
             else:
                 lines.append(f"  {dim_separator(9)}")
             continue
@@ -454,8 +458,7 @@ def _build_main_menu_display(
         prefix = cursor_prefix(is_current)
 
         if action in {"codex_multi_agent_setup", "resolve_missing_components"}:
-            style = "[bold yellow]" if is_current else "[yellow]"
-            end_style = "[/bold yellow]" if is_current else "[/yellow]"
+            style, end_style = warning_style(is_current)
             lines.append(f"{prefix}{style}{label}{end_style}")
             continue
 
@@ -778,8 +781,7 @@ def _make_mcp_add_callback(state: dict):
             title="\nAdd this MCP server?",
             cursor_index=0,
             menu_cursor="\u276f ",
-            menu_cursor_style=("fg_cyan", "bold"),
-            menu_highlight_style=("fg_cyan", "bold"),
+            **terminal_menu_style_kwargs(),
         )
         result = confirm_menu.show()
         if result != 0:
@@ -826,8 +828,7 @@ def _handle_tools_toggle(state: dict) -> bool:
         multi_select_cursor_brackets_style=("fg_green",),
         multi_select_cursor_style=("fg_green",),
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(include_status_bar=True),
         quit_keys=("q", "\x1b"),
         status_bar="Space: toggle  Enter: confirm  q/Esc: back",
     )
@@ -1191,7 +1192,7 @@ def _handle_packages(state: dict) -> bool:
                 if is_cur:
                     style, end = row_style(True)
                 elif is_ungrouped:
-                    style, end = "[yellow]", "[/yellow]"
+                    style, end = warning_style(False)
                 elif enabled_count == 0:
                     style, end = "[dim]", "[/dim]"
                 else:
@@ -1502,8 +1503,7 @@ def _prompt_delete_scope(project_dir: Path, *, prefer_delete_local: bool = False
         ),
         cursor_index=0,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice1 = step1.show()
@@ -1519,8 +1519,7 @@ def _prompt_delete_scope(project_dir: Path, *, prefer_delete_local: bool = False
         ),
         cursor_index=default_idx,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice2 = step2.show()
@@ -1627,8 +1626,7 @@ def _run_projects_tree() -> None:
             menu_entries,
             title="\nhawk projects\n" + "\u2500" * 40,
             menu_cursor="\u276f ",
-            menu_cursor_style=("fg_cyan", "bold"),
-            menu_highlight_style=("fg_cyan", "bold"),
+            **terminal_menu_style_kwargs(include_status_bar=True),
             accept_keys=("enter", "d", "x"),
             quit_keys=("q", "\x1b"),
             status_bar="Enter: open  d/x: delete scope  q/Esc: back",
@@ -1695,7 +1693,8 @@ def _handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> 
         body_lines.extend(["", "[yellow]Sync is about to run.[/yellow]"])
 
     console.print()
-    console.print("[bold yellow]Codex setup required[/bold yellow]")
+    warn_start, warn_end = warning_style(True)
+    console.print(f"{warn_start}Codex setup required{warn_end}")
     console.print("[dim]" + ("\u2500" * 50) + "[/dim]")
     console.print("\n".join(body_lines))
 
@@ -1704,8 +1703,7 @@ def _handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> 
         title="\nChoose an option",
         cursor_index=0,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice = menu.show()
@@ -1979,7 +1977,8 @@ def _handle_missing_components_setup(state: dict) -> bool:
     ]
 
     console.print()
-    console.print("[bold yellow]One-time setup[/bold yellow]")
+    warn_start, warn_end = warning_style(True)
+    console.print(f"{warn_start}One-time setup{warn_end}")
     console.print("[dim]" + ("\u2500" * 50) + "[/dim]")
     console.print("\n".join(lines))
 
@@ -1992,8 +1991,7 @@ def _handle_missing_components_setup(state: dict) -> bool:
         title="\nChoose an option",
         cursor_index=1,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice = menu.show()
@@ -2108,8 +2106,7 @@ def _handle_environment(state: dict) -> bool:
             title="\nEnvironment",
             cursor_index=0,
             menu_cursor="\u276f ",
-            menu_cursor_style=("fg_cyan", "bold"),
-            menu_highlight_style=("fg_cyan", "bold"),
+            **terminal_menu_style_kwargs(),
             accept_keys=("enter", " "),
             quit_keys=("q", "\x1b"),
         )
@@ -2160,8 +2157,7 @@ def _prompt_sync_on_exit(dirty: bool, scope_dir: str | None = None) -> None:
         title="\nChanges made. Sync to tools now?",
         cursor_index=0,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     result = menu.show()
@@ -2185,6 +2181,7 @@ def run_dashboard(scope_dir: str | None = None) -> None:
 
     while True:
         state = _load_state(scope_dir)
+        set_project_theme(state.get("project_dir") or Path.cwd().resolve())
 
         options = _build_menu_options(state)
         choice = _run_main_menu(state, options, cursor_index=last_cursor)

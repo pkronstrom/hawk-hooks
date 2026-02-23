@@ -15,6 +15,7 @@ from rich.text import Text
 
 from .. import v2_config
 from .toggle import _get_terminal_height, _calculate_visible_range
+from .theme import action_style, cursor_prefix, dim_separator
 from .uninstall_flow import run_uninstall_wizard
 
 console = Console()
@@ -67,7 +68,7 @@ def run_config_editor() -> bool:
     def _build_display() -> str:
         lines: list[str] = []
         lines.append("[bold]Settings[/bold]")
-        lines.append("[dim]\u2500" * 50 + "[/dim]")
+        lines.append(dim_separator())
 
         total = len(items) + 2  # items + separator + Done
         max_visible = _get_terminal_height() - 7
@@ -78,7 +79,7 @@ def run_config_editor() -> bool:
 
         for i in range(vis_start, vis_end):
             is_cur = i == cursor
-            prefix = "[cyan]\u276f[/cyan] " if is_cur else "  "
+            prefix = cursor_prefix(is_cur)
 
             if i < len(items):
                 key, label, setting_type, default = items[i]
@@ -94,11 +95,10 @@ def run_config_editor() -> bool:
 
             elif i == len(items):
                 # Separator
-                lines.append("  [dim]\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500[/dim]")
+                lines.append(f"  {dim_separator(9)}")
             elif i == len(items) + 1:
                 # Done
-                style = "[cyan bold]" if is_cur else ""
-                end = "[/cyan bold]" if is_cur else ""
+                style, end = action_style(is_cur)
                 lines.append(f"{prefix}{style}Done{end}")
 
         if vis_end < total:

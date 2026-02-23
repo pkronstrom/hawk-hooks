@@ -8,6 +8,7 @@ from simple_term_menu import TerminalMenu
 from .. import v2_config
 from ..v2_sync import format_sync_results, purge_all, uninstall_all
 from .pause import wait_for_continue
+from .theme import get_theme, terminal_menu_style_kwargs
 from .uninstall_hint import detect_uninstall_command
 
 
@@ -26,8 +27,7 @@ def run_uninstall_wizard(console: Console) -> bool:
         ),
         cursor_index=0,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice1 = step1.show()
@@ -48,8 +48,7 @@ def run_uninstall_wizard(console: Console) -> bool:
             ),
             cursor_index=0,
             menu_cursor="\u276f ",
-            menu_cursor_style=("fg_cyan", "bold"),
-            menu_highlight_style=("fg_cyan", "bold"),
+            **terminal_menu_style_kwargs(),
             quit_keys=("q", "\x1b"),
         )
         choice2 = step2.show()
@@ -74,8 +73,7 @@ def run_uninstall_wizard(console: Console) -> bool:
         title="\nStep 3/3: Confirm\n\n" + "\n".join(effects),
         cursor_index=1,
         menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
+        **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
     choice3 = step3.show()
@@ -89,8 +87,9 @@ def run_uninstall_wizard(console: Console) -> bool:
         console.print(formatted or "  No changes.")
         console.print("\n[green]\u2714 Cleared hawk-managed config, packages, and registry state.[/green]\n")
         uninstall_cmd = detect_uninstall_command()
+        accent = get_theme().accent_rich
         console.print("[dim]To remove the hawk program itself, run:[/dim]")
-        console.print(f"  [cyan]{uninstall_cmd}[/cyan]\n")
+        console.print(f"  [{accent}]{uninstall_cmd}[/{accent}]\n")
     else:
         console.print("\n[bold red]Unlinking hawk-managed items...[/bold red]")
         results = purge_all()
