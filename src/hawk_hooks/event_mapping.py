@@ -29,8 +29,10 @@ _TOOL_EVENT_MAP: dict[str, dict[str, str]] = {
     "claude": {
         "pre_tool_use": "PreToolUse",
         "post_tool_use": "PostToolUse",
+        "post_tool_use_failure": "PostToolUseFailure",
         "notification": "Notification",
         "stop": "Stop",
+        "subagent_start": "SubagentStart",
         "subagent_stop": "SubagentStop",
         "user_prompt_submit": "UserPromptSubmit",
         "session_start": "SessionStart",
@@ -54,6 +56,12 @@ _TOOL_EVENT_MAP: dict[str, dict[str, str]] = {
         "stop": "agent-turn-complete",
         "notification": "agent-turn-complete",
     },
+    "opencode": {
+        # Hook bridge support via generated OpenCode plugin wrappers.
+        "pre_tool_use": "tool.execute.before",
+        "post_tool_use": "tool.execute.after",
+        "stop": "stop",
+    },
 }
 
 _EVENT_SUPPORT: dict[str, dict[str, SupportLevel]] = {
@@ -67,6 +75,11 @@ _EVENT_SUPPORT: dict[str, dict[str, SupportLevel]] = {
         "stop": "bridge",
         "notification": "bridge",
     },
+    "opencode": {
+        "pre_tool_use": "bridge",
+        "post_tool_use": "bridge",
+        "stop": "bridge",
+    },
 }
 
 # Tool-specific events that are not part of hawk event names.
@@ -74,6 +87,7 @@ _TOOL_SPECIFIC_EVENTS: dict[str, list[str]] = {
     "claude": [],
     "gemini": ["BeforeModel", "AfterModel", "BeforeToolSelection"],
     "codex": ["agent-turn-complete"],
+    "opencode": [],
 }
 
 # Reverse mapping (tool-specific -> hawk event).

@@ -24,7 +24,7 @@ class TestOpenCodeAdapter:
         assert adapter.get_project_dir(tmp_path) == tmp_path / ".opencode"
 
     def test_hook_support_flag(self, adapter):
-        assert adapter.hook_support == "unsupported"
+        assert adapter.hook_support == "bridge"
 
 
 class TestOpenCodeMCP:
@@ -97,10 +97,39 @@ class TestOpenCodePrompts:
 
 
 class TestOpenCodeHooks:
-    def test_sync_warns_when_hooks_configured(self, adapter, tmp_path):
+    def test_sync_bridges_supported_hook_events(self, adapter, tmp_path):
         registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "guard.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "import sys\n"
+        )
         target = tmp_path / "opencode"
         target.mkdir(parents=True)
 
         result = adapter.sync(ResolvedSet(hooks=["guard.py"]), target, registry)
-        assert any("opencode hook registration is unsupported" in e for e in result.skipped)
+        assert "hook:guard.py" in result.linked
+        assert (target / "runners" / "pre_tool_use.sh").exists()
+
+        plugin_path = target / "plugins" / "hawk-hooks.ts"
+        assert plugin_path.exists()
+        plugin = plugin_path.read_text()
+        assert "tool.execute.before" in plugin
+        assert "hawk-hooks managed: opencode-hook-plugin" in plugin
+
+    def test_sync_skips_unsupported_hook_events(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "perm.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=permission_request\n"
+            "import sys\n"
+        )
+        target = tmp_path / "opencode"
+        target.mkdir(parents=True)
+
+        result = adapter.sync(ResolvedSet(hooks=["perm.py"]), target, registry)
+        assert any("permission_request is unsupported by opencode" in e for e in result.skipped)

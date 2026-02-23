@@ -1,10 +1,10 @@
 """Tests for the Codex adapter."""
 
-import json
+import tomllib
 
 import pytest
 
-from hawk_hooks.adapters.codex import CodexAdapter, HAWK_MCP_MARKER
+from hawk_hooks.adapters.codex import CodexAdapter
 from hawk_hooks.types import ResolvedSet, Tool
 
 
@@ -43,24 +43,34 @@ class TestCodexMCP:
         servers = {"github": {"command": "gh-mcp"}}
         adapter.write_mcp_config(servers, target)
 
-        data = json.loads((target / "mcp.json").read_text())
-        assert "github" in data["mcpServers"]
-        assert data["mcpServers"]["github"][HAWK_MCP_MARKER] is True
+        config_path = target / "config.toml"
+        assert config_path.exists()
+        data = tomllib.loads(config_path.read_text())
+        assert "github" in data["mcp_servers"]
+        assert data["mcp_servers"]["github"]["command"] == "gh-mcp"
+        assert "hawk-hooks managed: codex-mcp-github" in config_path.read_text()
 
     def test_preserves_manual(self, adapter, tmp_path):
         target = tmp_path / "codex"
         target.mkdir()
 
-        mcp_path = target / "mcp.json"
-        mcp_path.write_text(json.dumps({
-            "mcpServers": {"manual": {"command": "m"}}
-        }))
+        config_path = target / "config.toml"
+        config_path.write_text('[mcp_servers.manual]\ncommand = "m"\n')
 
         adapter.write_mcp_config({"hawk": {"command": "h"}}, target)
 
-        data = json.loads(mcp_path.read_text())
-        assert "manual" in data["mcpServers"]
-        assert "hawk" in data["mcpServers"]
+        data = tomllib.loads(config_path.read_text())
+        assert "manual" in data["mcp_servers"]
+        assert "hawk" in data["mcp_servers"]
+
+    def test_conflicts_with_manual_same_name(self, adapter, tmp_path):
+        target = tmp_path / "codex"
+        target.mkdir()
+        config_path = target / "config.toml"
+        config_path.write_text('[mcp_servers.github]\ncommand = "manual-gh"\n')
+
+        with pytest.raises(ValueError, match="manual \\[mcp_servers.github\\]"):
+            adapter.write_mcp_config({"github": {"command": "gh-mcp"}}, target)
 
 
 class TestCodexHooks:

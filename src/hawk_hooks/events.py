@@ -48,6 +48,14 @@ EVENTS: dict[str, EventDefinition] = {
         doc_description="Runs after tool completes. Can provide feedback.",
         fields=("session_id", "cwd", "tool_name", "tool_input", "tool_response"),
     ),
+    "post_tool_use_failure": EventDefinition(
+        name="post_tool_use_failure",
+        claude_name="PostToolUseFailure",
+        description="After a tool fails",
+        matchers=(None,),
+        doc_description="Runs after tool execution fails.",
+        fields=("session_id", "cwd", "tool_name", "tool_input", "tool_response"),
+    ),
     "notification": EventDefinition(
         name="notification",
         claude_name="Notification",
@@ -68,6 +76,13 @@ EVENTS: dict[str, EventDefinition] = {
         description="When a subagent completes",
         doc_description="Runs when subagent/Task tool finishes.",
         fields=("session_id", "cwd", "stop_reason"),
+    ),
+    "subagent_start": EventDefinition(
+        name="subagent_start",
+        claude_name="SubagentStart",
+        description="When a subagent starts",
+        doc_description="Runs when subagent/Task tool starts.",
+        fields=("session_id", "cwd", "input"),
     ),
     "user_prompt_submit": EventDefinition(
         name="user_prompt_submit",

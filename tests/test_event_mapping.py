@@ -28,6 +28,8 @@ class TestMappings:
 class TestSupportLevels:
     def test_claude_native(self):
         assert get_event_support("permission_request", "claude") == "native"
+        assert get_event_support("post_tool_use_failure", "claude") == "native"
+        assert get_event_support("subagent_start", "claude") == "native"
 
     def test_gemini_native_subset(self):
         assert get_event_support("user_prompt_submit", "gemini") == "native"
@@ -37,6 +39,12 @@ class TestSupportLevels:
         assert get_event_support("stop", "codex") == "bridge"
         assert get_event_support("notification", "codex") == "bridge"
         assert get_event_support("pre_tool_use", "codex") == "unsupported"
+
+    def test_opencode_bridge_subset(self):
+        assert get_event_support("pre_tool_use", "opencode") == "bridge"
+        assert get_event_support("post_tool_use", "opencode") == "bridge"
+        assert get_event_support("stop", "opencode") == "bridge"
+        assert get_event_support("permission_request", "opencode") == "unsupported"
 
     def test_is_event_supported_uses_native_or_bridge(self):
         assert is_event_supported("stop", "codex") is True

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 
 from ..types import Tool
 from .base import ToolAdapter
@@ -175,8 +176,9 @@ class GeminiAdapter(ToolAdapter):
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
         """Register command hooks in Gemini settings.json.
 
-        Gemini uses a Claude-like hooks array in settings.json. We only
-        register command-style hooks; .prompt.json hooks are skipped.
+        Gemini uses a Claude-like hooks array in settings.json. It only
+        supports command hooks natively. Hawk bridges .prompt.json hooks by
+        generating command runners that inject `additionalContext`.
         """
         from ..event_mapping import get_event_support, get_tool_event_or_none
         from ..hook_meta import parse_hook_meta
@@ -203,12 +205,9 @@ class GeminiAdapter(ToolAdapter):
             else:
                 script_hooks.append(name)
 
-        if prompt_hooks:
-            skipped.append(
-                f"prompt hooks are unsupported by gemini and were skipped: {', '.join(sorted(prompt_hooks))}"
-            )
-
         runners = self._generate_runners(script_hooks, registry_path, runners_dir) if script_hooks else {}
+        for stale in runners_dir.glob("prompt-*.sh"):
+            stale.unlink(missing_ok=True)
 
         event_timeouts: dict[str, int] = {}
         for name in script_hooks:
@@ -254,6 +253,61 @@ class GeminiAdapter(ToolAdapter):
             )
             registered_events.add(event_name)
 
+        registered_prompt_hooks: set[str] = set()
+        for name in prompt_hooks:
+            hook_path = hooks_dir / name
+            if not hook_path.is_file():
+                continue
+            try:
+                data = json.loads(hook_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                skipped.append(f"{name} is invalid JSON and was skipped")
+                continue
+            if not isinstance(data, dict):
+                skipped.append(f"{name} is not a JSON object and was skipped")
+                continue
+
+            prompt_text = str(data.get("prompt", "")).strip()
+            if not prompt_text:
+                skipped.append(f"{name} has no prompt text and was skipped")
+                continue
+
+            meta = parse_hook_meta(hook_path)
+            events = meta.events if meta.events else ["pre_tool_use"]
+            try:
+                timeout = int(data.get("timeout", meta.timeout))
+            except (TypeError, ValueError):
+                timeout = 0
+
+            for event_name in events:
+                support = get_event_support(event_name, "gemini")
+                matcher = get_tool_event_or_none(event_name, "gemini")
+                if support == "unsupported" or not matcher:
+                    skipped.append(f"{event_name} is unsupported by gemini and was skipped")
+                    continue
+
+                bridge_path = self._write_prompt_bridge_runner(
+                    runners_dir=runners_dir,
+                    hook_name=name,
+                    event_name=event_name,
+                    prompt_text=prompt_text,
+                )
+                hook_def: dict = {
+                    "type": "command",
+                    "command": str(bridge_path),
+                    _HAWK_HOOK_MARKER: True,
+                }
+                if timeout > 0:
+                    hook_def["timeout"] = timeout
+
+                hawk_entries.append(
+                    {
+                        "matcher": matcher,
+                        "hooks": [hook_def],
+                    }
+                )
+                registered_prompt_hooks.add(name)
+
         settings["hooks"] = user_hooks + hawk_entries
         self._save_json(settings_path, settings)
 
@@ -266,6 +320,7 @@ class GeminiAdapter(ToolAdapter):
             if any(event in registered_events for event in events):
                 registered.append(name)
 
+        registered.extend(sorted(registered_prompt_hooks))
         self._set_hook_diagnostics(skipped=skipped, errors=[])
         return registered
 
@@ -316,3 +371,36 @@ class GeminiAdapter(ToolAdapter):
     def _save_json(path: Path, data: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2) + "\n")
+
+    @staticmethod
+    def _write_prompt_bridge_runner(
+        *,
+        runners_dir: Path,
+        hook_name: str,
+        event_name: str,
+        prompt_text: str,
+    ) -> Path:
+        """Generate a command hook runner that injects prompt text as context."""
+        import shlex
+        from ..generator import _atomic_write_executable
+
+        stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(hook_name).stem).strip("-") or "prompt"
+        safe_event = re.sub(r"[^A-Za-z0-9._-]+", "-", event_name).strip("-") or "event"
+        runner_path = runners_dir / f"prompt-{stem}-{safe_event}.sh"
+        payload = json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "additionalContext": prompt_text,
+                }
+            }
+        )
+        quoted_payload = shlex.quote(payload)
+        content = (
+            "#!/usr/bin/env bash\n"
+            "# Auto-generated by hawk v2 - Gemini prompt hook bridge\n"
+            "set -euo pipefail\n"
+            "cat >/dev/null\n"
+            f"printf '%s\\n' {quoted_payload}\n"
+        )
+        _atomic_write_executable(runner_path, content)
+        return runner_path

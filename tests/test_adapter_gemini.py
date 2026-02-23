@@ -1,6 +1,7 @@
 """Tests for the Gemini adapter."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -223,7 +224,7 @@ class TestGeminiHooks:
         assert hawk_hooks[0]["matcher"] == "BeforeTool"
         assert (target / "runners" / "pre_tool_use.sh").exists()
 
-    def test_sync_reports_unsupported_prompt_hooks(self, adapter, tmp_path):
+    def test_sync_bridges_prompt_hooks_as_additional_context(self, adapter, tmp_path):
         registry = tmp_path / "registry"
         hooks = registry / "hooks"
         hooks.mkdir(parents=True)
@@ -236,7 +237,20 @@ class TestGeminiHooks:
         target.mkdir()
 
         result = adapter.sync(ResolvedSet(hooks=["guard.prompt.json"]), target, registry)
-        assert any("prompt hooks are unsupported by gemini" in e for e in result.skipped)
+        assert "hook:guard.prompt.json" in result.linked
+
+        settings = json.loads((target / "settings.json").read_text())
+        hawk_hooks = [
+            h for h in settings.get("hooks", [])
+            if any(isinstance(hh, dict) and hh.get("__hawk_managed") for hh in h.get("hooks", []))
+        ]
+        assert len(hawk_hooks) == 1
+        assert hawk_hooks[0]["matcher"] == "BeforeTool"
+        bridge_cmd = hawk_hooks[0]["hooks"][0]["command"]
+        assert "prompt-guard.prompt-pre_tool_use.sh" in bridge_cmd
+        bridge_runner = Path(bridge_cmd)
+        assert bridge_runner.exists()
+        assert "additionalContext" in bridge_runner.read_text()
 
     def test_sync_reports_unsupported_events(self, adapter, tmp_path):
         registry = tmp_path / "registry"
@@ -252,4 +266,19 @@ class TestGeminiHooks:
         target.mkdir()
 
         result = adapter.sync(ResolvedSet(hooks=["ask-permission.py"]), target, registry)
+        assert any("permission_request is unsupported by gemini" in e for e in result.skipped)
+
+    def test_prompt_hooks_skip_unsupported_events(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "ask.prompt.json").write_text(json.dumps({
+            "prompt": "Need a permission decision",
+            "hawk-hook": {"events": ["permission_request"]},
+        }))
+
+        target = tmp_path / "gemini"
+        target.mkdir()
+
+        result = adapter.sync(ResolvedSet(hooks=["ask.prompt.json"]), target, registry)
         assert any("permission_request is unsupported by gemini" in e for e in result.skipped)

@@ -8,11 +8,12 @@ from pathlib import Path
 import re
 import shutil
 import tomllib
+from typing import Any
 
 from ..managed_config import ManagedConfigOp, TomlBlockDriver
 from ..registry import _validate_name
 from ..types import ResolvedSet, SyncResult, Tool
-from .base import HAWK_MCP_MARKER, ToolAdapter
+from .base import ToolAdapter
 
 _BEGIN_NOTIFY_BLOCK = "# >>> hawk-hooks notify >>>"
 _END_NOTIFY_BLOCK = "# <<< hawk-hooks notify <<<"
@@ -20,6 +21,7 @@ _END_NOTIFY_BLOCK = "# <<< hawk-hooks notify <<<"
 _AGENT_SIDECAR = ".hawk-codex-agents.json"
 _MULTI_AGENT_UNIT = "codex-multi-agent"
 _AGENT_UNIT_PREFIX = "codex-agent-"
+_MCP_UNIT_PREFIX = "codex-mcp-"
 _ROLE_FILE_MARKER = "hawk-hooks managed: codex-agent-role"
 _LAUNCHER_MARKER = "hawk-hooks managed: codex-agent-launcher"
 
@@ -192,8 +194,56 @@ class CodexAdapter(ToolAdapter):
         servers: dict[str, dict],
         target_dir: Path,
     ) -> None:
-        """Write MCP config for Codex (mcp.json)."""
-        self._merge_mcp_json(target_dir / "mcp.json", servers)
+        """Write Codex MCP config into managed blocks in config.toml.
+
+        Writes one hawk-managed TOML block per server:
+        [mcp_servers."<name>"]
+        ...
+
+        Existing manual MCP tables are preserved. If a manual table already
+        exists for a server name hawk wants to manage, this raises an error.
+        """
+        config_path = target_dir / "config.toml"
+        text = config_path.read_text() if config_path.exists() else ""
+        manual_text = TomlBlockDriver.strip_all(text)
+
+        existing_units = self._extract_managed_mcp_units(text)
+        desired_units: set[str] = set()
+        ops: list[ManagedConfigOp] = []
+
+        for raw_name, cfg in sorted(servers.items()):
+            name = str(raw_name)
+            _validate_name(name)
+            if not isinstance(cfg, dict):
+                raise ValueError(f"invalid MCP server config for {name!r}: expected object")
+            if self._has_manual_mcp_table(manual_text, name):
+                raise ValueError(
+                    f"codex config.toml already has a manual [mcp_servers.{name}] table; "
+                    "remove it or let hawk manage a different server name"
+                )
+            unit_id = self._mcp_unit_id(name)
+            desired_units.add(unit_id)
+            ops.append(
+                ManagedConfigOp(
+                    file=config_path,
+                    unit_id=unit_id,
+                    action="upsert",
+                    payload=self._render_mcp_payload(name, cfg),
+                )
+            )
+
+        for stale_unit in sorted(existing_units - desired_units):
+            ops.append(
+                ManagedConfigOp(
+                    file=config_path,
+                    unit_id=stale_unit,
+                    action="remove",
+                )
+            )
+
+        result = TomlBlockDriver.apply(ops)
+        if result.errors:
+            raise ValueError("; ".join(result.errors))
 
     def _sync_codex_agents(
         self,
@@ -435,6 +485,75 @@ class CodexAdapter(ToolAdapter):
     def _slug(text: str) -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
         return slug or "agent"
+
+    @staticmethod
+    def _mcp_unit_id(name: str) -> str:
+        return f"{_MCP_UNIT_PREFIX}{name}"
+
+    @staticmethod
+    def _extract_managed_mcp_units(text: str) -> set[str]:
+        return set(
+            re.findall(
+                rf"(?m)^# >>> hawk-hooks managed: ({re.escape(_MCP_UNIT_PREFIX)}[A-Za-z0-9_.-]+) >>>$",
+                text,
+            )
+        )
+
+    @staticmethod
+    def _has_manual_mcp_table(manual_text: str, name: str) -> bool:
+        pattern = (
+            rf'(?m)^\s*\[\s*mcp_servers\.(?:{re.escape(name)}|"{re.escape(name)}")(?:\s*\]|[.])'
+        )
+        return bool(re.search(pattern, manual_text))
+
+    @classmethod
+    def _render_mcp_payload(cls, name: str, cfg: dict[str, Any]) -> str:
+        return cls._render_toml_table(["mcp_servers", name], cfg)
+
+    @classmethod
+    def _render_toml_table(cls, path_parts: list[str], data: dict[str, Any]) -> str:
+        if not isinstance(data, dict):
+            raise ValueError(f"invalid TOML table for {'.'.join(path_parts)}: expected object")
+        table_name = ".".join(cls._render_toml_key(part) for part in path_parts)
+        lines = [f"[{table_name}]"]
+        nested: list[tuple[list[str], dict[str, Any]]] = []
+
+        for key in sorted(data.keys()):
+            value = data[key]
+            if value is None:
+                continue
+            if isinstance(value, dict):
+                nested.append((path_parts + [str(key)], value))
+                continue
+            lines.append(f"{cls._render_toml_key(str(key))} = {cls._render_toml_value(value)}")
+
+        blocks = ["\n".join(lines)]
+        for sub_path, sub_data in nested:
+            blocks.append(cls._render_toml_table(sub_path, sub_data))
+        return "\n\n".join(blocks)
+
+    @staticmethod
+    def _render_toml_key(key: str) -> str:
+        if re.fullmatch(r"[A-Za-z0-9_-]+", key):
+            return key
+        escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+
+    @classmethod
+    def _render_toml_value(cls, value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            return repr(value)
+        if isinstance(value, str):
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+            return f'"{escaped}"'
+        if isinstance(value, list):
+            rendered = ", ".join(cls._render_toml_value(v) for v in value)
+            return f"[{rendered}]"
+        raise ValueError(f"unsupported TOML value type: {type(value).__name__}")
 
     @staticmethod
     def _escape_toml_string(value: str) -> str:

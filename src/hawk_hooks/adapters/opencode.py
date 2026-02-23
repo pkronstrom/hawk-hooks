@@ -11,7 +11,7 @@ from .base import HAWK_MCP_MARKER, ToolAdapter
 
 class OpenCodeAdapter(ToolAdapter):
     """Adapter for OpenCode."""
-    HOOK_SUPPORT = "unsupported"
+    HOOK_SUPPORT = "bridge"
 
     @property
     def tool(self) -> Tool:
@@ -31,9 +31,67 @@ class OpenCodeAdapter(ToolAdapter):
         return self.get_commands_dir(target_dir)
 
     def register_hooks(self, hook_names: list[str], target_dir: Path, registry_path: Path | None = None) -> list[str]:
-        """OpenCode does not support hooks natively."""
-        self._warn_hooks_unsupported("opencode", hook_names)
-        return []
+        """Bridge hook runners into OpenCode via a generated plugin."""
+        from ..event_mapping import get_event_support, get_tool_event_or_none
+        from ..hook_meta import parse_hook_meta
+
+        skipped: list[str] = []
+        runners_dir = target_dir / "runners"
+        plugin_path = target_dir / "plugins" / "hawk-hooks.ts"
+
+        if not hook_names or registry_path is None:
+            if runners_dir.exists():
+                for f in runners_dir.iterdir():
+                    if f.suffix == ".sh":
+                        f.unlink()
+            plugin_path.unlink(missing_ok=True)
+            self._set_hook_diagnostics(skipped=[], errors=[])
+            return []
+
+        hooks_dir = registry_path / "hooks"
+        script_hooks: list[str] = []
+        prompt_hooks: list[str] = []
+        for name in hook_names:
+            if name.endswith(".prompt.json"):
+                prompt_hooks.append(name)
+            else:
+                script_hooks.append(name)
+
+        if prompt_hooks:
+            skipped.append(
+                f"prompt hooks are unsupported by opencode and were skipped: {', '.join(sorted(prompt_hooks))}"
+            )
+
+        runners = self._generate_runners(script_hooks, registry_path, runners_dir) if script_hooks else {}
+        mapped_events: dict[str, list[str]] = {}
+        bridged_events: set[str] = set()
+
+        for event_name, runner_path in sorted(runners.items()):
+            support = get_event_support(event_name, "opencode")
+            tool_event = get_tool_event_or_none(event_name, "opencode")
+            if support == "unsupported" or not tool_event:
+                skipped.append(f"{event_name} is unsupported by opencode and was skipped")
+                runner_path.unlink(missing_ok=True)
+                continue
+            mapped_events.setdefault(tool_event, []).append(str(runner_path))
+            bridged_events.add(event_name)
+
+        if mapped_events:
+            self._write_hook_plugin(plugin_path, mapped_events)
+        else:
+            plugin_path.unlink(missing_ok=True)
+
+        registered: list[str] = []
+        for name in script_hooks:
+            hook_path = hooks_dir / name
+            if not hook_path.is_file():
+                continue
+            events = parse_hook_meta(hook_path).events
+            if any(event in bridged_events for event in events):
+                registered.append(name)
+
+        self._set_hook_diagnostics(skipped=skipped, errors=[])
+        return registered
 
     def write_mcp_config(
         self,
@@ -105,3 +163,44 @@ class OpenCodeAdapter(ToolAdapter):
             sidecar_path.write_text(json.dumps(managed_names, indent=2) + "\n")
         elif sidecar_path.exists():
             sidecar_path.unlink()
+
+    @staticmethod
+    def _write_hook_plugin(plugin_path: Path, mapped_events: dict[str, list[str]]) -> None:
+        """Write an OpenCode plugin that executes hawk event runners."""
+        plugin_path.parent.mkdir(parents=True, exist_ok=True)
+
+        event_lines: list[str] = []
+        for event_name in sorted(mapped_events.keys()):
+            commands = mapped_events[event_name]
+            calls = "\n".join(f"      await runHook({json.dumps(cmd)}, input);" for cmd in commands)
+            event_lines.append(
+                f'    {json.dumps(event_name)}: async (input) => {{\n{calls}\n    }},'
+            )
+        event_block = "\n".join(event_lines)
+
+        content = (
+            "// hawk-hooks managed: opencode-hook-plugin\n"
+            'import { definePlugin } from "@opencode-ai/plugin"\n\n'
+            "async function runHook(command: string, payload: unknown): Promise<void> {\n"
+            "  const input = JSON.stringify(payload ?? {});\n"
+            "  const proc = Bun.spawn([command], {\n"
+            "    stdin: \"pipe\",\n"
+            "    stdout: \"pipe\",\n"
+            "    stderr: \"pipe\",\n"
+            "  });\n"
+            "  const writer = proc.stdin.getWriter();\n"
+            "  await writer.write(new TextEncoder().encode(input));\n"
+            "  await writer.close();\n"
+            "  const exitCode = await proc.exited;\n"
+            "  if (exitCode !== 0) {\n"
+            "    const stderr = await new Response(proc.stderr).text();\n"
+            "    throw new Error(`hawk hook failed (${exitCode}): ${stderr}`.trim());\n"
+            "  }\n"
+            "}\n\n"
+            "export default definePlugin({\n"
+            "  event: {\n"
+            f"{event_block}\n"
+            "  },\n"
+            "});\n"
+        )
+        plugin_path.write_text(content)
