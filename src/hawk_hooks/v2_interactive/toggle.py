@@ -8,6 +8,7 @@ Shows "(enabled in <parent>)" hints when viewing inner scopes.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -46,6 +47,8 @@ ACTION_ADD = "__add__"
 ACTION_DONE = "__done__"
 DEFAULT_VIEW_WIDTH = 100
 MIN_VIEW_WIDTH = 40
+DEFAULT_DESC_WIDTH = 96
+MIN_DESC_WIDTH = 32
 
 
 def _get_terminal_height() -> int:
@@ -80,6 +83,25 @@ def _get_view_wrap_width() -> int:
 
     terminal_cap = max(MIN_VIEW_WIDTH, _get_terminal_width() - 2)
     target = max(MIN_VIEW_WIDTH, target)
+    return min(target, terminal_cap)
+
+
+def _get_description_wrap_width() -> int:
+    """Return description wrap width from env + terminal bounds.
+
+    Uses HAWK_TUI_DESC_WIDTH when valid, otherwise DEFAULT_DESC_WIDTH.
+    Final width is clamped to terminal width - 6 and MIN_DESC_WIDTH.
+    """
+    raw = (os.environ.get("HAWK_TUI_DESC_WIDTH") or "").strip()
+    target = DEFAULT_DESC_WIDTH
+    if raw:
+        try:
+            target = int(raw)
+        except ValueError:
+            target = DEFAULT_DESC_WIDTH
+
+    terminal_cap = max(MIN_DESC_WIDTH, _get_terminal_width() - 6)
+    target = max(MIN_DESC_WIDTH, target)
     return min(target, terminal_cap)
 
 
@@ -171,6 +193,41 @@ def _extract_mcp_description(content: str) -> str:
     return ""
 
 
+def _extract_hook_fallback_description(path: Path, content: str) -> str:
+    """Extract hook description from common non-hawk-hook metadata patterns."""
+    suffix = path.suffix.lower()
+
+    if suffix == ".json":
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            data = None
+        if isinstance(data, dict):
+            hawk = data.get("hawk-hook")
+            if isinstance(hawk, dict):
+                desc = str(hawk.get("description", "")).strip()
+                if desc:
+                    return desc
+
+            top_desc = str(data.get("description", "")).strip()
+            if top_desc:
+                return top_desc
+
+            prompt = str(data.get("prompt", "")).strip()
+            if prompt:
+                return prompt[:160]
+
+    # Common wrapper metadata style from downloader-generated scripts.
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if line.startswith("# Description:"):
+            return line.split(":", 1)[1].strip()
+        if line.startswith("// Description:"):
+            return line.split(":", 1)[1].strip()
+
+    return ""
+
+
 def _get_item_description(item_path: Path, registry_dir: str) -> str:
     """Return a short description string for a registry item path."""
     source = item_path
@@ -185,11 +242,22 @@ def _get_item_description(item_path: Path, registry_dir: str) -> str:
             meta = parse_hook_meta(source)
         except Exception:
             meta = None
+        try:
+            raw_content = source.read_text(errors="replace")
+        except OSError:
+            raw_content = ""
         if meta:
             if meta.description.strip():
                 return meta.description.strip()
+            fallback = _extract_hook_fallback_description(source, raw_content)
+            if fallback:
+                return fallback
             if meta.events:
                 return f"Hook events: {', '.join(meta.events)}."
+        else:
+            fallback = _extract_hook_fallback_description(source, raw_content)
+            if fallback:
+                return fallback
 
     if source.is_file():
         try:
@@ -606,6 +674,8 @@ def run_toggle_list(
         warning = theme.warning_rich
         if current_scope.is_new:
             scope_label += f" [{warning}](new)[/{warning}]"
+        if footer_hint and num_scopes == 1:
+            scope_label += f" [dim]\u2014 {footer_hint}[/dim]"
 
         if num_scopes > 1:
             next_idx = (scope_index + 1) % num_scopes
@@ -617,8 +687,46 @@ def run_toggle_list(
         lines.append(scoped_header(component_type, scope_label, tab_hint))
         lines.append(dim_separator())
 
+        def _description_panel_lines() -> list[str]:
+            if not row_list or not registry_path or not registry_dir:
+                return []
+            current_kind, current_value, _ = row_list[cursor]
+            if current_kind != ROW_ITEM:
+                return []
+
+            item_name = current_value
+            description = description_cache.get(item_name)
+            if description is None:
+                item_path = _resolve_item_path(registry_path, registry_dir, item_name)
+                description = (
+                    _get_item_description(item_path, registry_dir)
+                    if item_path is not None
+                    else ""
+                )
+                description_cache[item_name] = description
+
+            width = _get_description_wrap_width()
+            wrapped = textwrap.wrap(
+                description or "No description metadata found for this item.",
+                width=width,
+                break_long_words=False,
+                replace_whitespace=False,
+            )
+            wrapped = wrapped[:3] if wrapped else ["No description metadata found for this item."]
+            info_style = get_theme().info_rich
+            return [f"[{info_style}]{line}[/{info_style}]" for line in wrapped]
+
+        description_lines = _description_panel_lines()
         total = len(row_list)
-        max_visible = _get_terminal_height() - 7
+        reserved_lines = 2  # header + separator
+        reserved_lines += 2  # footer spacer + key hints
+        reserved_lines += 2  # potential up/down scroll indicators
+        if status_msg:
+            reserved_lines += 2
+        if description_lines:
+            reserved_lines += 1 + len(description_lines)  # spacer + panel
+
+        max_visible = max(3, _get_terminal_height() - reserved_lines)
         _, vis_start, vis_end = _calculate_visible_range(cursor, total, max_visible, scroll_offset)
 
         checked = _checked_set()
@@ -707,49 +815,24 @@ def run_toggle_list(
 
         # Status message
         if status_msg:
-            lines.append(f"\n[dim]{status_msg}[/dim]")
+            lines.append("")
+            lines.append(f"[dim]{status_msg}[/dim]")
 
-        # Context panel for the currently selected item.
-        if row_list and registry_path and registry_dir:
-            current_kind, current_value, _ = row_list[cursor]
-            if current_kind == ROW_ITEM:
-                item_name = current_value
-                description = description_cache.get(item_name)
-                if description is None:
-                    item_path = _resolve_item_path(registry_path, registry_dir, item_name)
-                    description = (
-                        _get_item_description(item_path, registry_dir)
-                        if item_path is not None
-                        else ""
-                    )
-                    description_cache[item_name] = description
-
-                width = max(32, _get_terminal_width() - 6)
-                wrapped = textwrap.wrap(
-                    description or "No description metadata found for this item.",
-                    width=width,
-                    break_long_words=False,
-                    replace_whitespace=False,
-                )
-                wrapped = wrapped[:3] if wrapped else ["No description metadata found for this item."]
-                info_style = get_theme().info_rich
-                lines.append("")
-                lines.append(dim_separator(min(48, max(24, width - 2))))
-                lines.append(f"[bold {info_style}]Description[/bold {info_style}]")
-                for line in wrapped:
-                    lines.append(f"[dim]{line}[/dim]")
+        if description_lines:
+            lines.append("")
+            lines.extend(description_lines)
 
         # Footer
-        if footer_hint:
-            lines.append(f"\n[dim italic]{footer_hint}[/dim italic]")
         lines.append("")
-        hints = "Space/Enter: toggle  \u2191\u2193/jk: navigate  q: done"
+        hints = "space/\u21b5 toggle · \u2191\u2193/jk nav · q done"
         if num_scopes > 1:
-            hints += "  Tab: scope"
+            hints += " · tab scope"
         if registry_path:
-            hints += "  v: view  e: edit  o: open"
+            hints += " · v view · e edit · o open"
         if on_delete:
-            hints += "  d: delete"
+            hints += " · d delete"
+        if footer_hint and num_scopes > 1:
+            hints += f" · {footer_hint}"
         lines.append(f"[dim]{hints}[/dim]")
 
         return "\n".join(lines)

@@ -324,7 +324,7 @@ def _handle_registry_browser(state: dict) -> None:
         menu_cursor="❯ ",
         **terminal_menu_style_kwargs(include_status_bar=True),
         quit_keys=("q", "\x1b"),
-        status_bar="Enter: open in $EDITOR  q/Esc: back",
+        status_bar="↵ open ($EDITOR) · q/esc back",
     )
 
     while True:
@@ -352,7 +352,9 @@ def _build_header(state: dict) -> str:
     if state["scope"] == "local" and state["project_name"]:
         header += f"\n[dim]\U0001f4cd {state['project_dir']}[/dim]"
     else:
-        header += f"\n[dim]\U0001f310 Global (defaults for all projects)[/dim]"
+        header += (
+            "\n[dim]\U0001f310 Global \u2014 run 'hawk init' for local scope[/dim]"
+        )
 
     unsynced = state.get("unsynced_targets", 0)
     total_targets = state.get("sync_targets_total", 0)
@@ -471,7 +473,7 @@ def _build_main_menu_display(
         lines.append(f"{prefix}{style}{label}{end}")
 
     lines.append("")
-    lines.append("[dim]\u2191\u2193/jk: navigate  Space/Enter: select  q/Esc: quit[/dim]")
+    lines.append("[dim]\u2191\u2193/jk nav · space/\u21b5 select · q/esc quit[/dim]")
     return "\n".join(lines)
 
 
@@ -643,7 +645,7 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
     # Hint when no local config exists
     hint = None
     if len(scopes) == 1 and state.get("local_cfg") is None:
-        hint = "Run 'hawk init' in a project directory to add a local scope"
+        hint = "run 'hawk init' for local scope"
 
     # Delete callback
     registry = state["registry"]
@@ -835,7 +837,7 @@ def _handle_tools_toggle(state: dict) -> bool:
         menu_cursor="\u276f ",
         **terminal_menu_style_kwargs(include_status_bar=True),
         quit_keys=("q", "\x1b"),
-        status_bar="Space: toggle  Enter: confirm  q/Esc: back",
+        status_bar="space toggle · \u21b5 confirm · q/esc back",
     )
     result = menu.show()
     if result is None:
@@ -1176,6 +1178,8 @@ def _handle_packages(state: dict) -> bool:
         lines: list[str] = [scoped_header("Packages", scope["label"])]
         if len(scopes) > 1:
             lines[0] += f"    [dim]\\[Tab: {next_scope}][/dim]"
+        elif show_scope_hint:
+            lines[0] += " [dim]\u2014 run 'hawk init' for local scope[/dim]"
         if ungrouped_count > 0:
             lines.append(f"[dim]Packages: {package_count}  |  Ungrouped items: {ungrouped_count}[/dim]")
         else:
@@ -1289,22 +1293,19 @@ def _handle_packages(state: dict) -> bool:
         if status_msg:
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
-        if show_scope_hint:
-            lines.append("\n[dim italic]Run 'hawk init' in a project directory to add a local scope[/dim italic]")
-
         current_kind = rows[cursor]["kind"] if rows else ROW_ACTION
         lines.append("")
         if current_kind == ROW_PACKAGE:
-            hints = "Enter/Space: expand  u: update package  d/x: remove package  U: update all"
+            hints = "space/\u21b5 expand · u update pkg · d/x remove pkg · U update all"
         elif current_kind == ROW_TYPE:
-            hints = "Enter/Space: expand"
+            hints = "space/\u21b5 expand"
         elif current_kind == ROW_ITEM:
-            hints = "Enter/Space: toggle  e: open  d: remove item  U: update all"
+            hints = "space/\u21b5 toggle · e open · d remove item · U update all"
         else:
-            hints = "Enter/Space: select  U: update all"
+            hints = "space/\u21b5 select · U update all"
         if len(scopes) > 1:
-            hints += "  Tab: scope"
-        hints += "  \u2191\u2193/jk: navigate  q/Esc/Ctrl+C: back"
+            hints += " · tab scope"
+        hints += " · \u2191\u2193/jk nav · q/esc/^C back"
         lines.append(f"[dim]{hints}[/dim]")
         return "\n".join(lines)
 
@@ -1661,7 +1662,7 @@ def _run_projects_tree() -> None:
             **terminal_menu_style_kwargs(include_status_bar=True),
             accept_keys=("enter", "d", "x"),
             quit_keys=("q", "\x1b"),
-            status_bar="Enter: open  d/x: delete scope  q/Esc: back",
+            status_bar="↵ open · d/x delete scope · q/esc back",
         )
 
         choice = menu.show()
@@ -2167,7 +2168,7 @@ def _handle_environment(state: dict) -> bool:
             **terminal_menu_style_kwargs(include_status_bar=True),
             accept_keys=("enter", " "),
             quit_keys=("q", "\x1b"),
-            status_bar="Enter/Space: select  q/Esc: back",
+            status_bar="space/\u21b5 select · q/esc back",
         )
         choice = menu.show()
         if choice is None or choice == 4:

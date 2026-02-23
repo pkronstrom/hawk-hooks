@@ -112,6 +112,31 @@ def test_get_view_wrap_width_respects_env_and_bounds(monkeypatch):
     assert toggle._get_view_wrap_width() == 100
 
 
+def test_get_description_wrap_width_defaults_and_clamps_to_terminal(monkeypatch):
+    monkeypatch.delenv("HAWK_TUI_DESC_WIDTH", raising=False)
+    monkeypatch.setattr(toggle.os, "get_terminal_size", lambda: os.terminal_size((200, 40)))
+    assert toggle._get_description_wrap_width() == 96
+
+    monkeypatch.setattr(toggle.os, "get_terminal_size", lambda: os.terminal_size((80, 40)))
+    assert toggle._get_description_wrap_width() == 74
+
+
+def test_get_description_wrap_width_respects_env_and_bounds(monkeypatch):
+    monkeypatch.setattr(toggle.os, "get_terminal_size", lambda: os.terminal_size((120, 40)))
+
+    monkeypatch.setenv("HAWK_TUI_DESC_WIDTH", "72")
+    assert toggle._get_description_wrap_width() == 72
+
+    monkeypatch.setenv("HAWK_TUI_DESC_WIDTH", "20")
+    assert toggle._get_description_wrap_width() == toggle.MIN_DESC_WIDTH
+
+    monkeypatch.setenv("HAWK_TUI_DESC_WIDTH", "500")
+    assert toggle._get_description_wrap_width() == 114
+
+    monkeypatch.setenv("HAWK_TUI_DESC_WIDTH", "not-a-number")
+    assert toggle._get_description_wrap_width() == 96
+
+
 def test_get_item_description_prefers_frontmatter_description(tmp_path: Path):
     item = tmp_path / "claude.md"
     item.write_text(
@@ -138,6 +163,33 @@ def test_get_item_description_reads_hook_comment_metadata(tmp_path: Path):
 
     desc = toggle._get_item_description(item, "hooks")
     assert desc == "Blocks dangerous shell operations"
+
+
+def test_get_item_description_reads_autogen_script_description_comment(tmp_path: Path):
+    item = tmp_path / "inline-wrapper.sh"
+    item.write_text(
+        "#!/usr/bin/env bash\n"
+        "# hawk-hook: events=stop\n"
+        "# Source: hooks.json inline command\n"
+        "# Description: Block unsafe command patterns\n"
+        "echo ok\n"
+    )
+
+    desc = toggle._get_item_description(item, "hooks")
+    assert desc == "Block unsafe command patterns"
+
+
+def test_get_item_description_reads_prompt_text_from_autogen_prompt_json(tmp_path: Path):
+    item = tmp_path / "check.prompt.json"
+    item.write_text(
+        "{\n"
+        '  "prompt": "Evaluate whether this completion message is valid and safe.",\n'
+        '  "hawk-hook": {"events": ["stop"]}\n'
+        "}\n"
+    )
+
+    desc = toggle._get_item_description(item, "hooks")
+    assert desc.startswith("Evaluate whether this completion message is valid")
 
 
 def test_get_item_description_reads_mcp_command_summary(tmp_path: Path):

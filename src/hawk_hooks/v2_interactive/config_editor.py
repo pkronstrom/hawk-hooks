@@ -108,7 +108,7 @@ def run_config_editor() -> bool:
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
         lines.append("")
-        lines.append("[dim]Space/Enter: change  \u2191\u2193/jk: navigate  q: back[/dim]")
+        lines.append("[dim]space/\u21b5 change · \u2191\u2193/jk nav · q back[/dim]")
         return "\n".join(lines)
 
     def _handle_change(idx: int) -> str:
