@@ -2,7 +2,7 @@
 
 import pytest
 
-from hawk_hooks.v2_cli import _name_from_content, build_parser
+from hawk_hooks.cli import _name_from_content, build_parser
 
 
 class TestArgParsing:
@@ -338,7 +338,7 @@ class TestCmdNew:
     def test_new_hook_creates_file(self, tmp_path, monkeypatch):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_new
+        from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
@@ -358,7 +358,7 @@ class TestCmdNew:
     def test_new_hook_sh(self, tmp_path, monkeypatch):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_new
+        from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
@@ -376,7 +376,7 @@ class TestCmdNew:
     def test_new_command_creates_file(self, tmp_path, monkeypatch):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_new
+        from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
@@ -395,7 +395,7 @@ class TestCmdNew:
     def test_new_agent_creates_file(self, tmp_path, monkeypatch):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_new
+        from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
@@ -415,7 +415,7 @@ class TestCmdNew:
         import argparse
         import json
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_new
+        from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
@@ -435,7 +435,7 @@ class TestCmdNew:
     def test_new_hook_no_overwrite_without_force(self, tmp_path, monkeypatch):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_new
+        from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         (registry_dir / "hooks").mkdir(parents=True)
@@ -456,7 +456,7 @@ class TestCmdNew:
 class TestCmdMigratePrompts:
     def test_check_mode_outputs_summary(self, monkeypatch, capsys):
         import argparse
-        from hawk_hooks.v2_cli import cmd_migrate_prompts
+        from hawk_hooks.cli import cmd_migrate_prompts
 
         monkeypatch.setattr(
             "hawk_hooks.migrate_prompts.run_migrate_prompts",
@@ -472,7 +472,7 @@ class TestCmdMigratePrompts:
 
     def test_apply_mode_outputs_done(self, monkeypatch, capsys):
         import argparse
-        from hawk_hooks.v2_cli import cmd_migrate_prompts
+        from hawk_hooks.cli import cmd_migrate_prompts
 
         monkeypatch.setattr(
             "hawk_hooks.migrate_prompts.run_migrate_prompts",
@@ -493,7 +493,7 @@ class TestCmdDeps:
     def test_deps_no_hooks(self, tmp_path, monkeypatch, capsys):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_deps
+        from hawk_hooks.cli import cmd_deps
 
         registry_dir = tmp_path / "registry"
         monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
@@ -507,7 +507,7 @@ class TestCmdDeps:
     def test_deps_no_deps_found(self, tmp_path, monkeypatch, capsys):
         import argparse
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_deps
+        from hawk_hooks.cli import cmd_deps
 
         registry_dir = tmp_path / "registry"
         hooks_dir = registry_dir / "hooks"
@@ -530,7 +530,7 @@ class TestCmdScanPackageRecording:
         import argparse
 
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_scan
+        from hawk_hooks.cli import cmd_scan
 
         # Set up a scannable directory with manifest
         scan_dir = tmp_path / "my-collection"
@@ -576,7 +576,7 @@ class TestCmdScanPackageRecording:
         import argparse
 
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_scan
+        from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "loose-files"
         scan_dir.mkdir()
@@ -610,7 +610,7 @@ class TestCmdScanPackageRecording:
         import argparse
 
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_scan
+        from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
         scan_dir.mkdir()
@@ -661,7 +661,7 @@ class TestCmdPackagesSources:
         import argparse
 
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_packages
+        from hawk_hooks.cli import cmd_packages
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -718,7 +718,7 @@ class TestCmdUpdateLocalPackages:
         import argparse
 
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_update
+        from hawk_hooks.cli import cmd_update
 
         self._patch_config_paths(monkeypatch, tmp_path)
 
@@ -747,7 +747,7 @@ class TestCmdUpdateLocalPackages:
         import argparse
 
         from hawk_hooks import v2_config
-        from hawk_hooks.v2_cli import cmd_update
+        from hawk_hooks.cli import cmd_update
 
         _, registry_dir = self._patch_config_paths(monkeypatch, tmp_path)
 

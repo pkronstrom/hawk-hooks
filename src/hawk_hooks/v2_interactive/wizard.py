@@ -99,7 +99,7 @@ def _offer_builtins_install() -> None:
     """Offer to install bundled starter components as a local package."""
     from ..downloader import classify
     from ..types import ComponentType
-    from ..v2_cli import cmd_scan
+    from ..cli import cmd_scan
 
     builtins_path = _get_builtins_path()
     if not builtins_path:

@@ -382,7 +382,7 @@ class GeminiAdapter(ToolAdapter):
     ) -> Path:
         """Generate a command hook runner that injects prompt text as context."""
         import shlex
-        from ..generator import _atomic_write_executable
+        from ..runner_utils import _atomic_write_executable
 
         stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(hook_name).stem).strip("-") or "prompt"
         safe_event = re.sub(r"[^A-Za-z0-9._-]+", "-", event_name).strip("-") or "event"

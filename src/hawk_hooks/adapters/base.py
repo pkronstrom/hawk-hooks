@@ -248,7 +248,7 @@ class ToolAdapter(ABC):
         """
         from collections import defaultdict
         import shlex
-        from ..generator import _get_interpreter_path, _atomic_write_executable
+        from ..runner_utils import _get_interpreter_path, _atomic_write_executable
         from ..events import EVENTS
         from ..hook_meta import parse_hook_meta
 

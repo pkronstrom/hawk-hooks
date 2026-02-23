@@ -113,6 +113,11 @@ def test_wizard_next_steps_do_not_recommend_manual_sync(v2_env, monkeypatch):
 
     monkeypatch.setattr(wizard, "get_adapter", lambda _tool: _AdapterStub())
     monkeypatch.setattr(wizard, "_offer_builtins_install", lambda: None)
+    monkeypatch.setattr(
+        wizard,
+        "TerminalMenu",
+        type("TerminalMenuStub", (), {"__init__": lambda self, *a, **k: None, "show": lambda self: 0}),
+    )
     monkeypatch.setattr(wizard.console, "input", lambda *_args, **_kwargs: "")
     monkeypatch.setattr(wizard.console, "print", _capture_print)
 

@@ -1329,7 +1329,7 @@ def _handle_packages(state: dict) -> bool:
             if key == "U":
                 live.stop()
                 console.print("\n[bold]Updating all packages...[/bold]")
-                from ..v2_cli import cmd_update
+                from ..cli import cmd_update
 
                 class _ArgsAll:
                     package = None
@@ -1369,7 +1369,7 @@ def _handle_packages(state: dict) -> bool:
 
                     live.stop()
                     console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
-                    from ..v2_cli import cmd_update
+                    from ..cli import cmd_update
 
                     class _Args:
                         package = pkg_name
@@ -1402,7 +1402,7 @@ def _handle_packages(state: dict) -> bool:
                     confirm = readchar.readkey()
                     console.print()
                     if confirm.lower() == "y":
-                        from ..v2_cli import cmd_remove_package
+                        from ..cli import cmd_remove_package
 
                         class _RmArgs:
                             name = pkg_name
@@ -1797,7 +1797,7 @@ def _install_from_package_lock(state: dict, lock_path: Path | None) -> bool:
         return False
 
     import yaml
-    from ..v2_cli import cmd_download
+    from ..cli import cmd_download
 
     try:
         data = yaml.safe_load(lock_path.read_text()) or {}
@@ -2070,7 +2070,7 @@ def _handle_download() -> None:
         return
 
     import sys
-    from ..v2_cli import cmd_download
+    from ..cli import cmd_download
 
     class Args:
         pass

@@ -39,7 +39,7 @@ dev = [
 
 [project.scripts]
 hawk-hooks = "hawk_hooks.cli:main"
-hawk = "hawk_hooks.v2_cli:main_v2"
+hawk = "hawk_hooks.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hawk_hooks", "src/rich_menu"]

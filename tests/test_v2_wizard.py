@@ -54,7 +54,7 @@ def test_offer_builtins_install_uses_scan(v2_env, tmp_path, monkeypatch):
     monkeypatch.setattr(wizard, "_get_builtins_path", lambda: builtins_dir)
     monkeypatch.setattr(wizard, "TerminalMenu", _MenuAccept)
 
-    import hawk_hooks.v2_cli as v2_cli
+    import hawk_hooks.cli as v2_cli
 
     def _fake_scan(args):
         captured["args"] = args
@@ -82,7 +82,7 @@ def test_offer_builtins_install_decline_skips_scan(v2_env, tmp_path, monkeypatch
     monkeypatch.setattr(wizard, "_get_builtins_path", lambda: builtins_dir)
     monkeypatch.setattr(wizard, "TerminalMenu", _MenuDecline)
 
-    import hawk_hooks.v2_cli as v2_cli
+    import hawk_hooks.cli as v2_cli
 
     def _fake_scan(args):
         called["scan"] = True
@@ -100,7 +100,7 @@ def test_run_wizard_no_git_download_prompt(v2_env, monkeypatch):
     monkeypatch.setattr(wizard, "_offer_builtins_install", lambda: None)
     monkeypatch.setattr(wizard.console, "input", lambda *_args, **_kwargs: "")
 
-    import hawk_hooks.v2_cli as v2_cli
+    import hawk_hooks.cli as v2_cli
 
     def _unexpected_download(_args):
         raise AssertionError("wizard should not invoke cmd_download during first-run")
