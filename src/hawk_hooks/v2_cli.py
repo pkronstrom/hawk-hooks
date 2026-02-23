@@ -34,7 +34,7 @@ def _print(msg: str = "") -> None:
 def cmd_init(args):
     """Initialize a directory for hawk management."""
     from . import v2_config
-    from .v2_sync import sync_directory
+    from .v2_sync import format_sync_results, sync_directory
 
     project_dir = Path(args.dir).resolve() if args.dir else Path.cwd().resolve()
 
@@ -76,11 +76,24 @@ def cmd_init(args):
     print(f"Registered in global index.")
 
     total_linked = sum(len(r.linked) for r in results)
-    if total_linked:
-        print(f"\nSynced {total_linked} component(s):")
-        for r in results:
-            if r.linked:
-                print(f"  {r.tool}: {', '.join(r.linked)}")
+    total_unlinked = sum(len(r.unlinked) for r in results)
+    total_skipped = sum(len(r.skipped) for r in results)
+    total_errors = sum(len(r.errors) for r in results)
+
+    if total_linked or total_unlinked or total_skipped or total_errors:
+        parts: list[str] = []
+        if total_linked:
+            parts.append(f"+{total_linked} linked")
+        if total_unlinked:
+            parts.append(f"-{total_unlinked} unlinked")
+        if total_skipped:
+            parts.append(f"~{total_skipped} skipped")
+        if total_errors:
+            parts.append(f"!{total_errors} errors")
+        print(f"\nSync summary: {', '.join(parts)}")
+        print(format_sync_results({str(project_dir): results}, verbose=getattr(args, "verbose", False)))
+    else:
+        print("\nSync summary: no changes")
 
     print("\nNext steps:")
     print("  hawk add skill <path>   # Add skills to registry")
@@ -1801,6 +1814,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_p.add_argument("--profile", help="Profile to use")
     init_p.add_argument("--dir", help="Directory to initialize (default: cwd)")
     init_p.add_argument("--force", action="store_true", help="Reinitialize if exists")
+    init_p.add_argument("-v", "--verbose", action="store_true", help="Show per-item sync details")
     init_p.set_defaults(func=cmd_init)
 
     # sync
