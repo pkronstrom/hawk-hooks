@@ -12,7 +12,7 @@ def test_set_project_theme_selects_known_project_palette():
 def test_set_project_theme_uses_path_name():
     selected = theme.set_project_theme("/tmp/goose-scripts")
     assert selected.name == "goose-scripts"
-    assert selected.accent_term == "fg_cyan"
+    assert selected.accent_term == "fg_yellow"
 
 
 def test_set_project_theme_honors_env_override(monkeypatch):

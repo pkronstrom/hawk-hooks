@@ -37,7 +37,7 @@ _BASE_THEME = TuiTheme(
     warning_rich="color(136)",  # ochre
     error_rich="color(124)",   # brick red
     muted_rich="grey50",
-    accent_term="fg_cyan",
+    accent_term="fg_yellow",
     info_term="fg_blue",
     warning_term="fg_yellow",
     error_term="fg_red",
@@ -87,13 +87,13 @@ _THEMES: dict[str, TuiTheme] = {
     ),
     "goose-scripts": TuiTheme(
         name="goose-scripts",
-        accent_rich="color(31)",    # river teal
+        accent_rich="color(130)",   # warm editorial rust
         info_rich="color(24)",
-        success_rich="color(30)",
+        success_rich="color(28)",
         warning_rich="color(136)",
         error_rich="color(124)",
         muted_rich="grey50",
-        accent_term="fg_cyan",
+        accent_term="fg_yellow",
         info_term="fg_blue",
         warning_term="fg_yellow",
         error_term="fg_red",

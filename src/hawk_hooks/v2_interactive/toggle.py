@@ -40,6 +40,8 @@ ACTION_SELECT_ALL = "__select_all__"
 ACTION_SELECT_NONE = "__select_none__"
 ACTION_ADD = "__add__"
 ACTION_DONE = "__done__"
+DEFAULT_VIEW_WIDTH = 100
+MIN_VIEW_WIDTH = 40
 
 
 def _get_terminal_height() -> int:
@@ -47,6 +49,34 @@ def _get_terminal_height() -> int:
         return os.get_terminal_size().lines
     except OSError:
         return 24
+
+
+def _get_terminal_width(default: int = 120) -> int:
+    """Return terminal columns with a safe fallback."""
+    try:
+        cols = os.get_terminal_size().columns
+        return cols if cols > 0 else default
+    except OSError:
+        return default
+
+
+def _get_view_wrap_width() -> int:
+    """Return viewer wrap width from env + terminal bounds.
+
+    Uses HAWK_VIEW_WIDTH when valid, otherwise DEFAULT_VIEW_WIDTH.
+    Final width is clamped to terminal width - 2 and MIN_VIEW_WIDTH.
+    """
+    raw = (os.environ.get("HAWK_VIEW_WIDTH") or "").strip()
+    target = DEFAULT_VIEW_WIDTH
+    if raw:
+        try:
+            target = int(raw)
+        except ValueError:
+            target = DEFAULT_VIEW_WIDTH
+
+    terminal_cap = max(MIN_VIEW_WIDTH, _get_terminal_width() - 2)
+    target = max(MIN_VIEW_WIDTH, target)
+    return min(target, terminal_cap)
 
 
 def _calculate_visible_range(
@@ -227,7 +257,7 @@ def _view_in_terminal(path: Path) -> None:
 
     # Render to string with ANSI codes
     buf = StringIO()
-    render_console = RichConsole(file=buf, force_terminal=True)
+    render_console = RichConsole(file=buf, force_terminal=True, width=_get_view_wrap_width())
     render_console.print(f"[bold]{path.name}[/bold]")
     render_console.print("[dim]\u2500" * 50 + "[/dim]\n")
 
@@ -235,7 +265,9 @@ def _view_in_terminal(path: Path) -> None:
         render_console.print(Markdown(content))
     else:
         lexer = SYNTAX_LEXERS.get(path.suffix, "text")
-        render_console.print(Syntax(content, lexer, theme="monokai", line_numbers=True))
+        render_console.print(
+            Syntax(content, lexer, theme="monokai", line_numbers=True, word_wrap=True)
+        )
 
     rendered = buf.getvalue()
 
@@ -514,14 +546,17 @@ def run_toggle_list(
                 elif is_changed:
                     mark = f"[{warning}]\u25cb[/{warning}]"
                 else:
-                    mark = "\u25cb"
+                    mark = "[dim]\u25cb[/dim]"
 
                 if is_cur:
-                    style, end_style = "[bold]", "[/bold]"
+                    if is_checked:
+                        style, end_style = "[bold white]", "[/bold white]"
+                    else:
+                        style, end_style = "[bold dim]", "[/bold dim]"
                 elif is_checked:
-                    style, end_style = "", ""
+                    style, end_style = "[white]", "[/white]"
                 else:
-                    style, end_style = "", ""
+                    style, end_style = "[dim]", "[/dim]"
 
                 # Indent items under groups
                 indent = "  " if groups else ""
