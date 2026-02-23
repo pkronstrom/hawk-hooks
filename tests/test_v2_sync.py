@@ -1,5 +1,7 @@
 """Tests for v2 sync engine."""
 
+import json
+
 import pytest
 
 from hawk_hooks import v2_config
@@ -91,6 +93,30 @@ class TestSyncGlobal:
         # But no actual symlinks should exist
         assert not (claude_dir / "skills" / "tdd").exists()
 
+    def test_sync_global_writes_mcp_to_user_scope_file(self, v2_env, tmp_path, monkeypatch):
+        claude_dir = tmp_path / "home" / ".claude"
+        claude_dir.mkdir(parents=True)
+
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        mcp_dir = v2_env["registry_path"] / "mcp"
+        mcp_dir.mkdir(parents=True, exist_ok=True)
+        (mcp_dir / "dodo.json").write_text('{"command":"dodo","args":["mcp"]}')
+
+        cfg = v2_config.load_global_config()
+        cfg["global"]["mcp"] = ["dodo.json"]
+        v2_config.save_global_config(cfg)
+
+        sync_global(tools=[Tool.CLAUDE], force=True)
+
+        user_mcp = claude_dir.parent / ".claude.json"
+        assert user_mcp.exists()
+        data = json.loads(user_mcp.read_text())
+        assert "dodo" in data["mcpServers"]
+        assert not (claude_dir / ".mcp.json").exists()
+
 
 class TestSyncDirectory:
     def test_sync_project(self, v2_env, tmp_path, monkeypatch):
@@ -121,6 +147,26 @@ class TestSyncDirectory:
 
         results = sync_directory(project, tools=[Tool.CLAUDE])
         assert len(results) == 1
+
+    def test_sync_directory_writes_mcp_to_project_root(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+
+        mcp_dir = v2_env["registry_path"] / "mcp"
+        mcp_dir.mkdir(parents=True, exist_ok=True)
+        (mcp_dir / "dodo.json").write_text('{"command":"dodo","args":["mcp"]}')
+
+        cfg = v2_config.load_global_config()
+        cfg["global"]["mcp"] = ["dodo.json"]
+        v2_config.save_global_config(cfg)
+
+        sync_directory(project, tools=[Tool.CLAUDE], force=True)
+
+        project_mcp = project / ".mcp.json"
+        assert project_mcp.exists()
+        data = json.loads(project_mcp.read_text())
+        assert "dodo" in data["mcpServers"]
+        assert not (project / ".claude" / ".mcp.json").exists()
 
 
 class TestSyncDirectoryWithChain:

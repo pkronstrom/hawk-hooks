@@ -186,12 +186,27 @@ class ClaudeAdapter(ToolAdapter):
         servers: dict[str, dict],
         target_dir: Path,
     ) -> None:
-        """Merge hawk-managed MCP servers into .mcp.json."""
-        self._merge_mcp_json(target_dir / ".mcp.json", servers)
+        """Merge hawk-managed MCP servers into the scope-appropriate config."""
+        self._merge_mcp_json(self._mcp_config_path(target_dir), servers)
 
     def read_mcp_config(self, target_dir: Path) -> dict[str, dict]:
-        """Read current MCP config, returning only hawk-managed entries."""
-        return self._read_mcp_json(target_dir / ".mcp.json")
+        """Read current MCP config for the scope, returning hawk-managed entries."""
+        return self._read_mcp_json(self._mcp_config_path(target_dir))
+
+    def _mcp_config_path(self, target_dir: Path) -> Path:
+        """Resolve Claude MCP config path for global vs project scope.
+
+        Global sync target is ``~/.claude`` and must write ``~/.claude.json``.
+        Project sync target is ``<project>/.claude`` and must write
+        ``<project>/.mcp.json``.
+        """
+        try:
+            is_global = target_dir.resolve() == self.get_global_dir().resolve()
+        except OSError:
+            is_global = False
+        if is_global:
+            return self.get_global_dir().parent / ".claude.json"
+        return target_dir.parent / ".mcp.json"
 
     # ── Hook helpers ──
 

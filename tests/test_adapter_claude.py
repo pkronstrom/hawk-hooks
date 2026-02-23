@@ -68,8 +68,10 @@ class TestClaudeAdapter:
 
 
 class TestClaudeMCP:
-    def test_write_mcp_new_file(self, adapter, tmp_path):
-        target = tmp_path / "claude"
+    def test_write_mcp_project_scope_new_file(self, adapter, tmp_path):
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        target = project_dir / ".claude"
         target.mkdir()
 
         servers = {
@@ -77,19 +79,33 @@ class TestClaudeMCP:
         }
         adapter.write_mcp_config(servers, target)
 
-        mcp_path = target / ".mcp.json"
+        mcp_path = project_dir / ".mcp.json"
         assert mcp_path.exists()
 
         data = json.loads(mcp_path.read_text())
         assert "github" in data["mcpServers"]
         assert data["mcpServers"]["github"][HAWK_MCP_MARKER] is True
 
+    def test_write_mcp_global_scope_writes_claude_json(self, adapter, tmp_path, monkeypatch):
+        global_dir = tmp_path / "home" / ".claude"
+        global_dir.mkdir(parents=True)
+        monkeypatch.setattr(adapter, "get_global_dir", lambda: global_dir)
+
+        adapter.write_mcp_config({"github": {"command": "gh-mcp"}}, global_dir)
+
+        mcp_path = global_dir.parent / ".claude.json"
+        assert mcp_path.exists()
+        data = json.loads(mcp_path.read_text())
+        assert "github" in data["mcpServers"]
+
     def test_preserves_manual_entries(self, adapter, tmp_path):
-        target = tmp_path / "claude"
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        target = project_dir / ".claude"
         target.mkdir()
 
         # Write manual entry first
-        mcp_path = target / ".mcp.json"
+        mcp_path = project_dir / ".mcp.json"
         mcp_path.write_text(json.dumps({
             "mcpServers": {
                 "manual-server": {"command": "manual", "args": []},
@@ -107,7 +123,9 @@ class TestClaudeMCP:
         assert HAWK_MCP_MARKER not in data["mcpServers"]["manual-server"]
 
     def test_replaces_old_hawk_entries(self, adapter, tmp_path):
-        target = tmp_path / "claude"
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        target = project_dir / ".claude"
         target.mkdir()
 
         # First write
@@ -116,16 +134,18 @@ class TestClaudeMCP:
         # Second write with different servers
         adapter.write_mcp_config({"new-server": {"command": "new"}}, target)
 
-        data = json.loads((target / ".mcp.json").read_text())
+        data = json.loads((project_dir / ".mcp.json").read_text())
         assert "old-server" not in data["mcpServers"]
         assert "new-server" in data["mcpServers"]
 
-    def test_read_mcp_config(self, adapter, tmp_path):
-        target = tmp_path / "claude"
+    def test_read_mcp_config_project_scope(self, adapter, tmp_path):
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        target = project_dir / ".claude"
         target.mkdir()
 
         # Write mixed config
-        mcp_path = target / ".mcp.json"
+        mcp_path = project_dir / ".mcp.json"
         mcp_path.write_text(json.dumps({
             "mcpServers": {
                 "manual": {"command": "manual"},
@@ -137,14 +157,33 @@ class TestClaudeMCP:
         assert "hawk-managed" in hawk_entries
         assert "manual" not in hawk_entries
 
+    def test_read_mcp_config_global_scope(self, adapter, tmp_path, monkeypatch):
+        global_dir = tmp_path / "home" / ".claude"
+        global_dir.mkdir(parents=True)
+        monkeypatch.setattr(adapter, "get_global_dir", lambda: global_dir)
+
+        mcp_path = global_dir.parent / ".claude.json"
+        mcp_path.write_text(json.dumps({
+            "mcpServers": {
+                "manual": {"command": "manual"},
+                "hawk-managed": {"command": "hawk", HAWK_MCP_MARKER: True},
+            }
+        }))
+
+        hawk_entries = adapter.read_mcp_config(global_dir)
+        assert "hawk-managed" in hawk_entries
+        assert "manual" not in hawk_entries
+
     def test_handles_corrupt_mcp(self, adapter, tmp_path):
-        target = tmp_path / "claude"
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        target = project_dir / ".claude"
         target.mkdir()
-        (target / ".mcp.json").write_text("not json")
+        (project_dir / ".mcp.json").write_text("not json")
 
         # Should not raise
         adapter.write_mcp_config({"test": {"command": "test"}}, target)
-        data = json.loads((target / ".mcp.json").read_text())
+        data = json.loads((project_dir / ".mcp.json").read_text())
         assert "test" in data["mcpServers"]
 
 
