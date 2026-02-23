@@ -2,7 +2,7 @@
 
 Date: 2026-02-23
 Owner: hawk-hooks
-Status: In progress (Phase 1 completed)
+Status: undone (in progress, Phase 1 completed)
 
 ## Terminology (recommended)
 
@@ -186,7 +186,7 @@ New/updated test cases:
 3. Config ownership collisions with user-managed files.
    - Mitigation: preserve manual entries and surface clear skip/errors.
 
-## Execution Checklist
+## TODO / Execution Checklist
 
 - [x] Phase 1 capability verification complete.
 - [ ] Cursor mapping decisions finalized.

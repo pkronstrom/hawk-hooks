@@ -1,5 +1,14 @@
 # owl-afk + hawk-hooks v2 Integration Design
 
+Status: undone
+
+## TODO Checklist
+
+- [ ] Add `hooks/` wrappers to the `owl-afk` repository with `hawk-hook:` metadata.
+- [ ] Update `owl hawk install` to detect hawk v2 and delegate to `hawk scan` + `hawk sync`.
+- [ ] Update uninstall + detection paths (`check_hooks_installed`, setup wizard).
+- [ ] Validate end-to-end install/update/uninstall UX across v2, v1 fallback, and standalone modes.
+
 ## Context
 
 owl-afk currently integrates with hawk-hooks v1 by writing shell wrapper scripts

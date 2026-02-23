@@ -1,5 +1,7 @@
 # v2 Completion Plan
 
+Status: done
+
 ## Current Status (2026-02-22)
 
 Branch `v2` — completion pass in progress with A/B/C/D/E implemented.
@@ -27,6 +29,13 @@ Branch `v2` — completion pass in progress with A/B/C/D/E implemented.
 | Gap | Plan Reference | Current State |
 |-----|---------------|---------------|
 | Builtins | `hawk-hook-format-plan.md:354` | Curated to 4 hooks (plan had 15) — intentional reduction |
+
+## TODO Checklist
+
+- [x] Complete phases A/B/C/D/E.
+- [x] Reconcile plan docs and v2-first architecture notes.
+- [x] Run completion-pass verification suite and capture results.
+- [x] Record builtins scope reduction as an intentional, accepted deviation.
 
 ---
 

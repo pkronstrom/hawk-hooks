@@ -2,7 +2,7 @@
 
 Date: 2026-02-23
 Owner: hawk-hooks
-Status: Draft (implementation-ready)
+Status: undone (partially implemented)
 
 ## Objective
 
@@ -220,17 +220,17 @@ Exit criteria:
 5. `test_package_remove_refreshes_contents`
 6. `test_one_time_setup_block_only_when_required`
 
-## Execution Checklist
+## TODO / Execution Checklist
 
-- [ ] Update `_build_header` copy contract.
-- [ ] Remove top-level `Registry` option and dispatcher branch.
-- [ ] Implement package ownership map builder.
-- [ ] Implement grouped package tree (`package -> type -> items`).
-- [ ] Implement collapse state management.
-- [ ] Implement row flatten + render.
-- [ ] Wire row-kind key handling and action dispatch.
-- [ ] Add `Ungrouped` guardrails (`u`, `x/d` no-op with message).
-- [ ] Ensure dirty + auto-sync integration after mutating actions.
+- [x] Update `_build_header` copy contract.
+- [x] Remove top-level `Registry` option and dispatcher branch.
+- [x] Implement package ownership map builder.
+- [x] Implement grouped package tree (`package -> type -> items`).
+- [x] Implement collapse state management.
+- [x] Implement row flatten + render.
+- [x] Wire row-kind key handling and action dispatch.
+- [x] Add `Ungrouped` guardrails (`u`, `x/d` no-op with message).
+- [x] Ensure dirty + auto-sync integration after mutating actions.
 - [ ] Add/adjust tests listed above.
 - [ ] Run: `uv run pytest -q tests/test_v2_dashboard.py tests/test_v2_sync.py tests/test_adapter_codex.py`.
 - [ ] Manual TUI verification (global + local scope).
