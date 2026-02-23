@@ -88,7 +88,7 @@ if "readchar" not in sys.modules:
 
 dashboard = importlib.import_module("hawk_hooks.v2_interactive.dashboard")
 
-from hawk_hooks.types import SyncResult, Tool
+from hawk_hooks.types import ComponentType, SyncResult, Tool
 
 
 def _minimal_state() -> dict:
@@ -132,6 +132,33 @@ def test_build_menu_options_hides_codex_setup_item_when_not_required():
 
     options = dashboard._build_menu_options(state)
     assert not any(action == "codex_multi_agent_setup" for _, action in options)
+
+
+def test_build_menu_options_shows_missing_components_item_when_required():
+    state = _minimal_state()
+    state["missing_components_required"] = True
+    state["missing_components_total"] = 3
+
+    options = dashboard._build_menu_options(state)
+    assert any(action == "resolve_missing_components" for _, action in options)
+
+
+def test_compute_missing_components_treats_mcp_yaml_as_present():
+    resolved = SimpleNamespace(
+        skills=["python-core-reviewer.md"],
+        hooks=[],
+        prompts=["deploy.md"],
+        agents=[],
+        mcp=["goose"],
+    )
+    contents = {
+        ComponentType.SKILL: [],
+        ComponentType.PROMPT: ["deploy.md"],
+        ComponentType.MCP: ["goose.yaml"],
+    }
+
+    missing = dashboard._compute_missing_components(resolved, contents)
+    assert missing == {"skills": ["python-core-reviewer.md"]}
 
 
 def test_codex_setup_prompt_sets_granted(monkeypatch):
