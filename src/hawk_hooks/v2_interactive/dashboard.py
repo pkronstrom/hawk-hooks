@@ -396,6 +396,11 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     else:
         options.append(("Packages       (none installed)", "packages"))
 
+    unsynced = int(state.get("unsynced_targets", 0) or 0)
+    total_targets = int(state.get("sync_targets_total", 0) or 0)
+    if unsynced > 0:
+        options.append((f"Sync now       {unsynced} pending of {total_targets}", "sync_now"))
+
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
     options.append(("Environment", "environment"))
@@ -2246,6 +2251,9 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             if _handle_component_toggle(state, action):
                 dirty = True
                 dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
+
+        elif action == "sync_now":
+            _handle_sync(state)
 
         elif action == "codex_multi_agent_setup":
             if _handle_codex_multi_agent_setup(state):

@@ -104,14 +104,25 @@ def _minimal_state() -> dict:
     }
 
 
-def test_build_menu_options_has_no_manual_sync_entry():
+def test_build_menu_options_hides_sync_now_when_clean():
     options = dashboard._build_menu_options(_minimal_state())
-    assert not any(action == "sync" for _, action in options)
+    assert not any(action == "sync_now" for _, action in options)
     assert any(action == "environment" for _, action in options)
     assert not any(action == "registry" for _, action in options)
     assert not any(action == "tools" for _, action in options)
     assert not any(action == "projects" for _, action in options)
     assert not any(action == "settings" for _, action in options)
+
+
+def test_build_menu_options_shows_sync_now_when_unsynced():
+    state = _minimal_state()
+    state["unsynced_targets"] = 3
+    state["sync_targets_total"] = 6
+
+    options = dashboard._build_menu_options(state)
+    sync_rows = [(label, action) for label, action in options if action == "sync_now"]
+    assert len(sync_rows) == 1
+    assert "3 pending of 6" in sync_rows[0][0]
 
 
 def test_build_menu_options_shows_codex_setup_item_when_required():
@@ -242,6 +253,42 @@ def test_auto_sync_after_change_keeps_dirty_on_errors(monkeypatch):
 
     dirty_after = dashboard._apply_auto_sync_if_needed(True)
     assert dirty_after is True
+
+
+def test_run_dashboard_dispatches_sync_now(monkeypatch):
+    first_state = _minimal_state()
+    first_state["unsynced_targets"] = 2
+    first_state["sync_targets_total"] = 3
+
+    second_state = _minimal_state()
+    second_state["unsynced_targets"] = 0
+    second_state["sync_targets_total"] = 3
+
+    states = [first_state, second_state]
+
+    def _fake_load(_scope_dir=None):
+        if states:
+            return states.pop(0)
+        return second_state
+
+    calls: list[dict] = []
+
+    def _fake_handle_sync(state):
+        calls.append(state)
+
+    selections = [8, None]  # Sync now row index for default menu layout
+
+    monkeypatch.setattr(dashboard, "_load_state", _fake_load)
+    monkeypatch.setattr(dashboard, "_handle_sync", _fake_handle_sync)
+    monkeypatch.setattr(dashboard, "_run_main_menu", lambda *_args, **_kwargs: selections.pop(0))
+    monkeypatch.setattr(dashboard, "set_project_theme", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(dashboard, "_prompt_sync_on_exit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(dashboard.console, "clear", lambda: None)
+
+    dashboard.run_dashboard()
+
+    assert len(calls) == 1
+    assert calls[0]["unsynced_targets"] == 2
 
 
 def test_delete_project_scope_unregisters_and_keeps_local_hawk(tmp_path, monkeypatch):
