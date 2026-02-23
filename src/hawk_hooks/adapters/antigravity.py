@@ -5,6 +5,20 @@ Antigravity is Google's agentic IDE. It uses:
 - mcp_config.json for MCP servers
 - Project-level: <project>/.antigravity/ or workspace settings
 - Global: ~/.gemini/antigravity/
+
+Capability verification notes (2026-02-23):
+- Verified (official Google docs):
+  - MCP file + workflow in Antigravity: `~/.gemini/antigravity/mcp_config.json`
+    https://firebase.google.com/docs/studio/agentic-dev#add-mcp-server
+- Not yet verified with first-party Antigravity docs:
+  - Prompt/command file conventions
+  - Hook event contracts
+  - Agent-definition file contracts
+
+Current adapter stance:
+- Keep hooks unsupported until first-party event docs are available.
+- Keep existing skill + MCP mappings; treat non-MCP advanced integrations as
+  follow-up work after capability verification.
 """
 
 from __future__ import annotations

@@ -42,3 +42,9 @@ class TestCursorMCP:
         adapter.write_mcp_config({"gh": {"command": "gh-mcp"}}, target)
         data = json.loads((target / "mcp.json").read_text())
         assert "gh" in data["mcpServers"]
+
+
+class TestCursorPrompts:
+    def test_prompts_map_to_commands_dir(self, adapter, tmp_path):
+        target = tmp_path / ".cursor"
+        assert adapter.get_prompts_dir(target) == target / "commands"
