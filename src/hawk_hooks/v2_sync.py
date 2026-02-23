@@ -685,7 +685,7 @@ def format_sync_results(
             if result.linked:
                 parts.append(f"+{len(result.linked)} linked")
             if result.unlinked:
-                parts.append(f"-{len(result.unlinked)} unlinked")
+                parts.append(f"{len(result.unlinked)} removed")
             if result.skipped:
                 parts.append(f"~{len(result.skipped)} skipped")
             if result.errors:

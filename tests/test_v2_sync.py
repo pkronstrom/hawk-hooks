@@ -565,12 +565,17 @@ class TestFormatResults:
     def test_format_with_changes_compact(self):
         results = {
             "global": [
-                SyncResult(tool="claude", linked=["skill:tdd", "command:deploy.md"]),
+                SyncResult(
+                    tool="claude",
+                    linked=["skill:tdd", "command:deploy.md"],
+                    unlinked=["prompt:old.md"],
+                ),
             ]
         }
         output = format_sync_results(results, verbose=False)
         assert "claude" in output
         assert "+2 linked" in output
+        assert "1 removed" in output
         assert "skill:tdd" not in output
 
     def test_format_with_changes_verbose(self):
