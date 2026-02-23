@@ -605,6 +605,257 @@ class TestCmdScanPackageRecording:
         packages = v2_config.load_packages()
         assert len(packages) == 0
 
+    def test_scan_records_existing_clashing_items_in_package(self, tmp_path, monkeypatch):
+        """Package record includes selected clashes already present in registry."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.cli import cmd_scan
+
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text(
+            "name: test-pkg\ndescription: Test\nversion: '1.0'\n"
+        )
+        (scan_dir / "mcp").mkdir()
+        (scan_dir / "mcp" / "figma.json").write_text("{}\n")
+        (scan_dir / "mcp" / "linear.json").write_text("{}\n")
+        (scan_dir / "mcp" / "goose.json").write_text("{}\n")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "mcp").mkdir(parents=True)
+        # Seed existing entries so scan sees clashes for figma/linear.
+        (registry_dir / "mcp" / "figma.json").write_text("{}\n")
+        (registry_dir / "mcp" / "linear.json").write_text("{}\n")
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        packages = v2_config.load_packages()
+        assert "test-pkg" in packages
+        item_names = {
+            item["name"] for item in packages["test-pkg"]["items"]
+            if item["type"] == "mcp"
+        }
+        assert item_names == {"figma.json", "linear.json", "goose.json"}
+
+    def test_scan_all_clashes_still_records_package(self, tmp_path, monkeypatch):
+        """Scan can re-associate an existing package even with zero additions."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.cli import cmd_scan
+
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text("name: test-pkg\n")
+        (scan_dir / "mcp").mkdir()
+        (scan_dir / "mcp" / "figma.json").write_text("{}\n")
+        (scan_dir / "mcp" / "linear.json").write_text("{}\n")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "mcp").mkdir(parents=True)
+        (registry_dir / "mcp" / "figma.json").write_text("{}\n")
+        (registry_dir / "mcp" / "linear.json").write_text("{}\n")
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        packages = v2_config.load_packages()
+        assert "test-pkg" in packages
+        item_names = {
+            item["name"] for item in packages["test-pkg"]["items"]
+            if item["type"] == "mcp"
+        }
+        assert item_names == {"figma.json", "linear.json"}
+
+    def test_scan_checks_conflicts_for_clashing_selected_package(self, tmp_path, monkeypatch):
+        """Source-type conflict check covers selected package clashes too."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.cli import cmd_scan
+
+        scan_dir = tmp_path / "scan-root"
+        scan_dir.mkdir()
+        pkg_a = scan_dir / "pkg-a"
+        pkg_b = scan_dir / "pkg-b"
+        pkg_a.mkdir()
+        pkg_b.mkdir()
+
+        (pkg_a / "hawk-package.yaml").write_text("name: git-pkg\n")
+        (pkg_a / "mcp").mkdir()
+        (pkg_a / "mcp" / "figma.json").write_text("{}\n")
+
+        (pkg_b / "hawk-package.yaml").write_text("name: local-pkg\n")
+        (pkg_b / "mcp").mkdir()
+        (pkg_b / "mcp" / "goose.json").write_text("{}\n")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "mcp").mkdir(parents=True)
+        # Seed clash for git-pkg item.
+        (registry_dir / "mcp" / "figma.json").write_text("{}\n")
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        v2_config.save_packages({
+            "git-pkg": {
+                "url": "https://github.com/acme/git-pkg.git",
+                "installed": "2026-02-21",
+                "commit": "abc1234",
+                "items": [],
+            }
+        })
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        with pytest.raises(SystemExit) as e:
+            cmd_scan(args)
+        assert e.value.code == 1
+        assert not (registry_dir / "mcp" / "goose.json").exists()
+
+    def test_scan_does_not_steal_item_owned_by_other_package(self, tmp_path, monkeypatch):
+        """Clashing items owned by another package stay with their owner."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.cli import cmd_scan
+
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text("name: new-pkg\n")
+        (scan_dir / "mcp").mkdir()
+        (scan_dir / "mcp" / "figma.json").write_text("{}\n")
+        (scan_dir / "mcp" / "goose.json").write_text("{}\n")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "mcp").mkdir(parents=True)
+        (registry_dir / "mcp" / "figma.json").write_text("{}\n")
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        v2_config.save_packages({
+            "old-pkg": {
+                "url": "https://github.com/acme/old-pkg.git",
+                "installed": "2026-02-21",
+                "commit": "abc1234",
+                "items": [{"type": "mcp", "name": "figma.json", "hash": "deadbeef"}],
+            }
+        })
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        packages = v2_config.load_packages()
+        assert "old-pkg" in packages
+        assert "new-pkg" in packages
+
+        old_names = {
+            item["name"] for item in packages["old-pkg"]["items"]
+            if item["type"] == "mcp"
+        }
+        new_names = {
+            item["name"] for item in packages["new-pkg"]["items"]
+            if item["type"] == "mcp"
+        }
+        assert old_names == {"figma.json"}
+        assert new_names == {"goose.json"}
+
+    def test_scan_skips_unowned_clash_when_content_differs(self, tmp_path, monkeypatch):
+        """Unowned clashing items are only claimed when contents match."""
+        import argparse
+
+        from hawk_hooks import v2_config
+        from hawk_hooks.cli import cmd_scan
+
+        scan_dir = tmp_path / "my-collection"
+        scan_dir.mkdir()
+        (scan_dir / "hawk-package.yaml").write_text("name: new-pkg\n")
+        (scan_dir / "mcp").mkdir()
+        (scan_dir / "mcp" / "figma.json").write_text('{"scan":"value"}\n')
+        (scan_dir / "mcp" / "goose.json").write_text("{}\n")
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        (registry_dir / "mcp").mkdir(parents=True)
+        # Same name, different content than scanned file.
+        (registry_dir / "mcp" / "figma.json").write_text('{"registry":"value"}\n')
+
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        args = argparse.Namespace(
+            path=str(scan_dir),
+            all=True,
+            replace=False,
+            depth=5,
+            no_enable=True,
+        )
+
+        cmd_scan(args)
+
+        packages = v2_config.load_packages()
+        assert "new-pkg" in packages
+        new_names = {
+            item["name"] for item in packages["new-pkg"]["items"]
+            if item["type"] == "mcp"
+        }
+        assert new_names == {"goose.json"}
+
     def test_scan_rejects_source_type_conflict(self, tmp_path, monkeypatch, capsys):
         """hawk scan refuses package source-type replacement (git -> local)."""
         import argparse

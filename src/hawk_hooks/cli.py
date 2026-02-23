@@ -183,18 +183,15 @@ def cmd_status(args):
                     print(f"  {dir_name}:  {', '.join(parts)}")
 
             # Build dir_chain for resolve
-            from .v2_sync import _load_profile_for_dir
-            dir_chain: list[tuple[dict, dict | None]] = []
-            for chain_dir, chain_config in config_chain:
-                profile_name = _load_profile_for_dir(chain_config, chain_dir, cfg)
-                profile = v2_config.load_profile(profile_name) if profile_name else None
-                dir_chain.append((chain_config, profile))
+            from .scope_resolution import build_resolver_dir_chain
+
+            dir_chain = build_resolver_dir_chain(project_dir, cfg=cfg)
             resolved = resolve(cfg, dir_chain=dir_chain)
         else:
-            dir_config = v2_config.load_dir_config(project_dir)
-            profile_name = dir_config.get("profile") if dir_config else None
-            profile = v2_config.load_profile(profile_name) if profile_name else None
-            resolved = resolve(cfg, profile=profile, dir_config=dir_config)
+            from .scope_resolution import build_resolver_dir_chain
+
+            dir_chain = build_resolver_dir_chain(project_dir, cfg=cfg)
+            resolved = resolve(cfg, dir_chain=dir_chain) if dir_chain else resolve(cfg)
 
         print(f"\nResolved for {project_dir}:")
     else:
@@ -512,21 +509,55 @@ def cmd_profile_show(args):
     print(yaml.dump(profile, default_flow_style=False))
 
 
-def _build_pkg_items(items_to_add, added, registry_path):
-    """Build package item list with hashes for items that were successfully added."""
+def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[str] | None = None):
+    """Build package item list with hashes for selected items present in registry."""
     from . import v2_config
 
     pkg_items = []
-    for item in items_to_add:
-        item_key = f"{item.component_type}/{item.name}"
-        if item_key in added:
-            item_path = registry_path / item.component_type.registry_dir / item.name
-            item_hash = v2_config.hash_registry_item(item_path)
-            pkg_items.append({
-                "type": item.component_type.value,
-                "name": item.name,
-                "hash": item_hash,
-            })
+    added_keys = added_keys or set()
+    owner_map: dict[tuple[str, str], str] = {}
+    if package_name:
+        for owner_pkg, pkg_data in v2_config.load_packages().items():
+            for pkg_item in pkg_data.get("items", []):
+                item_type = pkg_item.get("type")
+                item_name = pkg_item.get("name")
+                if item_type and item_name:
+                    owner_map.setdefault((item_type, item_name), owner_pkg)
+
+    seen: set[tuple] = set()
+    for item in items:
+        item_key = (item.component_type, item.name)
+        if item_key in seen:
+            continue
+        seen.add(item_key)
+
+        item_key_str = f"{item.component_type}/{item.name}"
+        item_path = registry.get_path(item.component_type, item.name)
+        if item_path is None:
+            continue
+
+        if package_name:
+            owner = owner_map.get((item.component_type.value, item.name))
+            if owner and owner != package_name:
+                continue
+
+            # For unowned clashes not added this run, only claim when scanned
+            # source content matches current registry content.
+            if not owner and item_key_str not in added_keys:
+                source_path = item.source_path
+                if source_path is None or not source_path.exists():
+                    continue
+                source_hash = v2_config.hash_registry_item(source_path)
+                registry_hash = v2_config.hash_registry_item(item_path)
+                if source_hash != registry_hash:
+                    continue
+
+        item_hash = v2_config.hash_registry_item(item_path)
+        pkg_items.append({
+            "type": item.component_type.value,
+            "name": item.name,
+            "hash": item_hash,
+        })
     return pkg_items
 
 
@@ -622,8 +653,7 @@ def cmd_download(args):
                 or (content.package_meta.name if content.package_meta else None)
                 or v2_config.package_name_from_url(url)
             )
-            registry_path = v2_config.get_registry_path()
-            pkg_items = _build_pkg_items(items_to_add, added, registry_path)
+            pkg_items = _build_pkg_items(selected_items, registry, pkg_name, set(added))
             if pkg_items:
                 v2_config.record_package(pkg_name, url, commit_hash, pkg_items)
                 print(f"\nRecorded package: {pkg_name} ({len(pkg_items)} items)")
@@ -1032,7 +1062,7 @@ def cmd_scan(args):
     else:
         items_to_add = selected_items
 
-    if not items_to_add:
+    if not items_to_add and not content.packages:
         print("\nNo new components to add.")
         return
 
@@ -1041,7 +1071,7 @@ def cmd_scan(args):
         existing_packages = v2_config.load_packages()
         selected_pkg_names = {
             item.package or (content.package_meta.name if content.package_meta else "")
-            for item in items_to_add
+            for item in selected_items
         }
         for pkg_name in sorted(n for n in selected_pkg_names if n):
             existing = existing_packages.get(pkg_name)
@@ -1060,23 +1090,24 @@ def cmd_scan(args):
                 )
                 sys.exit(1)
 
-    added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+    if items_to_add:
+        added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+    else:
+        print("\nNo new components to add.")
+        added, skipped = [], []
 
     # Record packages — group items by their per-item .package tag
-    if added and content.packages:
-        registry_path = v2_config.get_registry_path()
+    if content.packages:
         items_by_pkg: dict[str, list] = {}
-        for item in items_to_add:
-            item_key = f"{item.component_type}/{item.name}"
-            if item_key in added:
-                pkg_name = item.package or (
-                    content.package_meta.name if content.package_meta else ""
-                )
-                if pkg_name:
-                    items_by_pkg.setdefault(pkg_name, []).append(item)
+        for item in selected_items:
+            pkg_name = item.package or (
+                content.package_meta.name if content.package_meta else ""
+            )
+            if pkg_name:
+                items_by_pkg.setdefault(pkg_name, []).append(item)
         pkg_meta_by_name = {p.name: p for p in content.packages}
         for pkg_name, pkg_item_list in items_by_pkg.items():
-            pkg_items = _build_pkg_items(pkg_item_list, added, registry_path)
+            pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
             if pkg_items:
                 v2_config.record_package(
                     pkg_name, "", "", pkg_items,
@@ -1145,272 +1176,43 @@ def cmd_packages(args):
 
 def cmd_update(args):
     """Update packages from their git sources."""
-    import shutil
+    from .package_service import (
+        PackageNotFoundError,
+        PackageUpdateFailedError,
+        update_packages,
+    )
 
-    from .downloader import classify, get_head_commit, scan_directory, shallow_clone
-    from .registry import Registry
-    from . import v2_config
-
-    packages = v2_config.load_packages()
-    if not packages:
-        print("No packages installed.")
-        return
-
-    registry = Registry(v2_config.get_registry_path())
-    registry.ensure_dirs()
-
-    # Filter to specific package if requested
-    target = getattr(args, "package", None)
-    if target:
-        if target not in packages:
-            print(f"Package not found: {target}")
-            print(f"Installed: {', '.join(sorted(packages.keys()))}")
-            sys.exit(1)
-        to_update = {target: packages[target]}
-    else:
-        to_update = packages
-
-    check_only = getattr(args, "check", False)
-    force = getattr(args, "force", False)
-    prune = getattr(args, "prune", False)
-
-    any_changes = False
-    up_to_date = []
-    failed_packages: list[str] = []
-
-    for pkg_name, pkg_data in sorted(to_update.items()):
-        source_type = _package_source_type(pkg_data)
-        old_items = {(i["type"], i["name"]): i.get("hash", "") for i in pkg_data.get("items", [])}
-        registry_path = v2_config.get_registry_path()
-
-        if source_type == "manual":
-            print(f"{pkg_name}: local-only package, cannot update")
-            continue
-
-        if source_type == "git":
-            url = pkg_data.get("url", "")
-            print(f"\n{pkg_name}:")
-            print(f"  Cloning {url}...")
-
-            try:
-                clone_dir = shallow_clone(url)
-            except Exception as e:
-                print(f"  Error cloning: {e}")
-                failed_packages.append(pkg_name)
-                continue
-
-            try:
-                new_commit = get_head_commit(clone_dir)
-                old_commit = pkg_data.get("commit", "")
-
-                if new_commit == old_commit and not force:
-                    up_to_date.append(pkg_name)
-                    print(f"  Up to date ({new_commit[:7]})")
-                    continue
-
-                if check_only:
-                    print(f"  Update available: {old_commit[:7]} -> {new_commit[:7]}")
-                    any_changes = True
-                    continue
-
-                # Re-classify and diff — pass repo_name for consistent synthetic hook naming
-                repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-                content = classify(clone_dir, repo_name=repo_name)
-
-                new_pkg_items = []
-                added_count = 0
-                updated_count = 0
-
-                for item in content.items:
-                    item_key = (item.component_type.value, item.name)
-
-                    # Add to registry (atomic replace if exists)
-                    try:
-                        if registry.detect_clash(item.component_type, item.name):
-                            registry.replace(item.component_type, item.name, item.source_path)
-                        else:
-                            registry.add(item.component_type, item.name, item.source_path)
-                    except (FileNotFoundError, FileExistsError, OSError) as e:
-                        print(f"  ! {item.name}: {e}")
-                        continue
-
-                    item_path = registry_path / item.component_type.registry_dir / item.name
-                    new_hash = v2_config.hash_registry_item(item_path)
-
-                    new_pkg_items.append({
-                        "type": item.component_type.value,
-                        "name": item.name,
-                        "hash": new_hash,
-                    })
-
-                    old_hash = old_items.get(item_key, "")
-                    if not old_hash:
-                        print(f"  + {item.name} (added)")
-                        added_count += 1
-                    elif old_hash != new_hash:
-                        print(f"  ~ {item.name} (updated)")
-                        updated_count += 1
-                    else:
-                        print(f"  = {item.name} (unchanged)")
-
-                # Check for items removed upstream
-                new_keys = {(i["type"], i["name"]) for i in new_pkg_items}
-                for (t, n), _ in old_items.items():
-                    if (t, n) not in new_keys:
-                        if prune:
-                            ct = ComponentType(t)
-                            registry.remove(ct, n)
-                            print(f"  - {n} (pruned)")
-                        else:
-                            print(f"  ? {n} (removed upstream, kept locally)")
-
-                # Update packages.yaml
-                v2_config.record_package(
-                    pkg_name, url, new_commit, new_pkg_items, path=str(pkg_data.get("path", ""))
-                )
-
-                parts = []
-                if updated_count:
-                    parts.append(f"{updated_count} updated")
-                if added_count:
-                    parts.append(f"{added_count} new")
-                if parts:
-                    print(f"  {', '.join(parts)}")
-                    any_changes = True
-            finally:
-                shutil.rmtree(clone_dir, ignore_errors=True)
-            continue
-
-        # local source
-        local_path = Path(str(pkg_data.get("path", ""))).expanduser()
-        print(f"\n{pkg_name}:")
-
-        if not local_path.exists():
-            print(f"  local source path not found: {local_path}")
-            print(f"  Path moved? Re-import: hawk scan /new/path --all --replace")
-            print(f"  Removed intentionally? hawk remove-package {pkg_name}")
-            print(f"  Temporarily unavailable? Reconnect and run: hawk update {pkg_name}")
-            failed_packages.append(pkg_name)
-            continue
-
-        content = scan_directory(local_path.resolve())
-        if not content.items:
-            print(f"  no components found at {local_path.resolve()}")
-            print("  Fix: verify path, increase scan depth if needed, or re-import")
-            print("  Example: hawk scan /correct/path --depth 8 --all --replace")
-            failed_packages.append(pkg_name)
-            continue
-
-        new_pkg_items = []
-        added_count = 0
-        updated_count = 0
-        unchanged_count = 0
-
-        for item in content.items:
-            item_key = (item.component_type.value, item.name)
-
-            if check_only:
-                new_hash = v2_config.hash_registry_item(item.source_path)
-            else:
-                try:
-                    if registry.detect_clash(item.component_type, item.name):
-                        registry.replace(item.component_type, item.name, item.source_path)
-                    else:
-                        registry.add(item.component_type, item.name, item.source_path)
-                except (FileNotFoundError, FileExistsError, OSError) as e:
-                    print(f"  ! {item.name}: {e}")
-                    continue
-
-                item_path = registry_path / item.component_type.registry_dir / item.name
-                new_hash = v2_config.hash_registry_item(item_path)
-
-            new_pkg_items.append({
-                "type": item.component_type.value,
-                "name": item.name,
-                "hash": new_hash,
-            })
-
-            old_hash = old_items.get(item_key, "")
-            if not old_hash:
-                added_count += 1
-            elif old_hash != new_hash:
-                updated_count += 1
-            else:
-                unchanged_count += 1
-
-        new_keys = {(i["type"], i["name"]) for i in new_pkg_items}
-        removed_count = 0
-        for (t, n), _ in old_items.items():
-            if (t, n) not in new_keys:
-                removed_count += 1
-                if not check_only:
-                    if prune:
-                        ct = ComponentType(t)
-                        registry.remove(ct, n)
-                        print(f"  - {n} (pruned)")
-                    else:
-                        print(f"  ? {n} (removed upstream, kept locally)")
-
-        if check_only:
-            if added_count or updated_count or removed_count:
-                parts = []
-                if updated_count:
-                    parts.append(f"{updated_count} updated")
-                if added_count:
-                    parts.append(f"{added_count} new")
-                if removed_count:
-                    parts.append(f"{removed_count} removed upstream")
-                print(f"  Would update: {', '.join(parts)}")
-                any_changes = True
-            else:
-                up_to_date.append(pkg_name)
-                print("  Up to date (local)")
-            continue
-
-        v2_config.record_package(
-            pkg_name, "", "", new_pkg_items, path=str(local_path.resolve())
+    try:
+        update_packages(
+            package=getattr(args, "package", None),
+            check=bool(getattr(args, "check", False)),
+            force=bool(getattr(args, "force", False)),
+            prune=bool(getattr(args, "prune", False)),
+            sync_on_change=True,
+            log=print,
         )
-
-        parts = []
-        if updated_count:
-            parts.append(f"{updated_count} updated")
-        if added_count:
-            parts.append(f"{added_count} new")
-        if parts:
-            print(f"  {', '.join(parts)}")
-            any_changes = True
-        elif unchanged_count and not removed_count:
-            up_to_date.append(pkg_name)
-            print("  Up to date (local)")
-
-    if up_to_date:
-        print(f"\nAll packages up to date: {', '.join(up_to_date)}")
-
-    if any_changes and not check_only:
-        from .v2_sync import sync_all
-        print("\nSyncing...")
-        sync_all(force=True)
-        print("Done.")
-
-    if failed_packages:
-        print(f"\nFailed ({len(failed_packages)}): {', '.join(sorted(failed_packages))}")
+    except PackageNotFoundError as e:
+        print(f"Package not found: {e.package_name}")
+        print(f"Installed: {', '.join(e.installed)}")
+        sys.exit(1)
+    except PackageUpdateFailedError:
         sys.exit(1)
 
 
 def cmd_remove_package(args):
     """Remove a package and all its items."""
     from . import v2_config
-    from .registry import Registry
+    from .package_service import PackageNotFoundError, remove_package
 
     packages = v2_config.load_packages()
     pkg_name = args.name
+    pkg_data = packages.get(pkg_name)
 
-    if pkg_name not in packages:
+    if pkg_data is None:
         print(f"Package not found: {pkg_name}")
         print(f"Installed: {', '.join(sorted(packages.keys())) or '(none)'}")
         sys.exit(1)
 
-    pkg_data = packages[pkg_name]
     items = pkg_data.get("items", [])
 
     if not args.yes:
@@ -1418,72 +1220,18 @@ def cmd_remove_package(args):
         print(f"Items ({len(items)}):")
         for item in items:
             print(f"  [{item['type']}] {item['name']}")
-        print(f"\nThis will remove all items from the registry and config.")
+        print("\nThis will remove all items from the registry and config.")
         confirm = input("Continue? [y/N] ").strip().lower()
         if confirm not in ("y", "yes"):
             print("Cancelled.")
             return
 
-    registry = Registry(v2_config.get_registry_path())
-
-    # Remove items from registry
-    removed = 0
-    for item in items:
-        try:
-            ct = ComponentType(item["type"])
-            if registry.remove(ct, item["name"]):
-                removed += 1
-                print(f"  Removed {item['type']}/{item['name']}")
-        except (ValueError, KeyError):
-            pass
-
-    # Remove from enabled lists in global config
-    cfg = v2_config.load_global_config()
-    global_section = cfg.get("global", {})
-    item_names_by_field: dict[str, set[str]] = {}
-    for item in items:
-        field = ComponentType(item["type"]).registry_dir
-        item_names_by_field.setdefault(field, set()).add(item["name"])
-
-    for field, names in item_names_by_field.items():
-        enabled = global_section.get(field, [])
-        if isinstance(enabled, list):
-            new_enabled = [n for n in enabled if n not in names]
-            if len(new_enabled) != len(enabled):
-                global_section[field] = new_enabled
-
-    cfg["global"] = global_section
-    v2_config.save_global_config(cfg)
-
-    # Remove from all registered directory configs
-    dirs = v2_config.get_registered_directories()
-    for dir_path_str in dirs:
-        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
-        if not dir_cfg:
-            continue
-        dir_changed = False
-        for field, names in item_names_by_field.items():
-            section = dir_cfg.get(field, {})
-            if isinstance(section, dict):
-                enabled = section.get("enabled", [])
-                new_enabled = [n for n in enabled if n not in names]
-                if len(new_enabled) != len(enabled):
-                    section["enabled"] = new_enabled
-                    dir_cfg[field] = section
-                    dir_changed = True
-        if dir_changed:
-            v2_config.save_dir_config(Path(dir_path_str), dir_cfg)
-
-    # Remove package entry
-    v2_config.remove_package(pkg_name)
-
-    print(f"\nRemoved package '{pkg_name}' ({removed} items)")
-
-    # Sync
-    from .v2_sync import sync_all
-    print("Syncing...")
-    sync_all(force=True)
-    print("Done.")
+    try:
+        remove_package(pkg_name, sync_after=True, log=print)
+    except PackageNotFoundError as e:
+        print(f"Package not found: {e.package_name}")
+        print(f"Installed: {', '.join(e.installed) or '(none)'}")
+        sys.exit(1)
 
 
 def cmd_clean(args):

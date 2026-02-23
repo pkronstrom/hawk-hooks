@@ -456,7 +456,7 @@ class CodexAdapter(ToolAdapter):
         instructions = raw.strip()
 
         try:
-            frontmatter, body = parse_frontmatter(raw)
+            frontmatter, body = parse_frontmatter(raw, warn_unknown_tools=False)
         except ValueError:
             frontmatter, body = None, raw
 

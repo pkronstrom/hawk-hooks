@@ -19,6 +19,7 @@ from .. import __version__, v2_config
 from ..adapters import get_adapter
 from ..registry import Registry
 from ..resolver import resolve
+from ..scope_resolution import build_resolver_dir_chain
 from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
 from .pause import wait_for_continue
 from .theme import (
@@ -45,15 +46,14 @@ COMPONENT_TYPES = [
     ("Agents", "agents", ComponentType.AGENT),
     ("MCP Servers", "mcp", ComponentType.MCP),
 ]
+_ORDERED_COMPONENT_FIELDS: list[tuple[str, str, ComponentType]] = [
+    (field, label, ct) for label, field, ct in COMPONENT_TYPES
+]
 
 _CODEX_CONSENT_OPTIONS = {"ask", "granted", "denied"}
 
 _COMPONENT_TYPE_BY_FIELD: dict[str, ComponentType] = {
-    "skills": ComponentType.SKILL,
-    "hooks": ComponentType.HOOK,
-    "prompts": ComponentType.PROMPT,
-    "agents": ComponentType.AGENT,
-    "mcp": ComponentType.MCP,
+    field: ct for field, _label, ct in _ORDERED_COMPONENT_FIELDS
 }
 
 
@@ -96,20 +96,7 @@ def _load_state(scope_dir: str | None = None) -> dict:
     resolved_global = resolve(cfg)
     resolved_active = resolved_global
     if project_dir:
-        dir_chain: list[tuple[dict, dict | None]] = []
-        for chain_dir, chain_config in v2_config.get_config_chain(project_dir):
-            profile_name = chain_config.get("profile")
-            if not profile_name:
-                dir_entry = cfg.get("directories", {}).get(str(chain_dir.resolve()), {})
-                profile_name = dir_entry.get("profile")
-            profile = v2_config.load_profile(profile_name) if profile_name else None
-            dir_chain.append((chain_config, profile))
-
-        if not dir_chain and local_cfg is not None:
-            profile_name = local_cfg.get("profile")
-            profile = v2_config.load_profile(profile_name) if profile_name else None
-            dir_chain.append((local_cfg, profile))
-
+        dir_chain = build_resolver_dir_chain(project_dir, cfg=cfg)
         if dir_chain:
             resolved_active = resolve(cfg, dir_chain=dir_chain)
 
@@ -889,6 +876,13 @@ def _prune_disabled_tools(disabled_tools: list[Tool]) -> None:
 
 def _handle_packages(state: dict) -> bool:
     """Unified package-first registry view with package/type/item accordions."""
+    from ..package_service import (
+        PackageNotFoundError,
+        PackageServiceError,
+        update_packages,
+        remove_package,
+    )
+
     packages = v2_config.load_packages()
     registry = state["registry"]
     dirty = False
@@ -903,13 +897,7 @@ def _handle_packages(state: dict) -> bool:
     UNGROUPED = "__ungrouped__"
 
     # Component ordering in this view
-    ordered_types: list[tuple[str, str, ComponentType]] = [
-        ("skills", "Skills", ComponentType.SKILL),
-        ("hooks", "Hooks", ComponentType.HOOK),
-        ("prompts", "Prompts", ComponentType.PROMPT),
-        ("agents", "Agents", ComponentType.AGENT),
-        ("mcp", "MCP Servers", ComponentType.MCP),
-    ]
+    ordered_types: list[tuple[str, str, ComponentType]] = list(_ORDERED_COMPONENT_FIELDS)
     fields = [f for f, _, _ in ordered_types]
     field_to_ct = {f: ct for f, _, ct in ordered_types}
     ct_to_field = {ct.value: f for f, _, ct in ordered_types}
@@ -1356,17 +1344,17 @@ def _handle_packages(state: dict) -> bool:
             if key == "U":
                 live.stop()
                 console.print("\n[bold]Updating all packages...[/bold]")
-                from ..cli import cmd_update
-
-                class _ArgsAll:
-                    package = None
-                    check = False
-                    force = False
-                    prune = False
-
                 try:
-                    cmd_update(_ArgsAll())
-                except SystemExit:
+                    update_packages(
+                        package=None,
+                        check=False,
+                        force=False,
+                        prune=False,
+                        sync_on_change=True,
+                        log=console.print,
+                    )
+                except PackageServiceError:
+                    # Service already prints a detailed summary.
                     pass
                 console.print()
                 console.print("[dim]Press any key to continue...[/dim]")
@@ -1396,17 +1384,20 @@ def _handle_packages(state: dict) -> bool:
 
                     live.stop()
                     console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
-                    from ..cli import cmd_update
-
-                    class _Args:
-                        package = pkg_name
-                        check = False
-                        force = False
-                        prune = False
 
                     try:
-                        cmd_update(_Args())
-                    except SystemExit:
+                        update_packages(
+                            package=pkg_name,
+                            check=False,
+                            force=False,
+                            prune=False,
+                            sync_on_change=True,
+                            log=console.print,
+                        )
+                    except PackageNotFoundError:
+                        console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
+                    except PackageServiceError:
+                        # Service already prints a detailed summary.
                         pass
                     console.print()
                     console.print("[dim]Press any key to continue...[/dim]")
@@ -1429,15 +1420,11 @@ def _handle_packages(state: dict) -> bool:
                     confirm = readchar.readkey()
                     console.print()
                     if confirm.lower() == "y":
-                        from ..cli import cmd_remove_package
-
-                        class _RmArgs:
-                            name = pkg_name
-                            yes = True
-
                         try:
-                            cmd_remove_package(_RmArgs())
-                        except SystemExit:
+                            remove_package(pkg_name, sync_after=True, log=console.print)
+                        except PackageNotFoundError:
+                            console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
+                        except PackageServiceError:
                             pass
                         console.print()
                         console.print("[dim]Press any key to continue...[/dim]")

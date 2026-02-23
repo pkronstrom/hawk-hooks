@@ -1,5 +1,6 @@
 """Tests for the Codex adapter."""
 
+import logging
 import tomllib
 
 import pytest
@@ -240,3 +241,30 @@ class TestCodexAgents:
         assert any(item == "agent:architecture_reviewer" for item in result.unlinked)
         assert not (target / "agents" / "architecture_reviewer.toml").exists()
         assert not (tmp_path / ".agents" / "skills" / "agent-architecture-reviewer").exists()
+
+    def test_sync_agents_with_codex_tool_list_does_not_warn_unknown_frontmatter_tools(
+        self, adapter, tmp_path, monkeypatch, caplog
+    ):
+        registry = tmp_path / "registry"
+        agents = registry / "agents"
+        agents.mkdir(parents=True)
+        (agents / "planner.md").write_text(
+            "---\n"
+            "name: planner\n"
+            "description: Planner agent\n"
+            'tools: ["Read", "Grep", "Glob", "Bash"]\n'
+            "---\n\n"
+            "Plan the next steps.\n"
+        )
+        target = tmp_path / ".codex"
+        target.mkdir()
+
+        monkeypatch.setattr(
+            "hawk_hooks.v2_config.load_global_config",
+            lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
+        )
+
+        with caplog.at_level(logging.WARNING, logger="hawk_hooks.frontmatter"):
+            adapter.sync(ResolvedSet(agents=["planner.md"]), target, registry)
+
+        assert not any("Unknown tools in frontmatter" in rec.message for rec in caplog.records)

@@ -48,11 +48,12 @@ class PromptFrontmatter:
         return len(self.hooks) > 0
 
 
-def parse_frontmatter(content: str) -> tuple[PromptFrontmatter | None, str]:
+def parse_frontmatter(content: str, *, warn_unknown_tools: bool = True) -> tuple[PromptFrontmatter | None, str]:
     """Parse frontmatter from markdown content.
 
     Args:
         content: Full file content with potential frontmatter.
+        warn_unknown_tools: Whether to emit warnings for unknown tool names.
 
     Returns:
         Tuple of (parsed frontmatter or None, body content).
@@ -109,7 +110,7 @@ def parse_frontmatter(content: str) -> tuple[PromptFrontmatter | None, str]:
 
     # Warn on unknown tools (but don't reject - allow extension)
     unknown = set(tools) - set(ALL_TOOLS)
-    if unknown:
+    if unknown and warn_unknown_tools:
         import logging
 
         logging.getLogger(__name__).warning(
