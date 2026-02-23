@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import types
+from pathlib import Path
 
 if "rich" not in sys.modules:
     rich_module = types.ModuleType("rich")
@@ -109,3 +110,59 @@ def test_get_view_wrap_width_respects_env_and_bounds(monkeypatch):
 
     monkeypatch.setenv("HAWK_VIEW_WIDTH", "not-a-number")
     assert toggle._get_view_wrap_width() == 100
+
+
+def test_get_item_description_prefers_frontmatter_description(tmp_path: Path):
+    item = tmp_path / "claude.md"
+    item.write_text(
+        "---\n"
+        "name: claude\n"
+        "description: Leverage Anthropic Claude models for autonomous code implementation.\n"
+        "tools: [claude]\n"
+        "---\n"
+        "# Claude\n\n"
+        "Body text.\n"
+    )
+
+    desc = toggle._get_item_description(item, "prompts")
+    assert desc == "Leverage Anthropic Claude models for autonomous code implementation."
+
+
+def test_get_item_description_reads_hook_comment_metadata(tmp_path: Path):
+    item = tmp_path / "guard.py"
+    item.write_text(
+        "# hawk-hook: events=pre_tool_use,stop\n"
+        "# hawk-hook: description=Blocks dangerous shell operations\n"
+        "print('ok')\n"
+    )
+
+    desc = toggle._get_item_description(item, "hooks")
+    assert desc == "Blocks dangerous shell operations"
+
+
+def test_get_item_description_reads_mcp_command_summary(tmp_path: Path):
+    item = tmp_path / "goose.yaml"
+    item.write_text(
+        "command: npx\n"
+        "args:\n"
+        "  - -y\n"
+        "  - \"@modelcontextprotocol/server-github\"\n"
+        "env:\n"
+        "  GITHUB_TOKEN: test\n"
+    )
+
+    desc = toggle._get_item_description(item, "mcp")
+    assert "MCP command: npx -y @modelcontextprotocol/server-github." in desc
+    assert "Env vars: 1." in desc
+
+
+def test_get_item_description_uses_skill_markdown_body_when_no_frontmatter(tmp_path: Path):
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "# My Skill\n\n"
+        "Use this skill to generate clean API scaffolding.\n"
+    )
+
+    desc = toggle._get_item_description(skill_dir, "skills")
+    assert desc == "Use this skill to generate clean API scaffolding."

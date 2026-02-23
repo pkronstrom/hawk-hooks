@@ -9,17 +9,21 @@ Shows "(enabled in <parent>)" hints when viewing inner scopes.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
+import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 import readchar
+import yaml
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
+from ..hook_meta import parse_hook_meta
 from ..types import ToggleGroup, ToggleScope  # noqa: F401 — re-exported
 from .pause import wait_for_continue
 from .theme import (
@@ -101,6 +105,119 @@ def _resolve_item_path(registry_path: Path, registry_dir: str, name: str) -> Pat
     if item_path.exists():
         return item_path
     return None
+
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n?---\s*\n?", re.DOTALL)
+
+
+def _extract_markdown_description(content: str) -> str:
+    """Extract a readable summary from markdown-like content."""
+    if not content.strip():
+        return ""
+
+    # Prefer explicit frontmatter description when available.
+    fm_match = _FRONTMATTER_RE.match(content)
+    if fm_match:
+        try:
+            frontmatter = yaml.safe_load(fm_match.group(1))
+        except Exception:
+            frontmatter = None
+        if isinstance(frontmatter, dict):
+            desc = str(frontmatter.get("description", "")).strip()
+            if desc:
+                return desc
+        content = content[fm_match.end():]
+
+    # Fall back to the first useful paragraph line(s).
+    for paragraph in re.split(r"\n\s*\n", content):
+        lines = [line.strip() for line in paragraph.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if lines[0].startswith("```"):
+            continue
+        if all(line.startswith("#") for line in lines):
+            continue
+        stripped = [re.sub(r"^#+\s*", "", line).strip() for line in lines]
+        text = " ".join(part for part in stripped if part)
+        if text:
+            return text
+
+    return ""
+
+
+def _extract_mcp_description(content: str) -> str:
+    """Extract a short MCP server summary from YAML."""
+    try:
+        data = yaml.safe_load(content)
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+
+    command = str(data.get("command", "")).strip()
+    args_raw = data.get("args", [])
+    args = [str(arg) for arg in args_raw] if isinstance(args_raw, list) else []
+    env_raw = data.get("env", {})
+    env_count = len(env_raw) if isinstance(env_raw, dict) else 0
+
+    if command:
+        snippet = " ".join(([command] + args)[:8]).strip()
+        extra = "..." if len(([command] + args)) > 8 else ""
+        if env_count > 0:
+            return f"MCP command: {snippet}{extra}. Env vars: {env_count}."
+        return f"MCP command: {snippet}{extra}."
+    if env_count > 0:
+        return f"MCP server with {env_count} environment variable(s)."
+    return ""
+
+
+def _get_item_description(item_path: Path, registry_dir: str) -> str:
+    """Return a short description string for a registry item path."""
+    source = item_path
+    try:
+        if source.is_symlink():
+            source = source.resolve()
+    except OSError:
+        source = item_path
+
+    if registry_dir == "hooks" and source.is_file():
+        try:
+            meta = parse_hook_meta(source)
+        except Exception:
+            meta = None
+        if meta:
+            if meta.description.strip():
+                return meta.description.strip()
+            if meta.events:
+                return f"Hook events: {', '.join(meta.events)}."
+
+    if source.is_file():
+        try:
+            content = source.read_text(errors="replace")
+        except OSError:
+            return ""
+        suffix = source.suffix.lower()
+        if suffix in (".md", ".mdc", ".txt"):
+            return _extract_markdown_description(content)
+        if registry_dir == "mcp" and suffix in (".yaml", ".yml"):
+            return _extract_mcp_description(content)
+        return ""
+
+    if source.is_dir():
+        for candidate in ("SKILL.md", "skill.md", "README.md", "readme.md"):
+            candidate_path = source / candidate
+            if not candidate_path.exists():
+                continue
+            try:
+                content = candidate_path.read_text(errors="replace")
+            except OSError:
+                continue
+            desc = _extract_markdown_description(content)
+            if desc:
+                return desc
+        return ""
+
+    return ""
 
 
 SYNTAX_LEXERS = {
@@ -373,6 +490,7 @@ def run_toggle_list(
     scroll_offset = 0
     changed = False
     status_msg = ""
+    description_cache: dict[str, str] = {}
 
     items = list(registry_names)
     num_scopes = len(scopes)
@@ -590,6 +708,36 @@ def run_toggle_list(
         # Status message
         if status_msg:
             lines.append(f"\n[dim]{status_msg}[/dim]")
+
+        # Context panel for the currently selected item.
+        if row_list and registry_path and registry_dir:
+            current_kind, current_value, _ = row_list[cursor]
+            if current_kind == ROW_ITEM:
+                item_name = current_value
+                description = description_cache.get(item_name)
+                if description is None:
+                    item_path = _resolve_item_path(registry_path, registry_dir, item_name)
+                    description = (
+                        _get_item_description(item_path, registry_dir)
+                        if item_path is not None
+                        else ""
+                    )
+                    description_cache[item_name] = description
+
+                width = max(32, _get_terminal_width() - 6)
+                wrapped = textwrap.wrap(
+                    description or "No description metadata found for this item.",
+                    width=width,
+                    break_long_words=False,
+                    replace_whitespace=False,
+                )
+                wrapped = wrapped[:3] if wrapped else ["No description metadata found for this item."]
+                info_style = get_theme().info_rich
+                lines.append("")
+                lines.append(dim_separator(min(48, max(24, width - 2))))
+                lines.append(f"[bold {info_style}]Description[/bold {info_style}]")
+                for line in wrapped:
+                    lines.append(f"[dim]{line}[/dim]")
 
         # Footer
         if footer_hint:
