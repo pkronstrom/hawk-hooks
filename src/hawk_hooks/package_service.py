@@ -57,6 +57,14 @@ class PackageRemoveReport:
     removed_items: int
 
 
+@dataclass
+class UngroupedRemoveReport:
+    """Summary of removing ungrouped registry items."""
+
+    removed_items: int
+    removed_by_type: dict[str, int] = field(default_factory=dict)
+
+
 def _noop(_msg: str) -> None:
     return
 
@@ -357,40 +365,11 @@ def remove_package(
         except (ValueError, KeyError):
             continue
 
-    cfg = v2_config.load_global_config()
-    global_section = cfg.get("global", {})
     item_names_by_field: dict[str, set[str]] = {}
     for item in items:
         field = ComponentType(item["type"]).registry_dir
         item_names_by_field.setdefault(field, set()).add(item["name"])
-
-    for field, names in item_names_by_field.items():
-        enabled = global_section.get(field, [])
-        if isinstance(enabled, list):
-            new_enabled = [n for n in enabled if n not in names]
-            if len(new_enabled) != len(enabled):
-                global_section[field] = new_enabled
-
-    cfg["global"] = global_section
-    v2_config.save_global_config(cfg)
-
-    dirs = v2_config.get_registered_directories()
-    for dir_path_str in dirs:
-        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
-        if not dir_cfg:
-            continue
-        dir_changed = False
-        for field, names in item_names_by_field.items():
-            section = dir_cfg.get(field, {})
-            if isinstance(section, dict):
-                enabled = section.get("enabled", [])
-                new_enabled = [n for n in enabled if n not in names]
-                if len(new_enabled) != len(enabled):
-                    section["enabled"] = new_enabled
-                    dir_cfg[field] = section
-                    dir_changed = True
-        if dir_changed:
-            v2_config.save_dir_config(Path(dir_path_str), dir_cfg)
+    _remove_names_from_global_and_dir_enabled_lists(item_names_by_field)
 
     v2_config.remove_package(package_name)
 
@@ -404,3 +383,111 @@ def remove_package(
         logf("Done.")
 
     return PackageRemoveReport(package_name=package_name, removed_items=removed)
+
+
+def _remove_names_from_global_and_dir_enabled_lists(
+    item_names_by_field: dict[str, set[str]],
+) -> None:
+    """Remove names from global and directory enabled lists by component field."""
+    cfg = v2_config.load_global_config()
+    global_section = cfg.get("global", {})
+
+    for field, names in item_names_by_field.items():
+        enabled = global_section.get(field, [])
+        if isinstance(enabled, list):
+            new_enabled = [n for n in enabled if n not in names]
+            if len(new_enabled) != len(enabled):
+                global_section[field] = new_enabled
+
+    cfg["global"] = global_section
+    v2_config.save_global_config(cfg)
+
+    for dir_path_str in v2_config.get_registered_directories():
+        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
+        if not dir_cfg:
+            continue
+        dir_changed = False
+        for field, names in item_names_by_field.items():
+            section = dir_cfg.get(field, {})
+            if not isinstance(section, dict):
+                continue
+            enabled = section.get("enabled", [])
+            new_enabled = [n for n in enabled if n not in names]
+            if len(new_enabled) != len(enabled):
+                section["enabled"] = new_enabled
+                dir_cfg[field] = section
+                dir_changed = True
+        if dir_changed:
+            v2_config.save_dir_config(Path(dir_path_str), dir_cfg)
+
+
+def remove_ungrouped_items(
+    *,
+    sync_after: bool = True,
+    log: LogFn | None = None,
+) -> UngroupedRemoveReport:
+    """Remove all package-menu ungrouped items from registry and enabled config lists."""
+    logf = log or _noop
+    packages = v2_config.load_packages()
+    registry = Registry(v2_config.get_registry_path())
+
+    managed_types = [
+        ComponentType.SKILL,
+        ComponentType.HOOK,
+        ComponentType.PROMPT,
+        ComponentType.AGENT,
+        ComponentType.MCP,
+    ]
+    field_by_type = {ct: ct.registry_dir for ct in managed_types}
+
+    owned_by_field: dict[str, set[str]] = {field: set() for field in field_by_type.values()}
+    for _pkg_name, pkg_data in packages.items():
+        for item in pkg_data.get("items", []):
+            item_type = item.get("type")
+            item_name = item.get("name")
+            if not isinstance(item_type, str) or not isinstance(item_name, str):
+                continue
+            try:
+                ct = ComponentType(item_type)
+            except ValueError:
+                continue
+            field = field_by_type.get(ct)
+            if field:
+                owned_by_field[field].add(item_name)
+
+    contents = registry.list()
+    removed_by_type: dict[str, int] = {ct.value: 0 for ct in managed_types}
+    item_names_by_field: dict[str, set[str]] = {}
+    removed_total = 0
+
+    for ct in managed_types:
+        field = field_by_type[ct]
+        owned_names = owned_by_field.get(field, set())
+        for name in contents.get(ct, []):
+            if name in owned_names:
+                continue
+            if registry.remove(ct, name):
+                removed_total += 1
+                removed_by_type[ct.value] = removed_by_type.get(ct.value, 0) + 1
+                item_names_by_field.setdefault(field, set()).add(name)
+                logf(f"  Removed {ct.value}/{name}")
+
+    if removed_total <= 0:
+        logf("\nNo ungrouped items found.")
+        return UngroupedRemoveReport(removed_items=0, removed_by_type={})
+
+    _remove_names_from_global_and_dir_enabled_lists(item_names_by_field)
+    logf(f"\nRemoved {removed_total} ungrouped item(s)")
+
+    if sync_after:
+        from .v2_sync import sync_all
+
+        logf("Syncing...")
+        sync_all(force=True)
+        logf("Done.")
+
+    compact_counts = {k: v for k, v in removed_by_type.items() if v > 0}
+    return UngroupedRemoveReport(
+        removed_items=removed_total,
+        removed_by_type=compact_counts,
+    )

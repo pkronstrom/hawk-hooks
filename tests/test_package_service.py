@@ -9,6 +9,7 @@ import pytest
 from hawk_hooks import v2_config
 from hawk_hooks.package_service import (
     PackageUpdateFailedError,
+    remove_ungrouped_items,
     remove_package,
     update_packages,
 )
@@ -91,3 +92,64 @@ def test_remove_package_cleans_registry_and_configs(monkeypatch, tmp_path):
     assert v2_config.load_global_config()["global"]["skills"] == []
     assert v2_config.load_dir_config(project)["skills"]["enabled"] == []
     assert registry.get_path(ComponentType.SKILL, "tdd") is None
+
+
+def test_remove_ungrouped_items_removes_only_unowned(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr("hawk_hooks.v2_sync.sync_all", lambda force=False: {})
+
+    registry = Registry(v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    skill_owned_src = tmp_path / "src" / "owned"
+    skill_owned_src.mkdir(parents=True)
+    (skill_owned_src / "SKILL.md").write_text("# Owned")
+    registry.add(ComponentType.SKILL, "owned-skill", skill_owned_src)
+
+    skill_loose_src = tmp_path / "src" / "loose"
+    skill_loose_src.mkdir(parents=True)
+    (skill_loose_src / "SKILL.md").write_text("# Loose")
+    registry.add(ComponentType.SKILL, "loose-skill", skill_loose_src)
+
+    hook_loose_src = tmp_path / "src" / "guard.sh"
+    hook_loose_src.parent.mkdir(parents=True, exist_ok=True)
+    hook_loose_src.write_text("#!/usr/bin/env bash\necho ok\n")
+    registry.add(ComponentType.HOOK, "guard.sh", hook_loose_src)
+
+    cfg = v2_config.load_global_config()
+    cfg["global"]["skills"] = ["owned-skill", "loose-skill"]
+    cfg["global"]["hooks"] = ["guard.sh"]
+    v2_config.save_global_config(cfg)
+
+    project = tmp_path / "project"
+    project.mkdir()
+    v2_config.save_dir_config(
+        project,
+        {
+            "skills": {"enabled": ["loose-skill"], "disabled": []},
+            "hooks": {"enabled": ["guard.sh"], "disabled": []},
+        },
+    )
+    v2_config.register_directory(project)
+
+    v2_config.save_packages({
+        "starter": {
+            "url": "",
+            "path": str(tmp_path / "starter"),
+            "installed": "2026-02-23",
+            "commit": "",
+            "items": [{"type": "skill", "name": "owned-skill", "hash": "abc123"}],
+        }
+    })
+
+    report = remove_ungrouped_items(sync_after=True, log=lambda _msg: None)
+
+    assert report.removed_items == 2
+    assert report.removed_by_type == {"skill": 1, "hook": 1}
+    assert registry.get_path(ComponentType.SKILL, "owned-skill") is not None
+    assert registry.get_path(ComponentType.SKILL, "loose-skill") is None
+    assert registry.get_path(ComponentType.HOOK, "guard.sh") is None
+    assert v2_config.load_global_config()["global"]["skills"] == ["owned-skill"]
+    assert v2_config.load_global_config()["global"]["hooks"] == []
+    assert v2_config.load_dir_config(project)["skills"]["enabled"] == []
+    assert v2_config.load_dir_config(project)["hooks"]["enabled"] == []

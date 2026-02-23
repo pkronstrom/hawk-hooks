@@ -879,6 +879,7 @@ def _handle_packages(state: dict) -> bool:
     from ..package_service import (
         PackageNotFoundError,
         PackageServiceError,
+        remove_ungrouped_items,
         update_packages,
         remove_package,
     )
@@ -1408,24 +1409,32 @@ def _handle_packages(state: dict) -> bool:
                     continue
 
                 if key in ("x", "d"):
-                    if is_ungrouped:
-                        status_msg = "Cannot remove Ungrouped as a package."
-                        continue
-
                     live.stop()
-                    console.print(
-                        f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ",
-                        end="",
-                    )
+                    if is_ungrouped:
+                        console.print(
+                            "\n[yellow]Remove all ungrouped items?[/yellow] [dim](y/N)[/dim] ",
+                            end="",
+                        )
+                    else:
+                        console.print(
+                            f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ",
+                            end="",
+                        )
                     confirm = readchar.readkey()
                     console.print()
                     if confirm.lower() == "y":
-                        try:
-                            remove_package(pkg_name, sync_after=True, log=console.print)
-                        except PackageNotFoundError:
-                            console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
-                        except PackageServiceError:
-                            pass
+                        if is_ungrouped:
+                            try:
+                                remove_ungrouped_items(sync_after=True, log=console.print)
+                            except PackageServiceError:
+                                pass
+                        else:
+                            try:
+                                remove_package(pkg_name, sync_after=True, log=console.print)
+                            except PackageNotFoundError:
+                                console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
+                            except PackageServiceError:
+                                pass
                         console.print()
                         console.print("[dim]Press any key to continue...[/dim]")
                         readchar.readkey()
