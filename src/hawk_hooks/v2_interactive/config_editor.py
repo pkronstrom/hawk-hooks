@@ -12,11 +12,10 @@ import readchar
 from rich.console import Console
 from rich.live import Live
 from rich.text import Text
-from simple_term_menu import TerminalMenu
 
 from .. import v2_config
-from .pause import wait_for_continue
 from .toggle import _get_terminal_height, _calculate_visible_range
+from .uninstall_flow import run_uninstall_wizard
 
 console = Console()
 
@@ -39,7 +38,7 @@ def _get_value(cfg: dict, key: str, default):
 def _display_value(key: str, value, setting_type: str, options=None) -> str:
     """Format a value for display."""
     if setting_type == "toggle":
-        return "[green]on[/green]" if value else "[dim]off[/dim]"
+        return "[green]on[/green]" if value else "off"
     if setting_type == "cycle":
         return str(value)
     if setting_type == "text":
@@ -98,8 +97,8 @@ def run_config_editor() -> bool:
                 lines.append("  [dim]\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500[/dim]")
             elif i == len(items) + 1:
                 # Done
-                style = "[cyan bold]" if is_cur else "[dim]"
-                end = "[/cyan bold]" if is_cur else "[/dim]"
+                style = "[cyan bold]" if is_cur else ""
+                end = "[/cyan bold]" if is_cur else ""
                 lines.append(f"{prefix}{style}Done{end}")
 
         if vis_end < total:
@@ -151,31 +150,9 @@ def run_config_editor() -> bool:
     def _handle_uninstall_action() -> str:
         """Unlink from tools and clear hawk-managed local state."""
         nonlocal cfg
-        menu = TerminalMenu(
-            ["No", "Yes, unlink + uninstall"],
-            title=(
-                "\nUnlink and uninstall hawk-managed state?\n"
-                "This will purge tool links and clear registry/packages/config selections."
-            ),
-            cursor_index=0,
-            menu_cursor="\u276f ",
-            menu_cursor_style=("fg_cyan", "bold"),
-            menu_highlight_style=("fg_cyan", "bold"),
-            quit_keys=("q", "\x1b"),
-        )
-        choice = menu.show()
-        if choice != 1:
+        if not run_uninstall_wizard(console):
             return "Uninstall cancelled"
-
-        from ..v2_sync import format_sync_results, uninstall_all
-
-        console.print("\n[bold red]Unlinking and uninstalling...[/bold red]")
-        results = uninstall_all()
-        formatted = format_sync_results(results, verbose=False)
-        console.print(formatted or "  No changes.")
-        console.print("\n[green]\u2714 Cleared hawk-managed config, packages, and registry state.[/green]\n")
         cfg = v2_config.load_global_config()
-        wait_for_continue()
         return "Uninstall cleanup completed"
 
     def _handle_text_edit(idx: int) -> str:

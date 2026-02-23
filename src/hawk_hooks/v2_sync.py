@@ -418,12 +418,19 @@ def purge_all(
 def uninstall_all(
     tools: list[Tool] | None = None,
     dry_run: bool = False,
+    remove_project_configs: bool = True,
 ) -> dict[str, list[SyncResult]]:
     """Full teardown for hawk-managed state.
 
     Performs aggressive unlink/prune from tool configs, then clears hawk
     configuration selections, package index, registry items, directory
     registrations, and sync cache.
+
+    Args:
+        tools: Optional tool filter.
+        dry_run: If True, report what would change without mutating state.
+        remove_project_configs: When True, remove registered projects'
+            local ``.hawk/config.yaml`` files (and empty ``.hawk`` dirs).
     """
     purge_results = purge_all(tools=tools, dry_run=dry_run)
     if dry_run:
@@ -433,16 +440,17 @@ def uninstall_all(
     registered_dirs = list(v2_config.get_registered_directories().keys())
 
     # Remove per-project hawk config files for registered directories.
-    for dir_path_str in registered_dirs:
-        cfg_path = v2_config.get_dir_config_path(Path(dir_path_str))
-        try:
-            if cfg_path.exists():
-                cfg_path.unlink()
-            if cfg_path.parent.exists() and not any(cfg_path.parent.iterdir()):
-                cfg_path.parent.rmdir()
-        except OSError:
-            # Best effort: keep going even if one project can't be cleaned.
-            pass
+    if remove_project_configs:
+        for dir_path_str in registered_dirs:
+            cfg_path = v2_config.get_dir_config_path(Path(dir_path_str))
+            try:
+                if cfg_path.exists():
+                    cfg_path.unlink()
+                if cfg_path.parent.exists() and not any(cfg_path.parent.iterdir()):
+                    cfg_path.parent.rmdir()
+            except OSError:
+                # Best effort: keep going even if one project can't be cleaned.
+                pass
 
     # Clear global component selections + directory registrations.
     global_section = cfg.get("global", {})

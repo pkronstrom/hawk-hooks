@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -19,7 +20,16 @@ from ..registry import Registry
 from ..resolver import resolve
 from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
 from .pause import wait_for_continue
+from .theme import (
+    action_style,
+    cursor_prefix,
+    dim_separator,
+    enabled_count_style,
+    row_style,
+    scoped_header,
+)
 from .toggle import _open_in_editor, run_toggle_list
+from .uninstall_flow import run_uninstall_wizard
 
 console = Console(highlight=False)
 
@@ -293,15 +303,12 @@ def _handle_registry_browser(state: dict) -> None:
 
 def _build_header(state: dict) -> str:
     """Build the dashboard header string."""
-    total_components = sum(len(names) for names in state["contents"].values())
-    tools_active = sum(1 for t in state["tools_status"].values() if t["installed"] and t["enabled"])
-
-    header = f"\U0001f985 [bold]hawk[/bold] v{__version__} [dim]\u2014 {total_components} components, {tools_active} tools[/dim]"
+    header = f"\U0001f985 [bold]hawk {__version__}[/bold]"
 
     if state["scope"] == "local" and state["project_name"]:
         header += f"\n[dim]\U0001f4cd {state['project_dir']}[/dim]"
     else:
-        header += f"\n[dim]\U0001f310 Global[/dim]"
+        header += f"\n[dim]\U0001f310 Global (defaults for all projects)[/dim]"
 
     unsynced = state.get("unsynced_targets", 0)
     total_targets = state.get("sync_targets_total", 0)
@@ -340,7 +347,6 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
         options.append((f"Packages       {pkg_count} installed, manage & update", "packages"))
     else:
         options.append(("Packages       (none installed)", "packages"))
-    options.append(("Registry       Browse installed components", "registry"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
@@ -389,18 +395,18 @@ def _build_main_menu_display(
     """Render the main dashboard menu with Rich markup."""
     lines: list[str] = []
     lines.append(_build_header(state))
-    lines.append("[dim]" + ("\u2500" * 50) + "[/dim]")
+    lines.append(dim_separator())
 
     for i, (label, action) in enumerate(options):
         if action is None:
             if label.strip("\u2500"):
                 lines.append(f"  [yellow]{label}[/yellow]")
             else:
-                lines.append("  [dim]\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500[/dim]")
+                lines.append(f"  {dim_separator(9)}")
             continue
 
         is_current = i == cursor
-        prefix = "[cyan]\u276f[/cyan] " if is_current else "  "
+        prefix = cursor_prefix(is_current)
 
         if action == "codex_multi_agent_setup":
             style = "[bold yellow]" if is_current else "[yellow]"
@@ -408,10 +414,8 @@ def _build_main_menu_display(
             lines.append(f"{prefix}{style}{label}{end_style}")
             continue
 
-        if is_current:
-            lines.append(f"{prefix}[bold cyan]{label}[/bold cyan]")
-        else:
-            lines.append(f"{prefix}{label}")
+        style, end = action_style(is_current)
+        lines.append(f"{prefix}{style}{label}{end}")
 
     lines.append("")
     lines.append("[dim]\u2191\u2193/jk: navigate  Space/Enter: select  q/Esc: quit[/dim]")
@@ -810,94 +814,467 @@ def _handle_tools_toggle(state: dict) -> bool:
 
 
 def _handle_packages(state: dict) -> bool:
-    """Interactive packages management. Returns True if changes were made."""
+    """Unified package-first registry view with package/type/item accordions."""
     packages = v2_config.load_packages()
+    registry = state["registry"]
+    dirty = False
 
-    if not packages:
-        console.print("\n[dim]No packages installed.[/dim]")
+    # Row kinds
+    ROW_PACKAGE = "package"
+    ROW_TYPE = "type"
+    ROW_ITEM = "item"
+    ROW_SEPARATOR = "separator"
+    ROW_ACTION = "action"
+    ACTION_DONE = "__done__"
+    UNGROUPED = "__ungrouped__"
+
+    # Component ordering in this view
+    ordered_types: list[tuple[str, str, ComponentType]] = [
+        ("skills", "Skills", ComponentType.SKILL),
+        ("hooks", "Hooks", ComponentType.HOOK),
+        ("prompts", "Prompts", ComponentType.PROMPT),
+        ("agents", "Agents", ComponentType.AGENT),
+        ("mcp", "MCP Servers", ComponentType.MCP),
+    ]
+    fields = [f for f, _, _ in ordered_types]
+    field_to_ct = {f: ct for f, _, ct in ordered_types}
+    ct_to_field = {ct.value: f for f, _, ct in ordered_types}
+
+    collapsed_packages: dict[str, bool] = {}
+    collapsed_types: dict[tuple[str, str], bool] = {}
+    cursor = 0
+    scroll_offset = 0
+    scope_index = 0
+    status_msg = ""
+
+    def _reload_state_config() -> None:
+        """Reload config slices that can be changed by package actions."""
+        cfg = v2_config.load_global_config()
+        state["cfg"] = cfg
+        state["global_cfg"] = cfg.get("global", {})
+
+        project_dir = state.get("project_dir")
+        if project_dir:
+            state["local_cfg"] = v2_config.load_dir_config(project_dir) or {}
+        else:
+            state["local_cfg"] = None
+
+    def _build_scope_entries() -> list[dict]:
+        """Build scope layers with enabled (field,name) pairs."""
+        scopes: list[dict] = []
+
+        global_enabled: set[tuple[str, str]] = set()
+        for field in fields:
+            for name in state["global_cfg"].get(field, []):
+                global_enabled.add((field, name))
+        scopes.append({
+            "key": "global",
+            "label": "\U0001f310 Global (default)",
+            "enabled": global_enabled,
+        })
+
+        project_dir = state.get("project_dir") or Path.cwd().resolve()
+        config_chain = v2_config.get_config_chain(project_dir)
+        if config_chain:
+            for chain_dir, chain_config in config_chain:
+                enabled: set[tuple[str, str]] = set()
+                for field in fields:
+                    section = chain_config.get(field, {})
+                    if isinstance(section, dict):
+                        names = section.get("enabled", [])
+                    elif isinstance(section, list):
+                        names = section
+                    else:
+                        names = []
+                    for name in names:
+                        enabled.add((field, name))
+
+                if chain_dir == project_dir.resolve():
+                    label = f"\U0001f4cd This project: {chain_dir.name}"
+                else:
+                    label = f"\U0001f4c1 {chain_dir.name}"
+                scopes.append({"key": str(chain_dir), "label": label, "enabled": enabled})
+        else:
+            local_cfg = state.get("local_cfg")
+            if local_cfg is not None:
+                enabled: set[tuple[str, str]] = set()
+                for field in fields:
+                    section = local_cfg.get(field, {})
+                    if isinstance(section, dict):
+                        names = section.get("enabled", [])
+                    elif isinstance(section, list):
+                        names = section
+                    else:
+                        names = []
+                    for name in names:
+                        enabled.add((field, name))
+
+                project_name = state.get("project_name") or project_dir.name
+                scopes.append({
+                    "key": str(project_dir),
+                    "label": f"\U0001f4cd This project: {project_name}",
+                    "enabled": enabled,
+                })
+
+        return scopes
+
+    def _set_item_enabled(scope_key: str, field: str, name: str, enabled: bool) -> None:
+        """Set one component enabled/disabled in a specific scope."""
+        if scope_key == "global":
+            current = list(state["global_cfg"].get(field, []))
+            if enabled and name not in current:
+                current.append(name)
+            elif not enabled:
+                current = [n for n in current if n != name]
+            state["global_cfg"][field] = current
+            cfg = state["cfg"]
+            cfg["global"] = state["global_cfg"]
+            v2_config.save_global_config(cfg)
+            state["cfg"] = cfg
+            return
+
+        dir_path = Path(scope_key)
+        dir_cfg = v2_config.load_dir_config(dir_path) or {}
+        section = dir_cfg.get(field, {})
+        if not isinstance(section, dict):
+            section = {"enabled": list(section) if isinstance(section, list) else []}
+
+        current = list(section.get("enabled", []))
+        if enabled and name not in current:
+            current.append(name)
+        elif not enabled:
+            current = [n for n in current if n != name]
+
+        section["enabled"] = current
+        dir_cfg[field] = section
+        v2_config.save_dir_config(dir_path, dir_cfg)
+
+        project_dir = state.get("project_dir")
+        if project_dir and dir_path.resolve() == Path(project_dir).resolve():
+            state["local_cfg"] = dir_cfg
+
+    def _refresh_contents() -> None:
+        nonlocal packages
+        packages = v2_config.load_packages()
+        state["contents"] = registry.list()
+
+    def _build_package_tree() -> tuple[list[str], dict[str, dict[str, list[str]]]]:
+        """Return (package_order, package -> field -> names) from registry + package index."""
+        package_tree: dict[str, dict[str, list[str]]] = {
+            pkg_name: {field: [] for field in fields}
+            for pkg_name in sorted(packages.keys())
+        }
+
+        ownership: dict[tuple[str, str], str] = {}
+        for pkg_name, pkg_data in packages.items():
+            for item in pkg_data.get("items", []):
+                comp_type = item.get("type")
+                item_name = item.get("name")
+                if not isinstance(comp_type, str) or not isinstance(item_name, str):
+                    continue
+                field = ct_to_field.get(comp_type)
+                if field:
+                    ownership[(field, item_name)] = pkg_name
+
+        ungrouped_has_items = False
+        for field, _, ct in ordered_types:
+            for name in sorted(state["contents"].get(ct, [])):
+                pkg_name = ownership.get((field, name), UNGROUPED)
+                if pkg_name not in package_tree:
+                    package_tree[pkg_name] = {f: [] for f in fields}
+                package_tree[pkg_name][field].append(name)
+                if pkg_name == UNGROUPED:
+                    ungrouped_has_items = True
+
+        package_order = [p for p in sorted(package_tree.keys()) if p != UNGROUPED]
+        if UNGROUPED in package_tree and (ungrouped_has_items or any(package_tree[UNGROUPED].values())):
+            package_order.append(UNGROUPED)
+
+        return package_order, package_tree
+
+    def _build_rows(
+        package_order: list[str], package_tree: dict[str, dict[str, list[str]]]
+    ) -> list[dict]:
+        rows: list[dict] = []
+        for pkg_name in package_order:
+            collapsed_packages.setdefault(pkg_name, True)
+            field_map = package_tree.get(pkg_name, {f: [] for f in fields})
+            item_count = sum(len(names) for names in field_map.values())
+            rows.append({
+                "kind": ROW_PACKAGE,
+                "package": pkg_name,
+                "count": item_count,
+                "is_ungrouped": pkg_name == UNGROUPED,
+            })
+
+            if collapsed_packages.get(pkg_name, False):
+                continue
+
+            for field, label, _ct in ordered_types:
+                names = field_map.get(field, [])
+                if not names:
+                    continue
+                rows.append({
+                    "kind": ROW_TYPE,
+                    "package": pkg_name,
+                    "field": field,
+                    "label": label,
+                    "count": len(names),
+                })
+
+                if collapsed_types.get((pkg_name, field), True):
+                    continue
+
+                for name in names:
+                    rows.append({
+                        "kind": ROW_ITEM,
+                        "package": pkg_name,
+                        "field": field,
+                        "name": name,
+                    })
+
+        rows.append({"kind": ROW_SEPARATOR})
+        rows.append({"kind": ROW_ACTION, "action": ACTION_DONE, "label": "Done"})
+        return rows
+
+    def _is_selectable(row: dict) -> bool:
+        return row.get("kind") != ROW_SEPARATOR
+
+    def _normalize_cursor(rows: list[dict], idx: int) -> int:
+        if not rows:
+            return 0
+        idx = max(0, min(idx, len(rows) - 1))
+        if _is_selectable(rows[idx]):
+            return idx
+        for i, row in enumerate(rows):
+            if _is_selectable(row):
+                return i
+        return 0
+
+    def _move_cursor(rows: list[dict], idx: int, direction: int) -> int:
+        total = len(rows)
+        if total == 0:
+            return 0
+        idx = max(0, min(idx, total - 1))
+        for _ in range(total):
+            idx = (idx + direction) % total
+            if _is_selectable(rows[idx]):
+                return idx
+        return idx
+
+    def _terminal_height() -> int:
+        try:
+            return os.get_terminal_size().lines
+        except OSError:
+            return 24
+
+    def _update_scroll(total: int, idx: int, max_visible: int, offset: int) -> int:
+        if total <= 0 or max_visible <= 0:
+            return 0
+        if idx < offset:
+            offset = idx
+        elif idx >= offset + max_visible:
+            offset = idx - max_visible + 1
+        max_offset = max(0, total - max_visible)
+        return max(0, min(offset, max_offset))
+
+    def _build_display(rows: list[dict], package_tree: dict[str, dict[str, list[str]]], scopes: list[dict]) -> str:
+        nonlocal scroll_offset
+
+        def _term_cols() -> int:
+            try:
+                return os.get_terminal_size().columns
+            except OSError:
+                return 80
+
+        def _truncate(text: str, max_len: int) -> str:
+            if max_len <= 1:
+                return text[:max_len]
+            if len(text) <= max_len:
+                return text
+            return text[: max_len - 1] + "\u2026"
+
+        scope = scopes[scope_index]
+        checked = scope["enabled"]
+        next_scope = scopes[(scope_index + 1) % len(scopes)]["label"] if len(scopes) > 1 else ""
+        show_scope_hint = len(scopes) == 1 and state.get("local_cfg") is None
+        package_count = len([p for p in package_tree.keys() if p != UNGROUPED])
+        ungrouped_count = sum(len(names) for names in package_tree.get(UNGROUPED, {}).values())
+
+        lines: list[str] = [scoped_header("Packages", scope["label"])]
+        if len(scopes) > 1:
+            lines[0] += f"    [dim]\\[Tab: {next_scope}][/dim]"
+        if ungrouped_count > 0:
+            lines.append(f"[dim]Packages: {package_count}  |  Ungrouped items: {ungrouped_count}[/dim]")
+        else:
+            lines.append(f"[dim]Packages: {package_count}[/dim]")
+        lines.append(dim_separator())
+
+        total_rows = len(rows)
+        max_visible = max(8, _terminal_height() - 10)
+        scroll_offset = _update_scroll(total_rows, cursor, max_visible, scroll_offset)
+        vis_start = scroll_offset
+        vis_end = min(total_rows, vis_start + max_visible)
+
+        if vis_start > 0:
+            lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
+
+        for i in range(vis_start, vis_end):
+            row = rows[i]
+            kind = row["kind"]
+            is_cur = i == cursor
+            prefix = cursor_prefix(is_cur)
+            cols = _term_cols()
+
+            if kind == ROW_PACKAGE:
+                pkg_name = row["package"]
+                is_ungrouped = row["is_ungrouped"]
+                collapsed = collapsed_packages.get(pkg_name, False)
+                arrow = "\u25b6" if collapsed else "\u25bc"
+                icon = "\U0001f4c1" if is_ungrouped else "\U0001f4e6"
+                label = "Ungrouped (not in package)" if is_ungrouped else pkg_name
+                pkg_items = package_tree.get(pkg_name, {})
+                enabled_count = sum(
+                    1
+                    for field, names in pkg_items.items()
+                    for name in names
+                    if (field, name) in checked
+                )
+                suffix = f" ({enabled_count}/{row['count']}) {arrow}"
+                max_label = max(10, cols - 8 - len(suffix))
+                label = _truncate(label, max_label)
+                if is_cur:
+                    style, end = row_style(True)
+                elif is_ungrouped:
+                    style, end = "[yellow]", "[/yellow]"
+                elif enabled_count == 0:
+                    style, end = "[dim]", "[/dim]"
+                else:
+                    style, end = "", ""
+                count_style = enabled_count_style(enabled_count)
+                lines.append(
+                    f"{prefix}{style}{icon} {label} "
+                    f"[{count_style}]({enabled_count}/{row['count']})[/{count_style}] {arrow}{end}"
+                )
+
+                if not is_ungrouped and not collapsed:
+                    url = str(packages.get(pkg_name, {}).get("url", "")).strip()
+                    if url:
+                        lines.append(f"    [dim]{url}[/dim]")
+
+            elif kind == ROW_TYPE:
+                pkg_name = row["package"]
+                field = row["field"]
+                collapsed = collapsed_types.get((pkg_name, field), True)
+                arrow = "\u25b6" if collapsed else "\u25bc"
+                names = package_tree.get(pkg_name, {}).get(field, [])
+                enabled_count = sum(1 for name in names if (field, name) in checked)
+                total_count = len(names)
+                suffix = f" ({enabled_count}/{total_count}) {arrow}"
+                max_label = max(8, cols - 18 - len(suffix))
+                label = _truncate(row["label"], max_label)
+                if is_cur:
+                    style, end = row_style(True)
+                elif enabled_count == 0:
+                    style, end = "[dim]", "[/dim]"
+                else:
+                    style, end = "", ""
+                count_style = enabled_count_style(enabled_count)
+                lines.append(
+                    f"{prefix}  {style}{label} "
+                    f"[{count_style}]({enabled_count}/{total_count})[/{count_style}] {arrow}{end}"
+                )
+
+            elif kind == ROW_ITEM:
+                field = row["field"]
+                name = row["name"]
+                enabled = (field, name) in checked
+                if enabled:
+                    mark = "\u25cf"
+                else:
+                    mark = "\u25cb"
+                if is_cur:
+                    lines.append(f"{prefix}    {mark} [bold]{name}[/bold]")
+                else:
+                    lines.append(f"{prefix}    {mark} {name}")
+
+            elif kind == ROW_SEPARATOR:
+                lines.append(f"  {dim_separator(9)}")
+
+            elif kind == ROW_ACTION:
+                style, end = action_style(is_cur)
+                lines.append(f"{prefix}{style}{row['label']}{end}")
+
+        if vis_end < total_rows:
+            lines.append(f"[dim]  \u2193 {total_rows - vis_end} more[/dim]")
+
+        if status_msg:
+            lines.append(f"\n[dim]{status_msg}[/dim]")
+
+        if show_scope_hint:
+            lines.append("\n[dim italic]Run 'hawk init' in a project directory to add a local scope[/dim italic]")
+
+        current_kind = rows[cursor]["kind"] if rows else ROW_ACTION
+        lines.append("")
+        if current_kind == ROW_PACKAGE:
+            hints = "Enter/Space: expand  u: update package  d/x: remove package  U: update all"
+        elif current_kind == ROW_TYPE:
+            hints = "Enter/Space: expand"
+        elif current_kind == ROW_ITEM:
+            hints = "Enter/Space: toggle  e: open  d: remove item  U: update all"
+        else:
+            hints = "Enter/Space: select  U: update all"
+        if len(scopes) > 1:
+            hints += "  Tab: scope"
+        hints += "  \u2191\u2193/jk: navigate  q/Esc/Ctrl+C: back"
+        lines.append(f"[dim]{hints}[/dim]")
+        return "\n".join(lines)
+
+    _reload_state_config()
+    _refresh_contents()
+    package_order, package_tree = _build_package_tree()
+    has_registry_items = any(
+        state["contents"].get(ct, [])
+        for _field, _label, ct in ordered_types
+    )
+    if not packages and not has_registry_items:
+        console.print("\n[dim]No packages or ungrouped registry items found.[/dim]")
         console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
         wait_for_continue()
         return False
 
-    dirty = False
-
-    import readchar
-    from rich.live import Live
-    from rich.text import Text
-
-    pkg_list = sorted(packages.items())
-    cursor = 0
-
-    def _build_pkg_menu() -> str:
-        lines = ["[bold]hawk packages[/bold]"]
-        lines.append("[dim]" + "\u2500" * 40 + "[/dim]")
-        for i, (name, data) in enumerate(pkg_list):
-            item_count = len(data.get("items", []))
-            url = data.get("url", "")
-            prefix = "\u276f " if i == cursor else "  "
-            if i == cursor:
-                lines.append(f"[bold cyan]{prefix}\U0001f4e6 {name:<30} {item_count} items[/bold cyan]")
-            else:
-                lines.append(f"{prefix}\U0001f4e6 {name:<30} {item_count} items")
-            if i == cursor and url:
-                lines.append(f"[dim]    {url}[/dim]")
-        lines.append("")
-        lines.append("[dim]Enter: toggle items  u: update  d/x: remove  U: update all  q: back[/dim]")
-        return "\n".join(lines)
-
-    with Live(Text.from_markup(_build_pkg_menu()), refresh_per_second=30, screen=True) as live:
+    with Live("", console=console, refresh_per_second=15, screen=True) as live:
         while True:
-            key = readchar.readkey()
+            scopes = _build_scope_entries()
+            scope_index = max(0, min(scope_index, len(scopes) - 1))
+            package_order, package_tree = _build_package_tree()
+            rows = _build_rows(package_order, package_tree)
+            cursor = _normalize_cursor(rows, cursor)
+            live.update(Text.from_markup(_build_display(rows, package_tree, scopes)))
 
-            if key in ("q", "\x1b"):
+            try:
+                key = readchar.readkey()
+            except (KeyboardInterrupt, EOFError):
                 break
 
-            elif key in (readchar.key.UP, "k"):
-                cursor = max(0, cursor - 1)
+            status_msg = ""
+            row = rows[cursor]
+            kind = row["kind"]
+            scope = scopes[scope_index]
 
-            elif key in (readchar.key.DOWN, "j"):
-                cursor = min(len(pkg_list) - 1, cursor + 1)
+            if key in (readchar.key.UP, "k"):
+                cursor = _move_cursor(rows, cursor, -1)
+                continue
+            if key in (readchar.key.DOWN, "j"):
+                cursor = _move_cursor(rows, cursor, 1)
+                continue
+            if key in (readchar.key.TAB, "\t") and len(scopes) > 1:
+                scope_index = (scope_index + 1) % len(scopes)
+                continue
+            if key in ("q", "\x1b", getattr(readchar.key, "CTRL_C", "\x03"), "\x03"):
+                break
 
-            elif key in (readchar.key.ENTER, "\r", "\n"):
-                pkg_name, pkg_data = pkg_list[cursor]
-                live.stop()
-                if _handle_package_toggle(state, pkg_name, pkg_data):
-                    dirty = True
-                # Reload packages in case toggle changed things
-                packages = v2_config.load_packages()
-                pkg_list = sorted(packages.items())
-                if not pkg_list:
-                    break
-                cursor = min(cursor, len(pkg_list) - 1)
-                live.start()
-
-            elif key == "u":
-                pkg_name = pkg_list[cursor][0]
-                live.stop()
-                console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
-                from ..v2_cli import cmd_update
-
-                class _Args:
-                    package = pkg_name
-                    check = False
-                    force = False
-                    prune = False
-                try:
-                    cmd_update(_Args())
-                except SystemExit:
-                    pass
-                console.print()
-                console.print("[dim]Press any key to continue...[/dim]")
-                readchar.readkey()
-                # Reload
-                packages = v2_config.load_packages()
-                pkg_list = sorted(packages.items())
-                if not pkg_list:
-                    break
-                cursor = min(cursor, len(pkg_list) - 1)
-                live.start()
-
-            elif key == "U":
+            if key == "U":
                 live.stop()
                 console.print("\n[bold]Updating all packages...[/bold]")
                 from ..v2_cli import cmd_update
@@ -907,6 +1284,7 @@ def _handle_packages(state: dict) -> bool:
                     check = False
                     force = False
                     prune = False
+
                 try:
                     cmd_update(_ArgsAll())
                 except SystemExit:
@@ -914,220 +1292,124 @@ def _handle_packages(state: dict) -> bool:
                 console.print()
                 console.print("[dim]Press any key to continue...[/dim]")
                 readchar.readkey()
-                packages = v2_config.load_packages()
-                pkg_list = sorted(packages.items())
-                if not pkg_list:
-                    break
-                cursor = min(cursor, len(pkg_list) - 1)
+                _reload_state_config()
+                _refresh_contents()
                 live.start()
+                continue
 
-            elif key in ("x", "d"):
-                pkg_name = pkg_list[cursor][0]
-                live.stop()
-                console.print(f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ", end="")
-                confirm = readchar.readkey()
-                console.print()
-                if confirm.lower() == "y":
-                    from ..v2_cli import cmd_remove_package
+            primary = key in (readchar.key.ENTER, "\r", "\n", " ")
 
-                    class _RmArgs:
-                        name = pkg_name
-                        yes = True
+            if kind == ROW_ACTION and primary:
+                break
+
+            if kind == ROW_PACKAGE:
+                pkg_name = row["package"]
+                is_ungrouped = row["is_ungrouped"]
+
+                if primary:
+                    collapsed_packages[pkg_name] = not collapsed_packages.get(pkg_name, False)
+                    continue
+
+                if key == "u":
+                    if is_ungrouped:
+                        status_msg = "Ungrouped has no package source to update."
+                        continue
+
+                    live.stop()
+                    console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
+                    from ..v2_cli import cmd_update
+
+                    class _Args:
+                        package = pkg_name
+                        check = False
+                        force = False
+                        prune = False
+
                     try:
-                        cmd_remove_package(_RmArgs())
+                        cmd_update(_Args())
                     except SystemExit:
                         pass
-                    dirty = True
                     console.print()
                     console.print("[dim]Press any key to continue...[/dim]")
                     readchar.readkey()
-                packages = v2_config.load_packages()
-                pkg_list = sorted(packages.items())
-                if not pkg_list:
-                    break
-                cursor = min(cursor, len(pkg_list) - 1)
-                live.start()
+                    _reload_state_config()
+                    _refresh_contents()
+                    live.start()
+                    continue
 
-            live.update(Text.from_markup(_build_pkg_menu()))
+                if key in ("x", "d"):
+                    if is_ungrouped:
+                        status_msg = "Cannot remove Ungrouped as a package."
+                        continue
 
-    return dirty
+                    live.stop()
+                    console.print(
+                        f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ",
+                        end="",
+                    )
+                    confirm = readchar.readkey()
+                    console.print()
+                    if confirm.lower() == "y":
+                        from ..v2_cli import cmd_remove_package
 
+                        class _RmArgs:
+                            name = pkg_name
+                            yes = True
 
-def _handle_package_toggle(state: dict, pkg_name: str, pkg_data: dict) -> bool:
-    """Toggle items within a single package, grouped by component type.
+                        try:
+                            cmd_remove_package(_RmArgs())
+                        except SystemExit:
+                            pass
+                        console.print()
+                        console.print("[dim]Press any key to continue...[/dim]")
+                        readchar.readkey()
+                    _reload_state_config()
+                    _refresh_contents()
+                    live.start()
+                    continue
 
-    Shows all component types from the package in one toggle view.
-    Routes saves to the correct config field per type.
-    Returns True if changes were made.
-    """
-    from pathlib import Path
-
-    # 1. Build groups by component type + track item->field mapping
-    toggle_groups: list[ToggleGroup] = []
-    # Map item name -> set of config fields (handles same name across types)
-    item_field_map: dict[str, set[str]] = {}
-    all_pkg_items: set[str] = set()
-
-    for display_name, field, ct in COMPONENT_TYPES:
-        type_items = [
-            item["name"] for item in pkg_data.get("items", [])
-            if item.get("type") == ct.value
-        ]
-        if type_items:
-            toggle_groups.append(ToggleGroup(
-                key=field,
-                label=display_name,
-                items=sorted(type_items),
-            ))
-            for name in type_items:
-                item_field_map.setdefault(name, set()).add(field)
-                all_pkg_items.add(name)
-
-    if not toggle_groups:
-        console.print(f"\n[dim]No items in package {pkg_name}.[/dim]")
-        wait_for_continue()
-        return False
-
-    # 2. Build scopes — collect enabled items across ALL types for this package
-    scopes: list[ToggleScope] = []
-
-    # Global scope
-    global_cfg = state["global_cfg"]
-    global_enabled = []
-    for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
-        for name in global_cfg.get(field, []):
-            if name in all_pkg_items:
-                global_enabled.append(name)
-    scopes.append(ToggleScope(
-        key="global",
-        label="\U0001f310 Global (default)",
-        enabled=global_enabled,
-    ))
-
-    # Dir scopes from config chain
-    project_dir = state.get("project_dir") or Path.cwd().resolve()
-    config_chain = v2_config.get_config_chain(project_dir)
-
-    if config_chain:
-        for chain_dir, chain_config in config_chain:
-            enabled = []
-            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
-                section = chain_config.get(field, {})
-                if isinstance(section, dict):
-                    for name in section.get("enabled", []):
-                        if name in all_pkg_items:
-                            enabled.append(name)
-                elif isinstance(section, list):
-                    for name in section:
-                        if name in all_pkg_items:
-                            enabled.append(name)
-
-            if chain_dir == project_dir.resolve():
-                label = f"\U0001f4cd This project: {chain_dir.name}"
-            else:
-                label = f"\U0001f4c1 {chain_dir.name}"
-
-            scopes.append(ToggleScope(key=str(chain_dir), label=label, enabled=enabled))
-    else:
-        # No chain — only add local scope if config already exists
-        local_cfg = state.get("local_cfg")
-        if local_cfg is not None:
-            local_enabled = []
-            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
-                section = local_cfg.get(field, {})
-                if isinstance(section, dict):
-                    for name in section.get("enabled", []):
-                        if name in all_pkg_items:
-                            local_enabled.append(name)
-
-            project_name = state.get("project_name") or project_dir.name
-            scopes.append(ToggleScope(
-                key=str(project_dir),
-                label=f"\U0001f4cd This project: {project_name}",
-                enabled=local_enabled,
-            ))
-
-    # 3. Run toggle
-    all_items = sorted(all_pkg_items)
-    registry_path = v2_config.get_registry_path(state["cfg"])
-    registry = state["registry"]
-
-    hint = None
-    if len(scopes) == 1 and state.get("local_cfg") is None:
-        hint = "Run 'hawk init' in a project directory to add a local scope"
-
-    # Delete callback — route to correct component type via item_field_map
-    field_to_ct = {f: c for _, f, c in COMPONENT_TYPES}
-
-    def _delete_pkg_item(name: str) -> bool:
-        fields = item_field_map.get(name)
-        if not fields:
-            return False
-        removed = False
-        for field in fields:
-            ct = field_to_ct.get(field)
-            if ct and registry.remove(ct, name):
-                removed = True
-        if removed:
-            state["contents"] = registry.list()
-        return removed
-
-    enabled_lists, changed = run_toggle_list(
-        f"\U0001f4e6 {pkg_name}",
-        all_items,
-        scopes=scopes,
-        start_scope_index=len(scopes) - 1,
-        registry_path=registry_path,
-        groups=toggle_groups,
-        footer_hint=hint,
-        on_delete=_delete_pkg_item,
-    )
-
-    # 4. Save changes — route per-type diffs to the correct config fields
-    if changed:
-        for i, scope in enumerate(scopes):
-            new_enabled = set(enabled_lists[i])
-            old_enabled = set(scope.enabled)
-
-            if new_enabled == old_enabled:
+            if kind == ROW_TYPE and primary:
+                pkg_name = row["package"]
+                field = row["field"]
+                key_id = (pkg_name, field)
+                collapsed_types[key_id] = not collapsed_types.get(key_id, True)
                 continue
 
-            # Diff per field
-            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
-                field_items = {name for name, fields in item_field_map.items() if field in fields}
-                if not field_items:
+            if kind == ROW_ITEM:
+                field = row["field"]
+                name = row["name"]
+                ct = field_to_ct[field]
+
+                if primary:
+                    enabled_now = (field, name) in scope["enabled"]
+                    _set_item_enabled(scope["key"], field, name, not enabled_now)
+                    dirty = True
+                    status_msg = (
+                        f"{'Enabled' if not enabled_now else 'Disabled'} {name} in {scope['label']}"
+                    )
                     continue
 
-                old_field = old_enabled & field_items
-                new_field = new_enabled & field_items
-                if old_field == new_field:
+                if key == "e":
+                    item_path = registry.get_path(ct, name)
+                    if item_path is not None:
+                        live.stop()
+                        if not _run_editor_command(item_path):
+                            console.print(f"\n[red]Could not open {item_path} in $EDITOR[/red]")
+                            wait_for_continue()
+                        live.start()
                     continue
 
-                added = new_field - old_field
-                removed = old_field - new_field
+                if key == "d":
+                    removed = registry.remove(ct, name)
+                    if removed:
+                        dirty = True
+                        state["contents"] = registry.list()
+                        status_msg = f"Removed {ct.registry_dir}/{name} from registry."
+                    else:
+                        status_msg = f"Could not remove {ct.registry_dir}/{name}."
+                    continue
 
-                if scope.key == "global":
-                    current = list(state["global_cfg"].get(field, []))
-                    updated = [n for n in current if n not in removed]
-                    updated.extend(sorted(added - set(current)))
-                    state["global_cfg"][field] = updated
-                    cfg = state["cfg"]
-                    cfg["global"] = state["global_cfg"]
-                    v2_config.save_global_config(cfg)
-                else:
-                    dir_path = Path(scope.key)
-                    dir_cfg = v2_config.load_dir_config(dir_path) or {}
-                    section = dir_cfg.get(field, {})
-                    if not isinstance(section, dict):
-                        section = {"enabled": list(section) if isinstance(section, list) else []}
-                    current = list(section.get("enabled", []))
-                    updated = [n for n in current if n not in removed]
-                    updated.extend(sorted(added - set(current)))
-                    section["enabled"] = updated
-                    dir_cfg[field] = section
-                    v2_config.save_dir_config(dir_path, dir_cfg)
-
-    return changed
+    return dirty
 
 
 def _handle_projects(state: dict) -> None:
@@ -1135,115 +1417,204 @@ def _handle_projects(state: dict) -> None:
     _run_projects_tree()
 
 
-def _run_projects_tree() -> None:
-    """Show interactive tree of all registered directories."""
-    dirs = v2_config.get_registered_directories()
+def _delete_project_scope(project_dir: Path, *, delete_local_hawk: bool) -> tuple[bool, str]:
+    """Delete a registered project scope, optionally removing local .hawk files."""
+    project_dir = project_dir.resolve()
+    try:
+        v2_config.unregister_directory(project_dir)
+    except Exception as e:
+        return False, f"Failed to remove scope: {e}"
 
-    if not dirs:
-        console.print("\n[dim]No directories registered.[/dim]")
-        console.print("[dim]Run [cyan]hawk init[/cyan] in a project directory to register it.[/dim]\n")
-        wait_for_continue()
-        return
+    if delete_local_hawk:
+        hawk_dir = project_dir / ".hawk"
+        try:
+            if hawk_dir.is_symlink() or hawk_dir.is_file():
+                hawk_dir.unlink()
+            elif hawk_dir.is_dir():
+                shutil.rmtree(hawk_dir)
+        except OSError as e:
+            return False, f"Scope removed, but failed to delete .hawk: {e}"
 
-    # Build tree structure: group by parent-child relationships
-    dir_paths = sorted(dirs.keys())
-    tree_entries: list[tuple[str, int, str]] = []  # (path, indent, label)
+    if delete_local_hawk:
+        return True, f"Removed scope and local .hawk for: {project_dir}"
+    return True, f"Removed scope registration for: {project_dir}"
 
-    # Find root dirs (not children of any other registered dir)
-    roots: list[str] = []
-    for dp in dir_paths:
-        dp_path = Path(dp)
-        is_child = False
-        for other in dir_paths:
-            if other != dp:
-                try:
-                    if dp_path.is_relative_to(Path(other)):
-                        is_child = True
-                        break
-                except (ValueError, TypeError):
-                    continue
-        if not is_child:
-            roots.append(dp)
 
-    def _add_tree(parent: str, indent: int) -> None:
-        p = Path(parent)
-        entry = dirs.get(parent, {})
-        profile = entry.get("profile", "")
+def _prompt_delete_scope(project_dir: Path, *, prefer_delete_local: bool = False) -> bool | None:
+    """Prompt user for scope deletion details.
 
-        # Count enabled items
-        dir_config = v2_config.load_dir_config(p)
-        parts: list[str] = []
-        if profile:
-            parts.append(f"profile: {profile}")
-        if dir_config:
-            for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
-                section = dir_config.get(field, {})
-                if isinstance(section, dict):
-                    count = len(section.get("enabled", []))
-                elif isinstance(section, list):
-                    count = len(section)
-                else:
-                    count = 0
-                if count:
-                    parts.append(f"+{count} {field}")
-
-        suffix = f"  {', '.join(parts)}" if parts else ""
-        exists = p.exists()
-        marker = " [missing]" if not exists else ""
-
-        if indent == 0:
-            label = f"\U0001f4c1 {parent}{suffix}{marker}"
-        else:
-            label = f"{'   ' * indent}\U0001f4c1 {p.name}{suffix}{marker}"
-
-        tree_entries.append((parent, indent, label))
-
-        # Find children
-        children = [
-            dp for dp in dir_paths
-            if dp != parent and dp.startswith(parent + "/")
-            and not any(
-                other != parent and other != dp
-                and dp.startswith(other + "/")
-                and other.startswith(parent + "/")
-                for other in dir_paths
-            )
-        ]
-        for child in sorted(children):
-            _add_tree(child, indent + 1)
-
-    for root in sorted(roots):
-        _add_tree(root, 0)
-
-    # Add global entry at top
-    cfg = v2_config.load_global_config()
-    global_section = cfg.get("global", {})
-    global_parts: list[str] = []
-    for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
-        count = len(global_section.get(field, []))
-        if count:
-            global_parts.append(f"{count} {field}")
-    global_suffix = f"  {', '.join(global_parts)}" if global_parts else ""
-
-    menu_entries = [f"\U0001f30e Global{global_suffix}"] + [e[2] for e in tree_entries]
-    menu_paths = ["global"] + [e[0] for e in tree_entries]
-
-    menu = TerminalMenu(
-        menu_entries,
-        title="\nhawk projects\n" + "\u2500" * 40,
+    Returns:
+        True  -> delete scope + local .hawk
+        False -> delete scope registration only
+        None  -> cancelled
+    """
+    step1 = TerminalMenu(
+        ["Cancel", "Delete scope"],
+        title=(
+            "\nDelete local scope?\n"
+            f"{project_dir}\n"
+            "This removes the project from Hawk Project Scopes."
+        ),
+        cursor_index=0,
         menu_cursor="\u276f ",
         menu_cursor_style=("fg_cyan", "bold"),
         menu_highlight_style=("fg_cyan", "bold"),
         quit_keys=("q", "\x1b"),
-        status_bar="Enter: open  q/Esc: back",
     )
+    choice1 = step1.show()
+    if choice1 != 1:
+        return None
 
+    default_idx = 1 if prefer_delete_local else 0
+    step2 = TerminalMenu(
+        ["Keep local .hawk files", "Delete local .hawk files", "Cancel"],
+        title=(
+            "\nAlso delete local .hawk files?\n"
+            "Use this if you want to fully remove local Hawk setup for this project."
+        ),
+        cursor_index=default_idx,
+        menu_cursor="\u276f ",
+        menu_cursor_style=("fg_cyan", "bold"),
+        menu_highlight_style=("fg_cyan", "bold"),
+        quit_keys=("q", "\x1b"),
+    )
+    choice2 = step2.show()
+    if choice2 is None or choice2 == 2:
+        return None
+    return choice2 == 1
+
+
+def _run_projects_tree() -> None:
+    """Show interactive tree of all registered directories."""
     while True:
+        dirs = v2_config.get_registered_directories()
+
+        if not dirs:
+            console.print("\n[dim]No directories registered.[/dim]")
+            console.print("[dim]Run [cyan]hawk init[/cyan] in a project directory to register it.[/dim]\n")
+            wait_for_continue()
+            return
+
+        # Build tree structure: group by parent-child relationships
+        dir_paths = sorted(dirs.keys())
+        tree_entries: list[tuple[str, int, str]] = []  # (path, indent, label)
+
+        # Find root dirs (not children of any other registered dir)
+        roots: list[str] = []
+        for dp in dir_paths:
+            dp_path = Path(dp)
+            is_child = False
+            for other in dir_paths:
+                if other != dp:
+                    try:
+                        if dp_path.is_relative_to(Path(other)):
+                            is_child = True
+                            break
+                    except (ValueError, TypeError):
+                        continue
+            if not is_child:
+                roots.append(dp)
+
+        def _add_tree(parent: str, indent: int) -> None:
+            p = Path(parent)
+            entry = dirs.get(parent, {})
+            profile = entry.get("profile", "")
+
+            # Count enabled items
+            dir_config = v2_config.load_dir_config(p)
+            parts: list[str] = []
+            if profile:
+                parts.append(f"profile: {profile}")
+            if dir_config:
+                for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
+                    section = dir_config.get(field, {})
+                    if isinstance(section, dict):
+                        count = len(section.get("enabled", []))
+                    elif isinstance(section, list):
+                        count = len(section)
+                    else:
+                        count = 0
+                    if count:
+                        parts.append(f"+{count} {field}")
+
+            suffix = f"  {', '.join(parts)}" if parts else ""
+            exists = p.exists()
+            marker = " [missing]" if not exists else ""
+
+            if indent == 0:
+                label = f"\U0001f4c1 {parent}{suffix}{marker}"
+            else:
+                label = f"{'   ' * indent}\U0001f4c1 {p.name}{suffix}{marker}"
+
+            tree_entries.append((parent, indent, label))
+
+            # Find children
+            children = [
+                dp for dp in dir_paths
+                if dp != parent and dp.startswith(parent + "/")
+                and not any(
+                    other != parent and other != dp
+                    and dp.startswith(other + "/")
+                    and other.startswith(parent + "/")
+                    for other in dir_paths
+                )
+            ]
+            for child in sorted(children):
+                _add_tree(child, indent + 1)
+
+        for root in sorted(roots):
+            _add_tree(root, 0)
+
+        # Add global entry at top
+        cfg = v2_config.load_global_config()
+        global_section = cfg.get("global", {})
+        global_parts: list[str] = []
+        for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
+            count = len(global_section.get(field, []))
+            if count:
+                global_parts.append(f"{count} {field}")
+        global_suffix = f"  {', '.join(global_parts)}" if global_parts else ""
+
+        menu_entries = [f"\U0001f30e Global{global_suffix}"] + [e[2] for e in tree_entries]
+        menu_paths = ["global"] + [e[0] for e in tree_entries]
+
+        menu = TerminalMenu(
+            menu_entries,
+            title="\nhawk projects\n" + "\u2500" * 40,
+            menu_cursor="\u276f ",
+            menu_cursor_style=("fg_cyan", "bold"),
+            menu_highlight_style=("fg_cyan", "bold"),
+            accept_keys=("enter", "d", "x"),
+            quit_keys=("q", "\x1b"),
+            status_bar="Enter: open  d/x: delete scope  q/Esc: back",
+        )
+
         choice = menu.show()
         if choice is None:
             break
 
         selected_path = menu_paths[choice]
+        accept_key = getattr(menu, "chosen_accept_key", "enter")
+        if accept_key in ("d", "x"):
+            if selected_path == "global":
+                console.print("\n[yellow]Global scope cannot be deleted.[/yellow]\n")
+                wait_for_continue()
+                continue
+
+            project_dir = Path(selected_path)
+            remove_local = _prompt_delete_scope(
+                project_dir,
+                prefer_delete_local=(accept_key == "x"),
+            )
+            if remove_local is None:
+                continue
+
+            ok, msg = _delete_project_scope(project_dir, delete_local_hawk=remove_local)
+            style = "green" if ok else "red"
+            console.print(f"\n[{style}]{msg}[/{style}]\n")
+            wait_for_continue()
+            continue
+
         if selected_path == "global":
             # Open settings editor for global config
             from .config_editor import run_config_editor
@@ -1394,31 +1765,7 @@ def _handle_download() -> None:
 
 def _handle_uninstall_from_environment() -> bool:
     """Run unlink + uninstall flow from Environment menu."""
-    from ..v2_sync import format_sync_results, uninstall_all
-
-    menu = TerminalMenu(
-        ["No", "Yes, unlink + uninstall"],
-        title=(
-            "\nUnlink and uninstall hawk-managed state?\n"
-            "This will purge tool links and clear registry/packages/config selections."
-        ),
-        cursor_index=0,
-        menu_cursor="\u276f ",
-        menu_cursor_style=("fg_cyan", "bold"),
-        menu_highlight_style=("fg_cyan", "bold"),
-        quit_keys=("q", "\x1b"),
-    )
-    choice = menu.show()
-    if choice != 1:
-        return False
-
-    console.print("\n[bold red]Unlinking and uninstalling...[/bold red]")
-    results = uninstall_all()
-    formatted = format_sync_results(results, verbose=False)
-    console.print(formatted or "  No changes.")
-    console.print("\n[green]\u2714 Cleared hawk-managed config, packages, and registry state.[/green]\n")
-    wait_for_continue()
-    return True
+    return run_uninstall_wizard(console)
 
 
 def _handle_environment(state: dict) -> bool:
@@ -1426,6 +1773,8 @@ def _handle_environment(state: dict) -> bool:
     changed = False
 
     while True:
+        # Clear transient output from submenu actions before re-rendering menu.
+        console.clear()
         menu = TerminalMenu(
             [
                 "Tool Integrations",
@@ -1439,6 +1788,7 @@ def _handle_environment(state: dict) -> bool:
             menu_cursor="\u276f ",
             menu_cursor_style=("fg_cyan", "bold"),
             menu_highlight_style=("fg_cyan", "bold"),
+            accept_keys=("enter", " "),
             quit_keys=("q", "\x1b"),
         )
         choice = menu.show()
@@ -1554,9 +1904,6 @@ def run_dashboard(scope_dir: str | None = None) -> None:
             if _handle_packages(state):
                 dirty = True
                 dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
-
-        elif action == "registry":
-            _handle_registry_browser(state)
 
         elif action == "environment":
             if _handle_environment(state):

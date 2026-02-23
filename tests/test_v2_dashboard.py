@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 
 if "rich" not in sys.modules:
@@ -107,6 +108,7 @@ def test_build_menu_options_has_no_manual_sync_entry():
     options = dashboard._build_menu_options(_minimal_state())
     assert not any(action == "sync" for _, action in options)
     assert any(action == "environment" for _, action in options)
+    assert not any(action == "registry" for _, action in options)
     assert not any(action == "tools" for _, action in options)
     assert not any(action == "projects" for _, action in options)
     assert not any(action == "settings" for _, action in options)
@@ -188,3 +190,37 @@ def test_auto_sync_after_change_keeps_dirty_on_errors(monkeypatch):
 
     dirty_after = dashboard._apply_auto_sync_if_needed(True)
     assert dirty_after is True
+
+
+def test_delete_project_scope_unregisters_and_keeps_local_hawk(tmp_path, monkeypatch):
+    project = tmp_path / "demo"
+    project.mkdir()
+    hawk_dir = project / ".hawk"
+    hawk_dir.mkdir()
+    (hawk_dir / "config.yaml").write_text("skills: {}\n")
+
+    calls: list[Path] = []
+
+    def _unregister(path: Path):
+        calls.append(path)
+
+    monkeypatch.setattr("hawk_hooks.v2_config.unregister_directory", _unregister)
+
+    ok, _msg = dashboard._delete_project_scope(project, delete_local_hawk=False)
+    assert ok is True
+    assert calls == [project.resolve()]
+    assert (project / ".hawk" / "config.yaml").exists()
+
+
+def test_delete_project_scope_can_remove_local_hawk_dir(tmp_path, monkeypatch):
+    project = tmp_path / "demo"
+    project.mkdir()
+    hawk_dir = project / ".hawk"
+    hawk_dir.mkdir()
+    (hawk_dir / "config.yaml").write_text("skills: {}\n")
+
+    monkeypatch.setattr("hawk_hooks.v2_config.unregister_directory", lambda _path: None)
+
+    ok, _msg = dashboard._delete_project_scope(project, delete_local_hawk=True)
+    assert ok is True
+    assert not hawk_dir.exists()

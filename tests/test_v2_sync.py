@@ -537,6 +537,24 @@ class TestUninstall:
         assert total == 1
         assert unsynced == 0
 
+    def test_uninstall_all_can_keep_project_local_hawk_files(self, v2_env, tmp_path, monkeypatch):
+        from hawk_hooks.adapters.claude import ClaudeAdapter
+
+        project = tmp_path / "project"
+        project.mkdir()
+        v2_config.save_dir_config(project, {"prompts": {"enabled": ["deploy.md"], "disabled": []}})
+        v2_config.register_directory(project)
+
+        claude_dir = tmp_path / "fake-claude"
+        claude_dir.mkdir()
+        monkeypatch.setattr(ClaudeAdapter, "get_global_dir", lambda self: claude_dir)
+
+        uninstall_all(tools=[Tool.CLAUDE], remove_project_configs=False)
+
+        cfg_after = v2_config.load_global_config()
+        assert cfg_after.get("directories", {}) == {}
+        assert (project / ".hawk" / "config.yaml").exists()
+
 
 class TestFormatResults:
     def test_format_empty(self):
