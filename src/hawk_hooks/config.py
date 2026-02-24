@@ -408,15 +408,25 @@ def remove_package(package_name: str) -> bool:
 def package_name_from_url(url: str) -> str:
     """Derive a package name from a git URL.
 
-    Takes the last path segment, strips .git suffix.
+    Uses org/repo format for GitHub-style URLs (e.g. "anthropics/skills"),
+    falls back to just the repo name for other URLs.
     """
     # Strip trailing slashes and .git
-    name = url.rstrip("/")
-    if name.endswith(".git"):
-        name = name[:-4]
-    # Take last segment
-    name = name.rsplit("/", 1)[-1]
-    return name or "unknown"
+    clean = url.rstrip("/")
+    if clean.endswith(".git"):
+        clean = clean[:-4]
+    # Normalize SSH URLs (git@host:org/repo → org/repo)
+    if ":" in clean and "@" in clean.split(":")[0]:
+        clean = clean.split(":", 1)[1]
+    # Split path segments
+    parts = clean.split("/")
+    # GitHub-style: at least org/repo → use org/repo
+    if len(parts) >= 2:
+        org, repo = parts[-2], parts[-1]
+        if org and repo:
+            return f"{org}/{repo}"
+    # Fallback: last segment only
+    return parts[-1] if parts and parts[-1] else "unknown"
 
 
 def record_package(

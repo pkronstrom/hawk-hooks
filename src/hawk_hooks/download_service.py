@@ -157,7 +157,11 @@ def download_and_install(
         if select_all:
             selected_items = content.items
         else:
-            pkg = content.package_meta.name if content.package_meta else ""
+            pkg = (
+                name
+                or (content.package_meta.name if content.package_meta else None)
+                or config.package_name_from_url(url)
+            )
             if select_fn is None:
                 selected_items = content.items
                 action = None
@@ -224,7 +228,7 @@ def download_and_install(
                 logf(f"  - {item_name}")
 
         if added:
-            logf("\nRun 'hawk sync' to apply changes.")
+            logf("\nRun 'hawk enable <name>' to activate, then 'hawk sync' to apply.")
 
         return DownloadResult(
             success=True,

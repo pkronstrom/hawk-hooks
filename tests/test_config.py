@@ -416,16 +416,16 @@ class TestPackages:
 
 class TestPackageNameFromUrl:
     def test_simple_url(self):
-        assert config.package_name_from_url("https://github.com/user/my-repo") == "my-repo"
+        assert config.package_name_from_url("https://github.com/user/my-repo") == "user/my-repo"
 
     def test_url_with_git_suffix(self):
-        assert config.package_name_from_url("https://github.com/user/my-repo.git") == "my-repo"
+        assert config.package_name_from_url("https://github.com/user/my-repo.git") == "user/my-repo"
 
     def test_url_with_trailing_slash(self):
-        assert config.package_name_from_url("https://github.com/user/my-repo/") == "my-repo"
+        assert config.package_name_from_url("https://github.com/user/my-repo/") == "user/my-repo"
 
     def test_ssh_url(self):
-        assert config.package_name_from_url("git@github.com:user/my-repo.git") == "my-repo"
+        assert config.package_name_from_url("git@github.com:user/my-repo.git") == "user/my-repo"
 
 
 class TestContentHashing:

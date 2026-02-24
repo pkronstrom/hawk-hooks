@@ -44,12 +44,12 @@ def test_download_and_install_success_returns_result(monkeypatch, tmp_path):
     assert result.added == ["prompt/hello.md"]
     assert result.skipped == []
     assert result.clashes == []
-    assert result.package_name == "demo"
+    assert result.package_name == "example/demo"
 
     packages = config.load_packages()
-    assert "demo" in packages
-    assert packages["demo"]["url"] == "https://github.com/example/demo.git"
-    assert len(packages["demo"]["items"]) == 1
+    assert "example/demo" in packages
+    assert packages["example/demo"]["url"] == "https://github.com/example/demo.git"
+    assert len(packages["example/demo"]["items"]) == 1
 
 
 def test_download_and_install_clone_error_returns_failure(monkeypatch, tmp_path):

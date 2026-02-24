@@ -566,6 +566,10 @@ def _detect_tiers(
 
     num_groups = len(real_packages) + (1 if UNGROUPED in package_tree else 0)
 
+    # Named packages always get full 3-tier so type labels are visible
+    if real_packages:
+        return 3
+
     if num_groups <= 1 and len(all_fields) <= 1:
         return 1  # flat list
     if len(all_fields) <= 1:
@@ -704,17 +708,14 @@ def run_picker(
                 field_map = package_tree.get(pkg_name, {})
                 item_count = sum(len(names) for names in field_map.values())
 
-                # Only show group header if there are multiple groups
-                num_groups = len(package_order)
-                if num_groups > 1:
-                    rows.append({
-                        "kind": ROW_PACKAGE,
-                        "package": pkg_name,
-                        "count": item_count,
-                        "is_ungrouped": pkg_name == UNGROUPED,
-                    })
-                    if collapsed_packages.get(pkg_name, False):
-                        continue
+                rows.append({
+                    "kind": ROW_PACKAGE,
+                    "package": pkg_name,
+                    "count": item_count,
+                    "is_ungrouped": pkg_name == UNGROUPED,
+                })
+                if collapsed_packages.get(pkg_name, False):
+                    continue
 
                 for name in field_map.get(the_field, []):
                     rows.append({
