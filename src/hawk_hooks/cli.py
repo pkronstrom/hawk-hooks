@@ -424,8 +424,8 @@ def cmd_add(args):
         _print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
-    # Enable in global config
-    if getattr(args, "enable", True):
+    # Enable in global config (only when explicitly requested)
+    if getattr(args, "enable", False):
         cfg = v2_config.load_global_config()
         global_section = cfg.get("global", {})
         field = component_type.registry_dir
@@ -437,7 +437,7 @@ def cmd_add(args):
             v2_config.save_global_config(cfg)
             _print(f"[green]+[/green] Enabled in global config [dim]({field})[/dim]")
 
-    _print(f"\n[dim]Run[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
+    _print(f"\n[dim]Run[/dim] [cyan]hawk enable {component_type.value}/{name}[/cyan] [dim]to activate, then[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
 
 
 def cmd_remove(args):
@@ -609,6 +609,34 @@ def cmd_download(args):
     )
     if not result.success:
         sys.exit(1)
+
+    # Enable in global config (only when explicitly requested)
+    if result.added and getattr(args, "enable", False):
+        from . import v2_config
+
+        cfg = v2_config.load_global_config()
+        global_section = cfg.get("global", {})
+        enabled_count = 0
+        for item_key in result.added:
+            # item_key is "type/name"
+            parts = item_key.split("/", 1)
+            if len(parts) != 2:
+                continue
+            type_str, name = parts
+            try:
+                ct = ComponentType(type_str)
+            except ValueError:
+                continue
+            field = ct.registry_dir
+            enabled = global_section.get(field, [])
+            if name not in enabled:
+                enabled.append(name)
+                global_section[field] = enabled
+                enabled_count += 1
+        if enabled_count:
+            cfg["global"] = global_section
+            v2_config.save_global_config(cfg)
+            print(f"\nEnabled {enabled_count} component(s) in global config.")
 
 
 def _view_source_in_terminal(path: Path) -> None:
@@ -1057,8 +1085,8 @@ def cmd_scan(args):
                 if meta and meta.description:
                     _print(f"  {meta.description}")
 
-    # Enable in global config
-    if added and not args.no_enable:
+    # Enable in global config (only when explicitly requested)
+    if added and getattr(args, "enable", False):
         cfg = v2_config.load_global_config()
         global_section = cfg.get("global", {})
         for item in items_to_add:
@@ -1084,7 +1112,7 @@ def cmd_scan(args):
             print(f"  - {name}")
 
     if added:
-        print("\nRun 'hawk sync' to apply changes.")
+        print("\nRun 'hawk enable <name>' to activate, then 'hawk sync' to apply.")
 
 
 def cmd_packages(args):
@@ -1481,6 +1509,214 @@ def cmd_deps(args):
     print("Runners will use venv Python automatically on next sync.")
 
 
+def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
+    """Resolve an enable/disable target to a list of (ComponentType, name) pairs.
+
+    Resolution order:
+    1. "type/name" where type is a valid registry_dir → single item
+    2. Package name in packages.yaml → all items in package
+    3. "package/type" → filter package items by type
+    4. Bare name → search registry for matching name across all types
+    """
+    from . import v2_config
+    from .registry import Registry
+
+    # Map plural registry dir names to ComponentType
+    dir_to_ct: dict[str, ComponentType] = {}
+    for ct in ComponentType:
+        dir_to_ct[ct.registry_dir] = ct
+
+    # 1. Check "type/name" format
+    if "/" in target:
+        type_part, name_part = target.split("/", 1)
+        if type_part in dir_to_ct and name_part:
+            ct = dir_to_ct[type_part]
+            registry = Registry(v2_config.get_registry_path())
+            if not registry.has(ct, name_part):
+                print(f"Error: {target} not found in registry.")
+                sys.exit(1)
+            return [(ct, name_part)]
+
+        # 3. Check "package/type" format
+        packages = v2_config.load_packages()
+        if type_part in packages and name_part in dir_to_ct:
+            ct = dir_to_ct[name_part]
+            pkg_items = v2_config.list_package_items(type_part)
+            filtered = [(ComponentType(t), n) for t, n in pkg_items if ComponentType(t) == ct]
+            if not filtered:
+                print(f"Error: No {name_part} items in package '{type_part}'.")
+                sys.exit(1)
+            return filtered
+
+        # Could also be "package/type" with type as singular
+        # Try singular type values
+        for ct in ComponentType:
+            if name_part == ct.value:
+                packages = v2_config.load_packages()
+                if type_part in packages:
+                    pkg_items = v2_config.list_package_items(type_part)
+                    filtered = [(ComponentType(t), n) for t, n in pkg_items if ComponentType(t) == ct]
+                    if not filtered:
+                        print(f"Error: No {ct.value} items in package '{type_part}'.")
+                        sys.exit(1)
+                    return filtered
+
+        print(f"Error: Cannot resolve '{target}'. Use type/name, package name, or package/type.")
+        sys.exit(1)
+
+    # 2. Check if target is a package name
+    packages = v2_config.load_packages()
+    if target in packages:
+        pkg_items = v2_config.list_package_items(target)
+        if not pkg_items:
+            print(f"Error: Package '{target}' has no items.")
+            sys.exit(1)
+        return [(ComponentType(t), n) for t, n in pkg_items]
+
+    # 4. Bare name — search registry
+    registry = Registry(v2_config.get_registry_path())
+    all_items = registry.list_flat()
+    matches = [(ct, n) for ct, n in all_items if n == target]
+
+    if len(matches) == 1:
+        return matches
+    elif len(matches) > 1:
+        locations = ", ".join(f"{ct.registry_dir}/{n}" for ct, n in matches)
+        print(f"Error: Ambiguous name '{target}' found in: {locations}")
+        print("Use type/name format to be specific.")
+        sys.exit(1)
+    else:
+        print(f"Error: '{target}' not found in registry.")
+        sys.exit(1)
+
+
+def _enable_items(
+    items: list[tuple[ComponentType, str]],
+    cfg: dict,
+    section_key: str = "global",
+) -> list[str]:
+    """Enable items in a config section. Returns list of newly enabled names."""
+    section = cfg.get(section_key, {})
+    newly_enabled = []
+    for ct, name in items:
+        field = ct.registry_dir
+        enabled = section.get(field, [])
+        if name not in enabled:
+            enabled.append(name)
+            section[field] = enabled
+            newly_enabled.append(f"{ct.registry_dir}/{name}")
+    cfg[section_key] = section
+    return newly_enabled
+
+
+def _disable_items(
+    items: list[tuple[ComponentType, str]],
+    cfg: dict,
+    section_key: str = "global",
+) -> list[str]:
+    """Disable items in a config section. Returns list of newly disabled names."""
+    section = cfg.get(section_key, {})
+    newly_disabled = []
+    for ct, name in items:
+        field = ct.registry_dir
+        enabled = section.get(field, [])
+        if name in enabled:
+            enabled.remove(name)
+            section[field] = enabled
+            newly_disabled.append(f"{ct.registry_dir}/{name}")
+    cfg[section_key] = section
+    return newly_disabled
+
+
+def cmd_enable(args):
+    """Enable components in config."""
+    from . import v2_config
+    from .registry import Registry
+
+    if not args.target and not args.all:
+        print("Usage: hawk enable <target>")
+        print("       hawk enable --all")
+        print("\nTarget can be: name, type/name, package, or package/type")
+        sys.exit(1)
+
+    if args.all:
+        # Enable everything in registry
+        registry = Registry(v2_config.get_registry_path())
+        items = registry.list_flat()
+        if not items:
+            print("Registry is empty.")
+            return
+    else:
+        items = _resolve_enable_targets(args.target)
+
+    if args.dir:
+        project_dir = Path(args.dir).resolve()
+        cfg = v2_config.load_dir_config(project_dir) or {}
+        # Dir configs use top-level fields (not nested under "global")
+        newly_enabled = _enable_items(items, cfg, section_key="global")
+        # For dir configs, we store enabled items in a different structure
+        # Actually dir configs can have top-level fields or use enabled/disabled
+        # Let's use the simple list approach matching global config structure
+        v2_config.save_dir_config(project_dir, cfg)
+        scope = str(project_dir)
+    else:
+        cfg = v2_config.load_global_config()
+        newly_enabled = _enable_items(items, cfg, section_key="global")
+        v2_config.save_global_config(cfg)
+        scope = "global config"
+
+    if newly_enabled:
+        _print(f"\n[green]Enabled {len(newly_enabled)} component(s)[/green] in {scope}:")
+        for name in newly_enabled:
+            _print(f"  [green]+[/green] {name}")
+    else:
+        _print("All specified components were already enabled.")
+
+    _print(f"\n[dim]Run[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
+
+
+def cmd_disable(args):
+    """Disable components in config."""
+    from . import v2_config
+    from .registry import Registry
+
+    if not args.target and not args.all:
+        print("Usage: hawk disable <target>")
+        print("       hawk disable --all")
+        print("\nTarget can be: name, type/name, package, or package/type")
+        sys.exit(1)
+
+    if args.all:
+        registry = Registry(v2_config.get_registry_path())
+        items = registry.list_flat()
+        if not items:
+            print("Registry is empty.")
+            return
+    else:
+        items = _resolve_enable_targets(args.target)
+
+    if args.dir:
+        project_dir = Path(args.dir).resolve()
+        cfg = v2_config.load_dir_config(project_dir) or {}
+        newly_disabled = _disable_items(items, cfg, section_key="global")
+        v2_config.save_dir_config(project_dir, cfg)
+        scope = str(project_dir)
+    else:
+        cfg = v2_config.load_global_config()
+        newly_disabled = _disable_items(items, cfg, section_key="global")
+        v2_config.save_global_config(cfg)
+        scope = "global config"
+
+    if newly_disabled:
+        _print(f"\n[yellow]Disabled {len(newly_disabled)} component(s)[/yellow] in {scope}:")
+        for name in newly_disabled:
+            _print(f"  [yellow]-[/yellow] {name}")
+    else:
+        _print("None of the specified components were enabled.")
+
+    _print(f"\n[dim]Run[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the v2 CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -1526,10 +1762,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Component type (alternative to positional)")
     add_p.add_argument("--name", help="Name in registry (default: filename or auto-generated)")
     add_p.add_argument("--force", action="store_true", help="Replace existing")
-    add_p.add_argument("--enable", action="store_true", default=True,
-                       help="Enable in global config (default)")
-    add_p.add_argument("--no-enable", dest="enable", action="store_false",
-                       help="Don't enable in global config")
+    add_p.add_argument("--enable", action="store_true", default=False,
+                       help="Also enable in global config after adding")
     add_p.set_defaults(func=cmd_add)
 
     # remove
@@ -1560,7 +1794,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan_p.add_argument("--all", action="store_true", help="Import all found components without prompting")
     scan_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     scan_p.add_argument("--depth", type=int, default=5, help="Max scan depth (default: 5)")
-    scan_p.add_argument("--no-enable", action="store_true", help="Add to registry without enabling in config")
+    scan_p.add_argument("--enable", action="store_true", default=False,
+                        help="Also enable imported components in global config")
     scan_p.set_defaults(func=cmd_scan)
 
     # download
@@ -1569,6 +1804,8 @@ def build_parser() -> argparse.ArgumentParser:
     dl_p.add_argument("--all", action="store_true", help="Add all components without prompting")
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.add_argument("--name", help="Package name (default: derived from URL)")
+    dl_p.add_argument("--enable", action="store_true", default=False,
+                      help="Also enable downloaded components in global config")
     dl_p.set_defaults(func=cmd_download)
 
     # packages
@@ -1631,6 +1868,20 @@ def build_parser() -> argparse.ArgumentParser:
     # deps
     deps_p = subparsers.add_parser("deps", help="Install dependencies for hooks")
     deps_p.set_defaults(func=cmd_deps)
+
+    # enable
+    enable_p = subparsers.add_parser("enable", help="Enable components in config")
+    enable_p.add_argument("target", nargs="?", help="name, type/name, package, or package/type")
+    enable_p.add_argument("--all", action="store_true", help="Enable all registry items")
+    enable_p.add_argument("--dir", help="Enable in project scope instead of global")
+    enable_p.set_defaults(func=cmd_enable)
+
+    # disable
+    disable_p = subparsers.add_parser("disable", help="Disable components in config")
+    disable_p.add_argument("target", nargs="?", help="name, type/name, package, or package/type")
+    disable_p.add_argument("--all", action="store_true", help="Disable all enabled components")
+    disable_p.add_argument("--dir", help="Disable in project scope instead of global")
+    disable_p.set_defaults(func=cmd_disable)
 
     # migrate
     migrate_p = subparsers.add_parser("migrate", help="Migrate v1 config to v2")

@@ -64,13 +64,13 @@ class TestArgParsing:
         # (argparse can't distinguish — cmd_add handles this)
         assert args.type == "/path/to/file.md"
 
-    def test_add_no_enable(self):
-        args = self.parser.parse_args(["add", "skill", "/path", "--no-enable"])
-        assert args.enable is False
+    def test_add_enable_flag(self):
+        args = self.parser.parse_args(["add", "skill", "/path", "--enable"])
+        assert args.enable is True
 
     def test_add_enable_default(self):
         args = self.parser.parse_args(["add", "skill", "/path"])
-        assert args.enable is True
+        assert args.enable is False
 
     def test_remove(self):
         args = self.parser.parse_args(["remove", "skill", "tdd"])
@@ -244,7 +244,7 @@ class TestArgParsing:
         assert args.all is False
         assert args.replace is False
         assert args.depth == 5
-        assert args.no_enable is False
+        assert args.enable is False
 
     def test_scan_with_path(self):
         args = self.parser.parse_args(["scan", "/tmp/project"])
@@ -259,9 +259,9 @@ class TestArgParsing:
         args = self.parser.parse_args(["scan", "--depth", "3"])
         assert args.depth == 3
 
-    def test_scan_no_enable(self):
-        args = self.parser.parse_args(["scan", "--no-enable"])
-        assert args.no_enable is True
+    def test_scan_enable(self):
+        args = self.parser.parse_args(["scan", "--enable"])
+        assert args.enable is True
 
     def test_add_type_flag(self):
         args = self.parser.parse_args(["add", "--type", "skill", "--name", "foo.md"])
