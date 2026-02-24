@@ -172,7 +172,7 @@ def cursor_prefix(is_current: bool) -> str:
     if not is_current:
         return "  "
     theme = get_theme()
-    return f"[{theme.accent_rich}]❯[/{theme.accent_rich}] "
+    return f"[{theme.accent_rich}]\u203a[/{theme.accent_rich}] "
 
 
 def scoped_header(title: str, scope_label: str, tab_hint: str = "") -> str:

@@ -28,7 +28,7 @@ def run_uninstall_wizard(console: Console) -> bool:
             "Full uninstall clears Hawk-managed state."
         ),
         cursor_index=0,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
@@ -49,7 +49,7 @@ def run_uninstall_wizard(console: Console) -> bool:
                 "Choose whether full uninstall should remove local .hawk files."
             ),
             cursor_index=0,
-            menu_cursor="\u276f ",
+            menu_cursor="\u203a ",
             **terminal_menu_style_kwargs(),
             quit_keys=("q", "\x1b"),
         )
@@ -74,7 +74,7 @@ def run_uninstall_wizard(console: Console) -> bool:
         ["Back", "Confirm"],
         title="\nStep 3/3: Confirm\n\n" + "\n".join(effects),
         cursor_index=1,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )

@@ -78,7 +78,7 @@ def prompt_delete_scope(project_dir: Path, *, prefer_delete_local: bool = False)
             "This removes the project from Hawk Project Scopes."
         ),
         cursor_index=0,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
@@ -94,7 +94,7 @@ def prompt_delete_scope(project_dir: Path, *, prefer_delete_local: bool = False)
             "Use this if you want to fully remove local Hawk setup for this project."
         ),
         cursor_index=default_idx,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
@@ -162,9 +162,9 @@ def run_projects_tree() -> None:
             marker = " [missing]" if not exists else ""
 
             if indent == 0:
-                label = f"\U0001f4c1 {parent}{suffix}{marker}"
+                label = f"{parent}{suffix}{marker}"
             else:
-                label = f"{'   ' * indent}\U0001f4c1 {p.name}{suffix}{marker}"
+                label = f"{'   ' * indent}{p.name}{suffix}{marker}"
 
             tree_entries.append((parent, indent, label))
 
@@ -195,13 +195,13 @@ def run_projects_tree() -> None:
                 global_parts.append(f"{count} {field}")
         global_suffix = f"  {', '.join(global_parts)}" if global_parts else ""
 
-        menu_entries = [f"\U0001f30e Global{global_suffix}"] + [e[2] for e in tree_entries]
+        menu_entries = [f"Global{global_suffix}"] + [e[2] for e in tree_entries]
         menu_paths = ["global"] + [e[0] for e in tree_entries]
 
         menu = TerminalMenu(
             menu_entries,
             title="\nhawk projects\n" + "\u2500" * 40,
-            menu_cursor="\u276f ",
+            menu_cursor="\u203a ",
             **terminal_menu_style_kwargs(include_status_bar=True),
             accept_keys=("enter", "d", "x"),
             quit_keys=("q", "\x1b"),

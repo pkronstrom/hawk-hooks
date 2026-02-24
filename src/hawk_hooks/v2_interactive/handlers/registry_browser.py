@@ -79,7 +79,7 @@ def handle_registry_browser(state: dict) -> None:
     menu = TerminalMenu(
         rows,
         title="\nRegistry Browser\n────────────────────────────────────────",
-        menu_cursor="❯ ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(include_status_bar=True),
         quit_keys=("q", "\x1b"),
         status_bar="↵ open ($EDITOR) · q/esc back",

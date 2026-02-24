@@ -341,7 +341,7 @@ def handle_missing_components_setup(state: dict) -> bool:
         [option_install, "Remove missing references", "Ignore for now"],
         title="\nChoose an option",
         cursor_index=1,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )

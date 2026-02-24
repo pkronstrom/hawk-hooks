@@ -33,7 +33,7 @@ def run_wizard() -> bool:
     """Guided first-time setup. Returns True if completed, False if cancelled."""
     theme = get_theme()
     console.clear()
-    console.print(f"\n[bold]\U0001f985 Welcome to hawk v{__version__}[/bold]")
+    console.print(f"\n[bold]Welcome to hawk v{__version__}[/bold]")
     console.print("[dim]Multi-agent CLI package manager for AI tools[/dim]\n")
     console.print("Let's set up hawk for the first time.\n")
 
@@ -58,7 +58,7 @@ def run_wizard() -> bool:
         ["Yes, create config", "Cancel"],
         title="Create hawk config with detected tools?",
         cursor_index=0,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
@@ -132,7 +132,7 @@ def _offer_builtins_install() -> None:
         [f"Yes, install starter components ({desc})", "No, start empty"],
         title="Install bundled components?",
         cursor_index=0,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )

@@ -78,7 +78,7 @@ def handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> b
         ["Enable now", "Not now", "Never"],
         title="\nChoose an option",
         cursor_index=0,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
