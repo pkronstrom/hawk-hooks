@@ -902,6 +902,18 @@ def run_toggle_list(
                 if row_list[cursor][0] == ROW_SEPARATOR:
                     cursor = (cursor + 1) % total
 
+            # Jump to first / last selectable row
+            elif key == readchar.key.LEFT:
+                for i in range(total):
+                    if row_list[i][0] != ROW_SEPARATOR:
+                        cursor = i
+                        break
+            elif key == readchar.key.RIGHT:
+                for i in range(total - 1, -1, -1):
+                    if row_list[i][0] != ROW_SEPARATOR:
+                        cursor = i
+                        break
+
             # Toggle (Space) or collapse/expand
             elif key == " ":
                 kind, value, gi = row_list[cursor]

@@ -537,6 +537,18 @@ def handle_packages(state: dict) -> bool:
             if key in (readchar.key.DOWN, "j"):
                 cursor = _move_cursor(rows, cursor, 1)
                 continue
+            if key == readchar.key.LEFT:
+                for i in range(len(rows)):
+                    if _is_selectable(rows[i]):
+                        cursor = i
+                        break
+                continue
+            if key == readchar.key.RIGHT:
+                for i in range(len(rows) - 1, -1, -1):
+                    if _is_selectable(rows[i]):
+                        cursor = i
+                        break
+                continue
             if key in (readchar.key.TAB, "\t") and len(scopes) > 1:
                 scope_index = (scope_index + 1) % len(scopes)
                 continue
