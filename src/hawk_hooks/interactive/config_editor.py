@@ -16,8 +16,6 @@ from rich.text import Text
 from .. import config
 from .toggle import _get_terminal_height, _calculate_visible_range
 from .theme import action_style, cursor_prefix, dim_separator, get_theme, keybinding_hint
-from .uninstall_flow import run_uninstall_wizard
-
 console = Console()
 
 # Setting definitions: (key, label, type, options_or_default)
@@ -27,7 +25,6 @@ SETTINGS = [
     ("editor", "Editor", "text", ""),
     ("sync_on_exit", "Sync on exit", "cycle", ["ask", "always", "never"]),
     ("registry_path", "Registry path", "text", "~/.config/hawk-hooks/registry"),
-    ("unlink_uninstall", "Unlink and uninstall", "action", None),
 ]
 
 
@@ -54,8 +51,6 @@ def _display_value(key: str, value, setting_type: str, options=None) -> str:
         if value:
             return str(value)
         return f"[dim]{options}[/dim]" if options else "[dim](empty)[/dim]"
-    if setting_type == "action":
-        return f"[{theme.error_rich}]Run cleanup[/{theme.error_rich}]"
     return str(value)
 
 
@@ -145,18 +140,8 @@ def run_config_editor() -> bool:
 
         elif setting_type == "text":
             return ""  # Handled separately (needs input)
-        elif setting_type == "action":
-            return ""  # Handled separately (needs confirmation + output)
 
         return ""
-
-    def _handle_uninstall_action() -> str:
-        """Unlink from tools and clear hawk-managed local state."""
-        nonlocal cfg
-        if not run_uninstall_wizard(console):
-            return "Uninstall cancelled"
-        cfg = config.load_global_config()
-        return "Uninstall cleanup completed"
 
     def _handle_text_edit(idx: int) -> str:
         """Handle editing a text setting via $EDITOR or inline fallback."""
@@ -243,12 +228,6 @@ def run_config_editor() -> bool:
                         live.stop()
                         status_msg = _handle_text_edit(cursor)
                         if "→" in status_msg:
-                            dirty = True
-                        live.start()
-                    elif setting_type == "action":
-                        live.stop()
-                        status_msg = _handle_uninstall_action()
-                        if status_msg == "Uninstall cleanup completed":
                             dirty = True
                         live.start()
                     else:

@@ -47,6 +47,7 @@ ACTION_SELECT_ALL = "__select_all__"
 ACTION_SELECT_NONE = "__select_none__"
 ACTION_ADD = "__add__"
 ACTION_DONE = "__done__"
+ACTION_SAVE_ENABLE = "__save_enable__"
 DEFAULT_VIEW_WIDTH = 100
 MIN_VIEW_WIDTH = 40
 DEFAULT_DESC_WIDTH = 96
@@ -598,6 +599,7 @@ def run_picker(
     extra_key_handler: Callable | None = None,
     extra_hints: Callable | None = None,
     action_label: str = "Done",
+    secondary_action_label: str | None = None,
     scope_hint: str | None = None,
     # --- Features from run_toggle_list ---
     get_description: Callable[[str, str], str] | None = None,
@@ -610,7 +612,8 @@ def run_picker(
     registry_items: set[str] | None = None,
     on_delete: Callable[[str, str], bool] | None = None,
     parent_hint_fn: Callable[[int, str, str], str | None] | None = None,
-) -> tuple[list[dict], bool]:
+    existing_items: set[tuple[str, str]] | None = None,
+) -> tuple[list[dict], bool, str]:
     """Unified picker supporting 1, 2, and 3 tier layouts.
 
     Auto-detects tier depth from data shape:
@@ -633,6 +636,7 @@ def run_picker(
         extra_key_handler: (key, row, scope, live) -> (handled, status_msg).
         extra_hints: (row_kind) -> str | None.
         action_label: Label for the Done/Save action button.
+        secondary_action_label: Optional second action button (e.g. "Save & Enable").
         scope_hint: Shown when only 1 scope.
         get_description: (field, name) -> str. For description panel.
         registry_path: Registry path for v/e/o file browsing.
@@ -646,7 +650,8 @@ def run_picker(
         parent_hint_fn: (scope_index, field, name) -> hint | None.
 
     Returns:
-        (final_scopes, changed)
+        (final_scopes, changed, chosen_action) where chosen_action is
+        ACTION_DONE or ACTION_SAVE_ENABLE (or ACTION_DONE if no secondary).
     """
     if collapsed_packages is None:
         collapsed_packages = {}
@@ -663,6 +668,7 @@ def run_picker(
     scope_index = start_scope_index
     status_msg = ""
     changed = False
+    chosen_action = ACTION_DONE
     description_cache: dict[tuple[str, str], str] = {}
 
     # Track initial state for change indicators
@@ -773,6 +779,8 @@ def run_picker(
         if on_add is not None:
             rows.append({"kind": ROW_ACTION, "action": ACTION_ADD, "label": add_label})
         rows.append({"kind": ROW_ACTION, "action": ACTION_DONE, "label": action_label})
+        if secondary_action_label:
+            rows.append({"kind": ROW_ACTION, "action": ACTION_SAVE_ENABLE, "label": secondary_action_label})
         return rows
 
     def _is_selectable(row: dict) -> bool:
@@ -1023,6 +1031,8 @@ def run_picker(
                 hint = ""
                 if registry_items is not None and name not in registry_items:
                     hint = "  [dim italic](not in registry)[/dim italic]"
+                elif existing_items is not None and (fld, name) in existing_items:
+                    hint = "  [dim italic](exists, will rename)[/dim italic]"
                 elif parent_hint_fn and scope_index > 0 and not enabled:
                     parent_label = parent_hint_fn(scope_index, fld, name)
                     if parent_label:
@@ -1204,6 +1214,11 @@ def run_picker(
             if kind == ROW_ACTION and primary:
                 action = row.get("action", "")
                 if action == ACTION_DONE:
+                    chosen_action = ACTION_DONE
+                    changed = True
+                    break
+                if action == ACTION_SAVE_ENABLE:
+                    chosen_action = ACTION_SAVE_ENABLE
                     changed = True
                     break
                 if action == ACTION_SELECT_ALL:
@@ -1342,4 +1357,4 @@ def run_picker(
                 live.start()
                 continue
 
-    return scopes, changed
+    return scopes, changed, chosen_action

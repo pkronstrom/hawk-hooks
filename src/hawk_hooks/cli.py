@@ -635,8 +635,8 @@ def cmd_download(args):
     if not result.success:
         sys.exit(1)
 
-    # Enable in global config (only when explicitly requested)
-    if result.added and getattr(args, "enable", False):
+    # Enable in global config (--enable flag or "Save & Enable" picker action)
+    if result.added and (getattr(args, "enable", False) or result.enable):
         from . import config
 
         cfg = config.load_global_config()
@@ -701,28 +701,34 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
 
     field_labels = {f: label for f, label, _ in _ORDERED_COMPONENT_FIELDS}
 
-    # Pre-select: all if requested, otherwise only items not already registered
-    if select_all:
-        enabled: set[tuple[str, str]] = {
+    # Pre-select all items (clashes are handled via rename after save)
+    enabled: set[tuple[str, str]] = {
+        (item.component_type.registry_dir, item.name)
+        for item in items
+    }
+
+    # Detect items that already exist in registry (for "(exists)" hints)
+    existing: set[tuple[str, str]] | None = None
+    if registry:
+        existing = {
             (item.component_type.registry_dir, item.name)
             for item in items
+            if registry.has(item.component_type, item.name)
         }
-    else:
-        enabled = {
-            (item.component_type.registry_dir, item.name)
-            for item in items
-            if not (registry and registry.has(item.component_type, item.name))
-        }
+        if not existing:
+            existing = None
 
     scopes = [{"key": "select", "label": "Select components", "enabled": enabled}]
 
-    final_scopes, changed = run_picker(
+    final_scopes, changed, chosen_action = run_picker(
         package_name or "Components",
         package_tree,
         package_order,
         field_labels,
         scopes=scopes,
         action_label="Save",
+        secondary_action_label="Save & Enable",
+        existing_items=existing,
     )
 
     if not changed:
@@ -733,6 +739,10 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
         item for item in items
         if (item.component_type.registry_dir, item.name) in selected
     ]
+
+    from .interactive.toggle import ACTION_SAVE_ENABLE
+    if chosen_action == ACTION_SAVE_ENABLE:
+        return selected_items, "save_enable"
     return selected_items, "save"
 
 
@@ -796,6 +806,8 @@ def cmd_scan(args):
         if not selected_items or action == "cancel":
             print("\nNo components selected.")
             return
+        if action == "save_enable":
+            args.enable = True
     else:
         selected_items = content.items
 
@@ -903,7 +915,7 @@ def cmd_scan(args):
         for name in skipped:
             print(f"  - {name}")
 
-    if added:
+    if added and not getattr(args, "enable", False):
         print("\nRun 'hawk enable <name>' to activate, then 'hawk sync' to apply.")
 
 

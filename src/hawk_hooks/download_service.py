@@ -37,10 +37,29 @@ class DownloadResult:
     clashes: list[str] = field(default_factory=list)
     error: str | None = None
     package_name: str | None = None
+    enable: bool = False
 
 
 def _noop(_msg: str) -> None:
     return
+
+
+def _clash_prefix(name: str | None, content, url: str) -> str:
+    """Derive a short prefix for renaming clashing items."""
+    pkg_name = (
+        name
+        or (content.package_meta.name if content.package_meta else None)
+        or config.package_name_from_url(url)
+    )
+    if not pkg_name:
+        return ""
+    # Use last segment: "obra/superpowers" -> "superpowers"
+    return pkg_name.split("/")[-1] if "/" in pkg_name else pkg_name
+
+
+def _prefixed_name(prefix: str, original: str) -> str:
+    """Add a package prefix to a filename: 'code-reviewer.md' -> 'superpowers-code-reviewer.md'."""
+    return f"{prefix}-{original}"
 
 
 def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[str] | None = None):
@@ -184,18 +203,32 @@ def download_and_install(
                 logf("\nNo components selected.")
                 return DownloadResult(success=True)
 
+        # Resolve clashes: rename clashing items with package prefix
         clashes = check_clashes(selected_items, registry)
         clash_names = [f"{item.component_type.value}/{item.name}" for item in clashes]
-        if clashes:
-            logf("\nClashes with existing registry entries:")
-            for item in clashes:
-                logf(f"  {item.component_type.value}/{item.name}")
-
         if clashes and not replace:
-            logf("\nUse --replace to overwrite existing entries.")
-            clash_keys = {(c.component_type, c.name) for c in clashes}
+            pkg_prefix = _clash_prefix(name, content, url)
+            if pkg_prefix:
+                for item in clashes:
+                    old_name = item.name
+                    new_name = _prefixed_name(pkg_prefix, old_name)
+                    if not registry.detect_clash(item.component_type, new_name):
+                        item.name = new_name
+                        logf(f"  Renamed {old_name} -> {new_name} (clash with existing)")
+                    else:
+                        logf(f"  Skipping {old_name} (clash even after rename)")
+            else:
+                # No package context for renaming — skip clashing items
+                logf("\nClashes with existing registry entries:")
+                for item in clashes:
+                    logf(f"  {item.component_type.value}/{item.name}")
+                logf("\nUse --replace to overwrite existing entries.")
+
+        # Re-check after renames: skip any remaining clashes
+        if not replace:
             items_to_add = [
-                i for i in selected_items if (i.component_type, i.name) not in clash_keys
+                i for i in selected_items
+                if not registry.detect_clash(i.component_type, i.name)
             ]
         else:
             items_to_add = selected_items
@@ -227,7 +260,9 @@ def download_and_install(
             for item_name in skipped:
                 logf(f"  - {item_name}")
 
-        if added:
+        enable_requested = action == "save_enable" if not select_all else False
+
+        if added and not enable_requested:
             logf("\nRun 'hawk enable <name>' to activate, then 'hawk sync' to apply.")
 
         return DownloadResult(
@@ -236,6 +271,7 @@ def download_and_install(
             skipped=skipped,
             clashes=clash_names,
             package_name=package_name,
+            enable=enable_requested,
         )
     except Exception as exc:  # pragma: no cover - defensive parity with CLI behavior
         err = str(exc)

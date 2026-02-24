@@ -81,6 +81,10 @@ if "readchar" not in sys.modules:
     class _ReadcharKeys:  # pragma: no cover - test import shim
         ENTER = "\n"
         CTRL_C = "\x03"
+        UP = "\x1b[A"
+        DOWN = "\x1b[B"
+        LEFT = "\x1b[D"
+        RIGHT = "\x1b[C"
 
     readchar.key = _ReadcharKeys()
     readchar.readkey = lambda: "\n"
@@ -235,16 +239,30 @@ def test_build_environment_menu_entries_includes_status_context(monkeypatch):
     assert "Pending one-time setup" in title
 
 
+def _make_readkey_sequence(keys: list[str]):
+    """Return a readkey callable that yields keys in order, then 'q' forever."""
+    it = iter(keys)
+
+    def _readkey():
+        return next(it, "q")
+
+    return _readkey
+
+
 def test_handle_tools_toggle_prunes_when_disabling(monkeypatch):
     state = _minimal_state()
-    tools = Tool.all()
-    selected = tuple(i for i, tool in enumerate(tools) if tool != Tool.CLAUDE)
+    env_mod = importlib.import_module("hawk_hooks.interactive.handlers.environment")
 
-    monkeypatch.setattr(
-        dashboard,
-        "TerminalMenu",
-        lambda *args, **kwargs: SimpleNamespace(show=lambda: selected),
-    )
+    # Keys: space (deselect Claude at cursor 0), then 'q' to confirm Done via quit.
+    # Actually: space toggles Claude off, then navigate to Done and Enter.
+    num_tools = len(Tool.all())  # 6
+    keys = [" "]  # toggle Claude off
+    keys += ["j"] * num_tools  # navigate past all tools + separator (auto-skips) to Done
+    keys += ["\n"]  # press Enter on Done
+    monkeypatch.setattr(env_mod, "readchar", SimpleNamespace(
+        readkey=_make_readkey_sequence(keys),
+        key=SimpleNamespace(UP="\x1b[A", DOWN="\x1b[B", ENTER="\n"),
+    ))
 
     saved_cfg: dict = {}
 
@@ -254,9 +272,9 @@ def test_handle_tools_toggle_prunes_when_disabling(monkeypatch):
 
     pruned: list[list[Tool]] = []
     monkeypatch.setattr("hawk_hooks.config.save_global_config", _save)
-    monkeypatch.setattr(dashboard, "_prune_disabled_tools", lambda ds: pruned.append(ds))
+    monkeypatch.setattr(env_mod, "_prune_disabled_tools", lambda ds: pruned.append(ds))
 
-    changed = dashboard._handle_tools_toggle(state)
+    changed = env_mod._handle_tools_toggle(state)
 
     assert changed is True
     assert state["tools_status"][Tool.CLAUDE]["enabled"] is False
@@ -268,19 +286,23 @@ def test_handle_tools_toggle_no_prune_when_only_enabling(monkeypatch):
     state = _minimal_state()
     state["tools_status"][Tool.CLAUDE]["enabled"] = False
     state["cfg"]["tools"]["claude"] = {"enabled": False}
-    selected = tuple(range(len(Tool.all())))
+    env_mod = importlib.import_module("hawk_hooks.interactive.handlers.environment")
 
-    monkeypatch.setattr(
-        dashboard,
-        "TerminalMenu",
-        lambda *args, **kwargs: SimpleNamespace(show=lambda: selected),
-    )
+    # Keys: space (select Claude at cursor 0), then navigate to Done and Enter.
+    num_tools = len(Tool.all())
+    keys = [" "]  # toggle Claude on
+    keys += ["j"] * num_tools  # navigate to Done
+    keys += ["\n"]  # press Enter on Done
+    monkeypatch.setattr(env_mod, "readchar", SimpleNamespace(
+        readkey=_make_readkey_sequence(keys),
+        key=SimpleNamespace(UP="\x1b[A", DOWN="\x1b[B", ENTER="\n"),
+    ))
 
     pruned: list[list[Tool]] = []
     monkeypatch.setattr("hawk_hooks.config.save_global_config", lambda _cfg: None)
-    monkeypatch.setattr(dashboard, "_prune_disabled_tools", lambda ds: pruned.append(ds))
+    monkeypatch.setattr(env_mod, "_prune_disabled_tools", lambda ds: pruned.append(ds))
 
-    changed = dashboard._handle_tools_toggle(state)
+    changed = env_mod._handle_tools_toggle(state)
 
     assert changed is True
     assert state["tools_status"][Tool.CLAUDE]["enabled"] is True

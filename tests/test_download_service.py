@@ -91,8 +91,8 @@ def _make_repo(tmp_path, items: dict[str, str]) -> Path:
     return repo_dir
 
 
-def test_download_clashes_without_replace_skips_existing(monkeypatch, tmp_path):
-    """When a component already exists in registry and replace=False, it's reported as a clash."""
+def test_download_clashes_without_replace_renames_item(monkeypatch, tmp_path):
+    """When a component clashes, it's renamed with package prefix and added."""
     from hawk_hooks.download_service import download_and_install
     from hawk_hooks.registry import Registry
 
@@ -116,8 +116,11 @@ def test_download_clashes_without_replace_skips_existing(monkeypatch, tmp_path):
     )
 
     assert result.success is True
+    # Original clashes are recorded
     assert len(result.clashes) > 0
     assert any("hello" in c for c in result.clashes)
+    # But the item was renamed and added
+    assert any("clash-test-hello.md" in a for a in result.added)
 
 
 def test_download_select_fn_cancel_returns_empty(monkeypatch, tmp_path):

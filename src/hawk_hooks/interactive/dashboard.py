@@ -540,7 +540,7 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         return False
 
     # Start on innermost scope
-    final_scopes, changed = run_picker(
+    final_scopes, changed, _action = run_picker(
         display_name,
         package_tree,
         package_order,
@@ -850,6 +850,34 @@ def _apply_auto_sync_if_needed(dirty: bool, scope_dir: str | None = None) -> boo
     return False
 
 
+def _enable_items_globally(added: list[str]) -> None:
+    """Enable added items in global config. Items are 'type/name' strings."""
+    from ..types import ComponentType
+
+    cfg = config.load_global_config()
+    global_section = cfg.get("global", {})
+    count = 0
+    for item_key in added:
+        parts = item_key.split("/", 1)
+        if len(parts) != 2:
+            continue
+        type_str, name = parts
+        try:
+            ct = ComponentType(type_str)
+        except ValueError:
+            continue
+        field = ct.registry_dir
+        enabled = global_section.get(field, [])
+        if name not in enabled:
+            enabled.append(name)
+            global_section[field] = enabled
+            count += 1
+    if count:
+        cfg["global"] = global_section
+        config.save_global_config(cfg)
+        console.print(f"\n[green]Enabled {count} component(s) in global config.[/green]")
+
+
 def _handle_scan(state: dict) -> bool:
     """Scan a local directory for components and import selected ones."""
     from pathlib import Path
@@ -891,20 +919,39 @@ def _handle_scan(state: dict) -> bool:
         wait_for_continue()
         return False
 
+    enable_after = action == "save_enable"
+
     clashes = check_clashes(selected_items, registry)
     replace = False
     if clashes:
-        console.print(f"\n[yellow]Clashes with existing registry entries:[/yellow]")
+        # Auto-rename clashing items with package prefix
+        from ..download_service import _clash_prefix, _prefixed_name
+        pkg_prefix = pkg.split("/")[-1] if "/" in pkg else pkg if pkg else ""
+        renamed = 0
         for item in clashes:
-            console.print(f"  {item.component_type.value}/{item.name}")
-        console.print("[dim]Overwrite? (y/N)[/dim] ", end="")
-        confirm = readchar.readkey()
-        console.print()
-        replace = confirm.lower() == "y"
+            if pkg_prefix:
+                new_name = _prefixed_name(pkg_prefix, item.name)
+                if not registry.detect_clash(item.component_type, new_name):
+                    console.print(f"  [dim]Renamed {item.name} -> {new_name} (clash)[/dim]")
+                    item.name = new_name
+                    renamed += 1
 
-    if clashes and not replace:
-        clash_keys = {(c.component_type, c.name) for c in clashes}
-        items_to_add = [i for i in selected_items if (i.component_type, i.name) not in clash_keys]
+        # Re-check remaining clashes after renames
+        still_clashing = [i for i in selected_items if registry.detect_clash(i.component_type, i.name)]
+        if still_clashing:
+            console.print(f"\n[yellow]Clashes with existing registry entries:[/yellow]")
+            for item in still_clashing:
+                console.print(f"  {item.component_type.value}/{item.name}")
+            console.print("[dim]Overwrite? (y/N)[/dim] ", end="")
+            confirm = readchar.readkey()
+            console.print()
+            replace = confirm.lower() == "y"
+
+    if not replace:
+        items_to_add = [
+            i for i in selected_items
+            if not registry.detect_clash(i.component_type, i.name)
+        ]
     else:
         items_to_add = selected_items
 
@@ -939,24 +986,27 @@ def _handle_scan(state: dict) -> bool:
                 if meta and meta.description:
                     console.print(f"  {meta.description}")
 
+    if enable_after and added:
+        _enable_items_globally(added)
+
     state["contents"] = registry.list()
     wait_for_continue()
     return True
 
 
-def _handle_download() -> None:
-    """Run download flow."""
+def _handle_download() -> bool:
+    """Run download flow. Returns True if items were enabled."""
     console.print("\n[bold]Download components from git[/bold]")
     try:
         url = console.input("[cyan]URL:[/cyan] ")
     except KeyboardInterrupt:
-        return
+        return False
     if not url or not url.strip():
-        return
+        return False
 
     from ..download_service import download_and_install, get_interactive_select_fn
 
-    download_and_install(
+    result = download_and_install(
         url.strip(),
         select_all=False,
         replace=False,
@@ -964,8 +1014,12 @@ def _handle_download() -> None:
         log=lambda msg: console.print(msg),
     )
 
+    if result.enable and result.added:
+        _enable_items_globally(result.added)
+
     console.print()
     wait_for_continue()
+    return result.enable and bool(result.added)
 
 
 def _handle_uninstall_from_environment() -> bool:
@@ -1101,5 +1155,6 @@ def run_dashboard(scope_dir: str | None = None) -> None:
                 dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
 
         elif action == "download":
-            _handle_download()
-            # Reload state on next loop
+            if _handle_download():
+                dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
