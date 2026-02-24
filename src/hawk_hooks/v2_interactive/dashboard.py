@@ -1839,7 +1839,7 @@ def _install_from_package_lock(state: dict, lock_path: Path | None) -> bool:
         return False
 
     import yaml
-    from ..cli import cmd_download
+    from ..download_service import download_and_install
 
     try:
         data = yaml.safe_load(lock_path.read_text()) or {}
@@ -1857,20 +1857,15 @@ def _install_from_package_lock(state: dict, lock_path: Path | None) -> bool:
     console.print(f"\n[bold]Installing from lock[/bold] [dim]({lock_path})[/dim]")
     attempted = 0
     for url, name in packages:
-        class Args:
-            pass
-
-        args = Args()
-        args.url = url
-        args.all = True
-        args.replace = False
-        args.name = name
-
-        try:
-            cmd_download(args)
+        result = download_and_install(
+            url,
+            select_all=True,
+            replace=False,
+            name=name,
+            log=lambda msg: console.print(msg),
+        )
+        if result.success:
             attempted += 1
-        except SystemExit:
-            continue
 
     if attempted <= 0:
         console.print("\n[yellow]No packages were installed from lock.[/yellow]\n")
@@ -2125,21 +2120,15 @@ def _handle_download() -> None:
     if not url or not url.strip():
         return
 
-    import sys
-    from ..cli import cmd_download
+    from ..download_service import download_and_install, get_interactive_select_fn
 
-    class Args:
-        pass
-
-    args = Args()
-    args.url = url.strip()
-    args.all = False
-    args.replace = False
-
-    try:
-        cmd_download(args)
-    except SystemExit:
-        pass
+    download_and_install(
+        url.strip(),
+        select_all=False,
+        replace=False,
+        select_fn=get_interactive_select_fn(),
+        log=lambda msg: console.print(msg),
+    )
 
     console.print()
     wait_for_continue()

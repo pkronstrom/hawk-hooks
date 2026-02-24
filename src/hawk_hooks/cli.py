@@ -597,107 +597,18 @@ def _package_source_type(pkg_data: dict) -> str:
 
 def cmd_download(args):
     """Download components from a git URL."""
-    import shutil
+    from .download_service import download_and_install
 
-    from .downloader import (
-        add_items_to_registry, check_clashes, classify, get_head_commit, shallow_clone,
+    result = download_and_install(
+        args.url,
+        select_all=getattr(args, "all", False),
+        replace=getattr(args, "replace", False),
+        name=getattr(args, "name", None),
+        select_fn=None if getattr(args, "all", False) else _interactive_select_items,
+        log=print,
     )
-    from .registry import Registry
-    from . import v2_config
-
-    url = args.url
-    registry = Registry(v2_config.get_registry_path())
-    registry.ensure_dirs()
-
-    # 1. Shallow clone
-    print(f"Cloning {url}...")
-    try:
-        clone_dir = shallow_clone(url)
-    except Exception as e:
-        print(f"Error cloning: {e}")
+    if not result.success:
         sys.exit(1)
-
-    try:
-        # Get commit hash for package tracking
-        commit_hash = get_head_commit(clone_dir)
-
-        # 2. Classify contents
-        # Extract repo name from URL for synthetic hook naming
-        repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-        content = classify(clone_dir, repo_name=repo_name)
-        if not content.items:
-            print("No components found in repository.")
-            return
-
-        print(f"\nFound {len(content.items)} component(s):")
-        for item in content.items:
-            print(f"  [{item.component_type.value}] {item.name}")
-
-        # 3. Let user select (unless --all)
-        if args.all:
-            selected_items = content.items
-        else:
-            pkg = content.package_meta.name if content.package_meta else ""
-            selected_items, action = _interactive_select_items(
-                content.items, registry, package_name=pkg,
-                packages=content.packages,
-            )
-            if not selected_items or action == "cancel":
-                print("\nNo components selected.")
-                return
-
-        # 4. Check for clashes
-        clashes = check_clashes(selected_items, registry)
-        if clashes:
-            print(f"\nClashes with existing registry entries:")
-            for item in clashes:
-                print(f"  {item.component_type.value}/{item.name}")
-
-        # 5. Add to registry
-        replace = args.replace
-        if clashes and not replace:
-            print("\nUse --replace to overwrite existing entries.")
-            clash_keys = {(c.component_type, c.name) for c in clashes}
-            items_to_add = [
-                i for i in selected_items
-                if (i.component_type, i.name) not in clash_keys
-            ]
-        else:
-            items_to_add = selected_items
-
-        if not items_to_add:
-            print("\nNo new components to add.")
-            return
-
-        added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
-
-        # 6. Record package in packages.yaml
-        if added:
-            pkg_name = (
-                getattr(args, "name", None)
-                or (content.package_meta.name if content.package_meta else None)
-                or v2_config.package_name_from_url(url)
-            )
-            pkg_items = _build_pkg_items(selected_items, registry, pkg_name, set(added))
-            if pkg_items:
-                v2_config.record_package(pkg_name, url, commit_hash, pkg_items)
-                print(f"\nRecorded package: {pkg_name} ({len(pkg_items)} items)")
-
-        # 7. Summary
-        if added:
-            print(f"\nAdded {len(added)} component(s):")
-            for name in added:
-                print(f"  + {name}")
-        if skipped:
-            print(f"\nSkipped {len(skipped)}:")
-            for name in skipped:
-                print(f"  - {name}")
-
-        if added:
-            print("\nRun 'hawk sync' to apply changes.")
-    finally:
-        # Clean up temp dir
-        shutil.rmtree(clone_dir, ignore_errors=True)
 
 
 def _view_source_in_terminal(path: Path) -> None:
