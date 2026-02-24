@@ -233,9 +233,22 @@ def cmd_status(args):
 
 
 def cmd_projects(args):
-    """Show interactive projects tree view."""
-    from .v2_interactive.dashboard import _run_projects_tree
-    _run_projects_tree()
+    """List registered project directories."""
+    from . import v2_config
+
+    dirs = v2_config.get_registered_directories()
+    if not dirs:
+        print("No registered directories.")
+        print("Run 'hawk init' in a project to register it.")
+        return
+
+    print(f"Registered directories ({len(dirs)}):")
+    for dir_path, entry in dirs.items():
+        profile = entry.get("profile", "")
+        suffix = f" (profile: {profile})" if profile else ""
+        exists = Path(dir_path).exists()
+        marker = " [missing]" if not exists else ""
+        print(f"  {dir_path}{suffix}{marker}")
 
 
 def _guess_component_type(path: Path) -> ComponentType | None:
@@ -599,12 +612,17 @@ def cmd_download(args):
     """Download components from a git URL."""
     from .download_service import download_and_install
 
+    select_names = None
+    if getattr(args, "select", None):
+        select_names = {s.strip() for s in args.select.split(",") if s.strip()}
+
     result = download_and_install(
         args.url,
-        select_all=getattr(args, "all", False),
+        select_all=True,
         replace=getattr(args, "replace", False),
         name=getattr(args, "name", None),
-        select_fn=None if getattr(args, "all", False) else _interactive_select_items,
+        select_fn=None,
+        select_names=select_names,
         log=print,
     )
     if not result.success:
@@ -994,18 +1012,21 @@ def cmd_scan(args):
     )
     print(f"\nFound {len(content.items)} component(s): {type_counts}")
 
-    # Let user select (unless --all)
-    if args.all:
-        selected_items = content.items
-    else:
-        pkg = content.package_meta.name if content.package_meta else ""
-        selected_items, action = _interactive_select_items(
-            content.items, registry, package_name=pkg,
-            packages=content.packages,
-        )
-        if not selected_items or action == "cancel":
-            print("\nNo components selected.")
+    # Filter by --select names if provided, otherwise import all
+    select_names = None
+    if getattr(args, "select", None):
+        select_names = {s.strip() for s in args.select.split(",") if s.strip()}
+
+    if select_names is not None:
+        selected_items = [i for i in content.items if i.name in select_names]
+        unknown = select_names - {i.name for i in content.items}
+        if unknown:
+            print(f"\nWarning: not found: {', '.join(sorted(unknown))}")
+        if not selected_items:
+            print("\nNo matching components found.")
             return
+    else:
+        selected_items = content.items
 
     # Check clashes
     clashes = check_clashes(selected_items, registry)
@@ -1252,10 +1273,60 @@ def cmd_prune(args):
 
 
 def cmd_config(args):
-    """Open interactive config editor."""
-    from .v2_interactive.config_editor import run_config_editor
+    """Show or update configuration."""
+    import yaml
+    from . import v2_config
 
-    run_config_editor()
+    key = getattr(args, "key", None)
+    value = getattr(args, "value", None)
+
+    cfg = v2_config.load_global_config()
+
+    if key is None:
+        # No args → print current config
+        print(yaml.dump(cfg, default_flow_style=False).rstrip() if cfg else "# Empty config")
+        return
+
+    # Parse value: handle booleans, numbers, and strings
+    if value is not None:
+        if value.lower() == "true":
+            value = True
+        elif value.lower() == "false":
+            value = False
+        else:
+            try:
+                value = int(value)
+            except ValueError:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass  # keep as string
+
+    # Navigate dotted key path
+    parts = key.split(".")
+    if value is None:
+        # Get mode: print the value at this key
+        node = cfg
+        for part in parts:
+            if isinstance(node, dict) and part in node:
+                node = node[part]
+            else:
+                print(f"Key not found: {key}")
+                sys.exit(1)
+        if isinstance(node, dict):
+            print(yaml.dump(node, default_flow_style=False).rstrip())
+        else:
+            print(node)
+    else:
+        # Set mode: set the value at this key
+        node = cfg
+        for part in parts[:-1]:
+            if part not in node or not isinstance(node.get(part), dict):
+                node[part] = {}
+            node = node[part]
+        node[parts[-1]] = value
+        v2_config.save_global_config(cfg)
+        print(f"{key} = {value}")
 
 
 def cmd_migrate(args):
@@ -1447,6 +1518,62 @@ def cmd_new(args):
     else:
         add_type = comp_type
     _print(f"\n[dim]Run[/dim] [cyan]hawk add {add_type} {dest}[/cyan] [dim]to register, or edit the file first.[/dim]")
+
+
+def cmd_ignore(args):
+    """Add or remove .hawk from local git exclude."""
+    import subprocess
+
+    project_dir = Path(args.dir).resolve() if args.dir else Path.cwd().resolve()
+
+    # Find the git dir for this project
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True, text=True, check=True,
+            cwd=str(project_dir),
+        )
+        git_dir = Path(result.stdout.strip())
+        if not git_dir.is_absolute():
+            git_dir = (project_dir / git_dir).resolve()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print(f"Error: {project_dir} is not inside a git repository.")
+        sys.exit(1)
+
+    exclude_file = git_dir / "info" / "exclude"
+    pattern = ".hawk"
+
+    if args.remove:
+        # Remove .hawk from exclude
+        if not exclude_file.exists():
+            print(f"Nothing to remove: {exclude_file} does not exist.")
+            return
+
+        lines = exclude_file.read_text().splitlines()
+        if pattern not in lines:
+            print(f"Nothing to remove: '{pattern}' not found in {exclude_file}")
+            return
+
+        new_lines = [l for l in lines if l != pattern]
+        exclude_file.write_text("\n".join(new_lines) + ("\n" if new_lines else ""))
+        _print(f"[yellow]-[/yellow] Removed '{pattern}' from {exclude_file}")
+        _print(f"  The .hawk directory is [bold]no longer[/bold] locally ignored.")
+        return
+
+    # Add .hawk to exclude
+    exclude_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if exclude_file.exists():
+        lines = exclude_file.read_text().splitlines()
+        if pattern in lines:
+            _print(f"Already ignored: '{pattern}' is in {exclude_file}")
+            return
+
+    with open(exclude_file, "a") as f:
+        f.write(f"{pattern}\n")
+
+    _print(f"[green]+[/green] Added '{pattern}' to {exclude_file}")
+    _print(f"  The .hawk directory is now locally ignored (not in .gitignore).")
 
 
 def cmd_mcp(args):
@@ -1806,8 +1933,8 @@ def build_parser() -> argparse.ArgumentParser:
     # scan
     scan_p = subparsers.add_parser("scan", help="Scan directory for components to import")
     scan_p.add_argument("path", nargs="?", default=".", help="Directory to scan (default: cwd)")
-    scan_p.add_argument("--all", action="store_true", help="Import all found components without prompting")
     scan_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
+    scan_p.add_argument("--select", help="Comma-separated component names to import (default: all)")
     scan_p.add_argument("--depth", type=int, default=5, help="Max scan depth (default: 5)")
     scan_p.add_argument("--enable", action="store_true", default=False,
                         help="Also enable imported components in global config")
@@ -1816,9 +1943,9 @@ def build_parser() -> argparse.ArgumentParser:
     # download
     dl_p = subparsers.add_parser("download", help="Download components from git URL")
     dl_p.add_argument("url", help="Git URL to clone")
-    dl_p.add_argument("--all", action="store_true", help="Add all components without prompting")
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.add_argument("--name", help="Package name (default: derived from URL)")
+    dl_p.add_argument("--select", help="Comma-separated component names to install (default: all)")
     dl_p.add_argument("--enable", action="store_true", default=False,
                       help="Also enable downloaded components in global config")
     dl_p.set_defaults(func=cmd_download)
@@ -1842,7 +1969,7 @@ def build_parser() -> argparse.ArgumentParser:
     rmpkg_p.set_defaults(func=cmd_remove_package)
 
     # projects
-    projects_p = subparsers.add_parser("projects", help="Interactive projects tree view")
+    projects_p = subparsers.add_parser("projects", help="List registered project directories")
     projects_p.set_defaults(func=cmd_projects)
 
     # clean
@@ -1867,7 +1994,9 @@ def build_parser() -> argparse.ArgumentParser:
     prune_p.set_defaults(func=cmd_prune)
 
     # config
-    config_p = subparsers.add_parser("config", help="Interactive settings editor")
+    config_p = subparsers.add_parser("config", help="Show or update configuration")
+    config_p.add_argument("key", nargs="?", help="Config key (dot-separated path, e.g. debug or tools.claude.enabled)")
+    config_p.add_argument("value", nargs="?", help="Value to set")
     config_p.set_defaults(func=cmd_config)
 
     # new
@@ -1879,6 +2008,12 @@ def build_parser() -> argparse.ArgumentParser:
     new_p.add_argument("--lang", default=".py", help="Language extension (for hooks, default: .py)")
     new_p.add_argument("--force", action="store_true", help="Overwrite existing file")
     new_p.set_defaults(func=cmd_new)
+
+    # ignore
+    ignore_p = subparsers.add_parser("ignore", help="Add .hawk to local git exclude (not .gitignore)")
+    ignore_p.add_argument("--dir", help="Project directory (default: cwd)")
+    ignore_p.add_argument("--remove", action="store_true", help="Remove .hawk from local git exclude")
+    ignore_p.set_defaults(func=cmd_ignore)
 
     # mcp
     mcp_p = subparsers.add_parser("mcp", help="Start MCP server (requires hawk-hooks[mcp])")

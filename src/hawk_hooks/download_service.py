@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import v2_config
-from .downloader import add_items_to_registry, check_clashes, classify, get_head_commit, shallow_clone
+from .downloader import ClassifiedContent, add_items_to_registry, check_clashes, classify, get_head_commit, shallow_clone
 from .registry import Registry
 
 
@@ -107,6 +107,7 @@ def download_and_install(
     replace: bool = False,
     name: str | None = None,
     select_fn: SelectFn | None = None,
+    select_names: set[str] | None = None,
     log: LogFn | None = None,
 ) -> DownloadResult:
     """Download components from git and install to registry.
@@ -137,6 +138,21 @@ def download_and_install(
         logf(f"\nFound {len(content.items)} component(s):")
         for item in content.items:
             logf(f"  [{item.component_type.value}] {item.name}")
+
+        # Filter by --select names if provided
+        if select_names is not None:
+            filtered = [i for i in content.items if i.name in select_names]
+            unknown = select_names - {i.name for i in content.items}
+            if unknown:
+                logf(f"\nWarning: not found in repo: {', '.join(sorted(unknown))}")
+            if not filtered:
+                logf("\nNo matching components found.")
+                return DownloadResult(success=True)
+            content = ClassifiedContent(
+                items=filtered,
+                package_meta=content.package_meta,
+                packages=content.packages,
+            )
 
         if select_all:
             selected_items = content.items

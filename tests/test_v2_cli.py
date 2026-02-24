@@ -123,11 +123,11 @@ class TestArgParsing:
         assert args.command == "download"
         assert args.url == "https://github.com/user/repo"
         assert args.replace is False
-        assert args.all is False
+        assert args.select is None
 
-    def test_download_all(self):
-        args = self.parser.parse_args(["download", "https://github.com/user/repo", "--all"])
-        assert args.all is True
+    def test_download_select(self):
+        args = self.parser.parse_args(["download", "https://github.com/user/repo", "--select", "skill1,skill2"])
+        assert args.select == "skill1,skill2"
 
     def test_download_replace(self):
         args = self.parser.parse_args(["download", "https://github.com/user/repo", "--replace"])
@@ -241,7 +241,7 @@ class TestArgParsing:
         args = self.parser.parse_args(["scan"])
         assert args.command == "scan"
         assert args.path == "."
-        assert args.all is False
+        assert args.select is None
         assert args.replace is False
         assert args.depth == 5
         assert args.enable is False
@@ -250,9 +250,9 @@ class TestArgParsing:
         args = self.parser.parse_args(["scan", "/tmp/project"])
         assert args.path == "/tmp/project"
 
-    def test_scan_all_replace(self):
-        args = self.parser.parse_args(["scan", ".", "--all", "--replace"])
-        assert args.all is True
+    def test_scan_select_replace(self):
+        args = self.parser.parse_args(["scan", ".", "--select", "skill1", "--replace"])
+        assert args.select == "skill1"
         assert args.replace is True
 
     def test_scan_depth(self):
