@@ -644,6 +644,7 @@ def run_toggle_list(
         elif aid == ACTION_ADD:
             return False  # Handled separately in the main loop
         elif aid == ACTION_DONE:
+            changed = True  # Signal that user explicitly saved
             return True
         return False
 

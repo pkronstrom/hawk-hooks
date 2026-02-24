@@ -664,72 +664,41 @@ def cmd_download(args):
             print(f"\nEnabled {enabled_count} component(s) in global config.")
 
 
-def _view_source_in_terminal(path: Path) -> None:
-    """View a source file with syntax highlighting, piped through less."""
-    import subprocess
-    from io import StringIO
-    from rich.console import Console as RichConsole
-    from rich.syntax import Syntax
-
-    LEXERS = {
-        ".py": "python", ".sh": "bash", ".js": "javascript", ".ts": "typescript",
-        ".json": "json", ".yaml": "yaml", ".yml": "yaml", ".md": "markdown",
-        ".toml": "toml", ".mdc": "markdown",
-    }
-
-    try:
-        content = path.read_text()
-    except OSError:
-        print(f"Cannot read: {path}")
-        input("Press Enter to go back...")
-        return
-
-    buf = StringIO()
-    rc = RichConsole(file=buf, force_terminal=True)
-    rc.print(f"[bold]{path.name}[/bold]")
-    rc.print("[dim]\u2500" * 50 + "[/dim]\n")
-    lexer = LEXERS.get(path.suffix.lower(), "text")
-    rc.print(Syntax(content, lexer, theme="monokai", line_numbers=True))
-    rendered = buf.getvalue()
-
-    try:
-        subprocess.run(["less", "-R"], input=rendered, text=True, check=False)
-    except FileNotFoundError:
-        print(rendered)
-        input("Press Enter to go back...")
-
 
 def _interactive_select_items(items, registry=None, package_name: str = "",
                               packages: list | None = None,
                               collapsed: bool = False, select_all: bool = False):
-    """Show interactive multi-select for download/scan items.
+    """Interactive item picker backed by run_toggle_list."""
+    from .types import ComponentType, ToggleGroup, ToggleScope
+    from .v2_interactive.toggle import run_toggle_list
 
-    Uses Rich Live + readchar for a scrollable list that works in small panes.
-    Items are grouped by package (if multiple) then by component type,
-    with collapsible section headers.
-    Returns selected items.
-    """
-    import os
-    import readchar
-    from rich.console import Console
-    from rich.live import Live
-    from rich.text import Text
-    from .types import ComponentType
+    if not items:
+        return [], "cancel"
 
-    console = Console(highlight=False)
+    # Build name->item index for mapping back
+    name_to_item: dict[str, list] = {}
+    for item in items:
+        name_to_item.setdefault(item.name, []).append(item)
 
-    # ── Row types ──
-    ROW_PKG = "pkg"        # top-level package header (collapsible)
-    ROW_TYPE = "type"      # component type header (collapsible)
-    ROW_ITEM = "item"      # selectable item
+    # Dedupe names while preserving order
+    seen: set[str] = set()
+    unique_names: list[str] = []
+    for item in items:
+        if item.name not in seen:
+            seen.add(item.name)
+            unique_names.append(item.name)
 
-    TYPE_ORDER = [
-        ComponentType.SKILL, ComponentType.HOOK, ComponentType.PROMPT,
-        ComponentType.AGENT, ComponentType.MCP,
-    ]
+    # Pre-select: all if requested, otherwise only items not already registered
+    if select_all:
+        enabled = list(unique_names)
+    else:
+        enabled = list({item.name for item in items
+                        if not (registry and registry.has(item.component_type, item.name))})
 
-    # ── Group items by package, then by component type ──
-    # Determine package names present in items
+    # Build groups: package -> type -> items
+    TYPE_ORDER = [ComponentType.SKILL, ComponentType.HOOK, ComponentType.PROMPT,
+                  ComponentType.AGENT, ComponentType.MCP]
+
     pkg_names: list[str] = []
     seen_pkgs: set[str] = set()
     for item in items:
@@ -738,256 +707,42 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
             seen_pkgs.add(pkg)
             pkg_names.append(pkg)
 
-    multi_pkg = len(pkg_names) > 1 or (len(pkg_names) == 1 and pkg_names[0] != "")
+    multi_pkg = len(pkg_names) > 1 or (len(pkg_names) == 1 and pkg_names[0])
 
-    # Build nested structure: packages → type groups → items
-    # Each package: {"name": str, "collapsed": bool, "type_groups": [...]}
-    # Each type_group: {"type": ComponentType, "collapsed": bool, "items": [(orig_idx, item)]}
-    pkg_sections: list[dict] = []
+    groups: list[ToggleGroup] = []
     for pkg in pkg_names:
-        pkg_items = [(i, item) for i, item in enumerate(items)
-                     if (getattr(item, "package", "") or "") == pkg]
-        if not pkg_items:
-            continue
-
-        type_groups = []
+        pkg_items = [item for item in items if (getattr(item, "package", "") or "") == pkg]
         for ct in TYPE_ORDER:
-            ct_items = [(i, item) for i, item in pkg_items if item.component_type == ct]
-            if ct_items:
-                type_groups.append({"type": ct, "collapsed": collapsed, "items": ct_items})
-        # Catch types not in TYPE_ORDER
-        seen_ct = set(TYPE_ORDER)
-        for ct in sorted(set(item.component_type for _, item in pkg_items) - seen_ct,
-                         key=lambda x: x.value):
-            ct_items = [(i, item) for i, item in pkg_items if item.component_type == ct]
-            if ct_items:
-                type_groups.append({"type": ct, "collapsed": collapsed, "items": ct_items})
-
-        display_name = pkg if pkg else (package_name or "Components")
-        pkg_sections.append({
-            "name": display_name,
-            "collapsed": collapsed,
-            "type_groups": type_groups,
-        })
-
-    # Pre-select items
-    selected: set[int] = set()
-    if select_all:
-        selected = set(range(len(items)))
-    else:
-        for i, item in enumerate(items):
-            exists = registry and registry.has(item.component_type, item.name)
-            if not exists:
-                selected.add(i)
-
-    def _build_rows():
-        """Build flat row list: (row_type, section_idx, group_idx, orig_idx)."""
-        rows = []
-        for si, section in enumerate(pkg_sections):
-            if multi_pkg:
-                rows.append((ROW_PKG, si, -1, -1))
-            if multi_pkg and section["collapsed"]:
+            ct_items = [item for item in pkg_items if item.component_type == ct]
+            if not ct_items:
                 continue
-            for gi, tg in enumerate(section["type_groups"]):
-                rows.append((ROW_TYPE, si, gi, -1))
-                if not tg["collapsed"]:
-                    for orig_idx, _ in tg["items"]:
-                        rows.append((ROW_ITEM, si, gi, orig_idx))
-        return rows
+            label_prefix = f"📦 {pkg or package_name or 'Components'} — " if multi_pkg else ""
+            group = ToggleGroup(
+                key=f"{pkg or '__default__'}__{ct.value}",
+                label=f"{label_prefix}{ct.value}s",
+                items=[item.name for item in ct_items],
+                collapsed=collapsed,
+            )
+            groups.append(group)
 
-    rows = _build_rows()
-    cursor = 0
-    scroll_offset = 0
+    scope = ToggleScope(key="select", label=f"Select — {package_name or 'Components'}", enabled=enabled)
 
-    def _get_max_visible():
-        try:
-            lines = os.get_terminal_size().lines
-        except OSError:
-            lines = 24
-        return max(3, lines - 6)
+    enabled_lists, changed = run_toggle_list(
+        package_name or "Components",
+        unique_names,
+        scopes=[scope],
+        start_scope_index=0,
+        groups=groups if groups else None,
+    )
 
-    def _type_sel_count(tg):
-        tot = len(tg["items"])
-        sel = sum(1 for idx, _ in tg["items"] if idx in selected)
-        return sel, tot
+    if not changed:
+        return [], "cancel"
 
-    def _pkg_sel_count(section):
-        sel = tot = 0
-        for tg in section["type_groups"]:
-            s, t = _type_sel_count(tg)
-            sel += s
-            tot += t
-        return sel, tot
+    # Map enabled names back to item objects
+    selected_names = set(enabled_lists[0])
+    selected_items = [item for item in items if item.name in selected_names]
+    return selected_items, "save"
 
-    def _build_display():
-        nonlocal scroll_offset
-        lines = []
-        max_vis = _get_max_visible()
-        total_rows = len(rows)
-
-        sel_count = len(selected)
-        total_items = len(items)
-        title = package_name if (package_name and not multi_pkg) else "Select components"
-        lines.append(f"[bold cyan]{title}[/bold cyan]  ({sel_count}/{total_items} selected)")
-        lines.append("[dim]\u2500" * 50 + "[/dim]")
-
-        if total_rows == 0:
-            vis_start, vis_end = 0, 0
-        else:
-            c = max(0, min(cursor, total_rows - 1))
-            if c < scroll_offset:
-                scroll_offset = c
-            elif c >= scroll_offset + max_vis:
-                scroll_offset = c - max_vis + 1
-            scroll_offset = max(0, min(scroll_offset, total_rows - 1))
-            vis_start = scroll_offset
-            vis_end = min(scroll_offset + max_vis, total_rows)
-
-        if vis_start > 0:
-            lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
-
-        for ri in range(vis_start, vis_end):
-            row_type, si, gi, orig_idx = rows[ri]
-            is_cur = ri == cursor
-            prefix = "[cyan]\u276f[/cyan] " if is_cur else "  "
-
-            if row_type == ROW_PKG:
-                section = pkg_sections[si]
-                sel, tot = _pkg_sel_count(section)
-                arrow = "\u25b6" if section["collapsed"] else "\u25bc"
-                style = "[bold]" if is_cur else ""
-                end = "[/bold]" if is_cur else ""
-                count_style = "green" if sel > 0 else "dim"
-                lines.append(
-                    f"{prefix}{style}\U0001f4e6 {section['name']}  "
-                    f"[{count_style}]({sel}/{tot})[/{count_style}]  {arrow}{end}"
-                )
-
-            elif row_type == ROW_TYPE:
-                tg = pkg_sections[si]["type_groups"][gi]
-                ct = tg["type"]
-                sel, tot = _type_sel_count(tg)
-                arrow = "\u25b6" if tg["collapsed"] else "\u25bc"
-                style = "[bold]" if is_cur else ""
-                end = "[/bold]" if is_cur else ""
-                count_style = "green" if sel > 0 else "dim"
-                indent = "  " if multi_pkg else ""
-                lines.append(
-                    f"{prefix}{indent}{style}{ct.value}s  "
-                    f"[{count_style}]({sel}/{tot})[/{count_style}]  {arrow}{end}"
-                )
-
-            elif row_type == ROW_ITEM:
-                item = items[orig_idx]
-                is_sel = orig_idx in selected
-                exists = registry and registry.has(item.component_type, item.name)
-                mark = "[green]\u25cf[/green]" if is_sel else "[dim]\u25cb[/dim]"
-                style = "[bold]" if is_cur else ("[dim]" if not is_sel else "")
-                end = "[/bold]" if is_cur else ("[/dim]" if not is_sel else "")
-                hint = "  [dim](already registered)[/dim]" if exists else ""
-                indent = "    " if multi_pkg else "  "
-                lines.append(f"{prefix}{indent}{mark} {style}{item.name}{end}{hint}")
-
-        if vis_end < total_rows:
-            remaining = total_rows - vis_end
-            lines.append(f"[dim]  \u2193 {remaining} more[/dim]")
-
-        # Action row
-        lines.append("")
-        actions = ["Save"]
-        action_parts = []
-        for ai, label in enumerate(actions):
-            if ai == action_idx:
-                action_parts.append(f"[bold cyan][ {label} ][/bold cyan]")
-            else:
-                action_parts.append(f"[dim]  {label}  [/dim]")
-        lines.append("  ".join(action_parts))
-
-        lines.append("")
-        lines.append("[dim]Space: toggle  a: all  n: none  v: view  o: open  Enter: confirm  q: quit[/dim]")
-        return "\n".join(lines)
-
-    action_idx = 0
-    _ACTION_KEYS = ["add"]
-
-    with Live("", console=console, refresh_per_second=15, transient=True) as live:
-        live.update(Text.from_markup(_build_display()))
-        while True:
-            try:
-                key = readchar.readkey()
-            except (KeyboardInterrupt, EOFError):
-                return [], "cancel"
-
-            total_rows = len(rows)
-            if not total_rows:
-                if key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
-                    return [], "cancel"
-                continue
-
-            if key in (readchar.key.UP, "k"):
-                cursor = (cursor - 1) % total_rows
-            elif key in (readchar.key.DOWN, "j"):
-                cursor = (cursor + 1) % total_rows
-
-            elif key in ("\r", "\n", readchar.key.ENTER):
-                break
-
-            elif key == " ":
-                row_type, si, gi, orig_idx = rows[cursor]
-                if row_type == ROW_PKG:
-                    pkg_sections[si]["collapsed"] = not pkg_sections[si]["collapsed"]
-                    rows = _build_rows()
-                    cursor = min(cursor, len(rows) - 1)
-                elif row_type == ROW_TYPE:
-                    tg = pkg_sections[si]["type_groups"][gi]
-                    tg["collapsed"] = not tg["collapsed"]
-                    rows = _build_rows()
-                    cursor = min(cursor, len(rows) - 1)
-                elif row_type == ROW_ITEM:
-                    if orig_idx in selected:
-                        selected.discard(orig_idx)
-                    else:
-                        selected.add(orig_idx)
-
-            elif key == "a":
-                selected = set(range(len(items)))
-            elif key == "n":
-                selected.clear()
-
-            elif key == "v":
-                row_type, _si, _gi, orig_idx = rows[cursor]
-                if row_type == ROW_ITEM:
-                    item = items[orig_idx]
-                    if item.source_path and item.source_path.is_file():
-                        live.stop()
-                        _view_source_in_terminal(item.source_path)
-                        live.start()
-
-            elif key == "o":
-                row_type, _si, _gi, orig_idx = rows[cursor]
-                if row_type == ROW_ITEM:
-                    item = items[orig_idx]
-                    if item.source_path and item.source_path.exists():
-                        import subprocess
-                        target = item.source_path
-                        if sys.platform == "darwin":
-                            subprocess.run(
-                                ["open", "-R", str(target)] if target.is_file()
-                                else ["open", str(target)],
-                                check=False,
-                            )
-                        elif sys.platform == "linux":
-                            subprocess.run(
-                                ["xdg-open", str(target.parent if target.is_file() else target)],
-                                check=False,
-                            )
-
-            elif key in ("q", readchar.key.ESC, "\x1b", readchar.key.CTRL_C):
-                return [], "cancel"
-
-            live.update(Text.from_markup(_build_display()))
-
-    return [items[i] for i in sorted(selected)], _ACTION_KEYS[action_idx]
 
 
 def cmd_scan(args):
