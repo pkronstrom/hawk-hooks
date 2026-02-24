@@ -2,25 +2,21 @@
 
 from __future__ import annotations
 
-import json
-import logging
-import re
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
 from typing import Literal
 
 from ..registry import _validate_name
 from ..types import ResolvedSet, SyncResult, Tool
+from .mixins import HookRunnerMixin, MCPMixin
+from .mixins.mcp import HAWK_MCP_MARKER as _HAWK_MCP_MARKER
 
-# Shared marker for hawk-managed MCP entries
-HAWK_MCP_MARKER = "__hawk_managed"
-_ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-logger = logging.getLogger(__name__)
+# Backwards-compatible re-export for existing adapter imports.
+HAWK_MCP_MARKER = _HAWK_MCP_MARKER
 
 
-class ToolAdapter(ABC):
+class ToolAdapter(HookRunnerMixin, MCPMixin, ABC):
     """Abstract base for AI CLI tool adapters.
 
     Each adapter knows how to link/unlink components and manage
@@ -234,140 +230,6 @@ class ToolAdapter(ABC):
 
         return result
 
-    # ── Runner generation ──
-
-    def _generate_runners(
-        self,
-        hook_names: list[str],
-        registry_path: Path,
-        runners_dir: Path,
-    ) -> dict[str, Path]:
-        """Generate bash runners from hook files using hawk-hook metadata.
-
-        Hook names are plain filenames (e.g. "file-guard.py").
-        Each hook's metadata declares which events it targets.
-        One runner is generated per event, chaining all hooks for that event.
-
-        Returns dict of {event_name: runner_path}.
-        """
-        from collections import defaultdict
-        import shlex
-        from ..runner_utils import _get_interpreter_path, _atomic_write_executable
-        from ..events import EVENTS
-        from ..hook_meta import parse_hook_meta
-
-        from ..hook_meta import HookMeta
-
-        # Resolve hooks and group by event, keeping metadata
-        hooks_by_event: dict[str, list[tuple[Path, HookMeta]]] = defaultdict(list)
-        hooks_dir = registry_path / "hooks"
-        for name in hook_names:
-            hook_path = hooks_dir / name
-            if not hook_path.is_file():
-                continue
-            meta = parse_hook_meta(hook_path)
-            for event in meta.events:
-                # Validate event name against canonical events to prevent
-                # path traversal (e.g. events=../../foo) and unknown events
-                if event not in EVENTS:
-                    continue
-                hooks_by_event[event].append((hook_path, meta))
-
-        runners: dict[str, Path] = {}
-        runners_dir.mkdir(parents=True, exist_ok=True)
-
-        # Check for venv python
-        from .. import v2_config
-        venv_python = v2_config.get_config_dir() / ".venv" / "bin" / "python"
-        python_cmd = shlex.quote(str(venv_python)) if venv_python.is_file() else "python3"
-
-        for event, hook_entries in hooks_by_event.items():
-            calls: list[str] = []
-            for script, meta in hook_entries:
-                safe_path = shlex.quote(str(script))
-                suffix = script.suffix
-
-                # Inject env var exports for entries with = (value assigned)
-                env_exports: list[str] = []
-                for env_entry in meta.env:
-                    if "=" in env_entry:
-                        var_name, _, var_value = env_entry.partition("=")
-                        if not _ENV_VAR_NAME_RE.fullmatch(var_name):
-                            logger.warning(
-                                "Skipping invalid env var name in hook metadata: %r (hook=%s)",
-                                var_name,
-                                script.name,
-                            )
-                            continue
-                        env_exports.append(f"export {var_name}={shlex.quote(var_value)}")
-                if env_exports:
-                    calls.extend(env_exports)
-
-                # Content hooks: cat the file
-                if script.name.endswith((".stdout.md", ".stdout.txt")) or suffix in (".md", ".txt"):
-                    try:
-                        cat_path = _get_interpreter_path("cat")
-                    except FileNotFoundError:
-                        cat_path = "cat"
-                    calls.append(f'[[ -f {safe_path} ]] && {cat_path} {safe_path}')
-                elif suffix == ".py":
-                    calls.append(
-                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {python_cmd} {safe_path} || exit $?; }}'
-                    )
-                elif suffix == ".sh":
-                    try:
-                        bash_path = _get_interpreter_path("bash")
-                    except FileNotFoundError:
-                        bash_path = "bash"
-                    calls.append(
-                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {bash_path} {safe_path} || exit $?; }}'
-                    )
-                elif suffix == ".js":
-                    try:
-                        node_path = _get_interpreter_path("node")
-                    except FileNotFoundError:
-                        node_path = "node"
-                    calls.append(
-                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {node_path} {safe_path} || exit $?; }}'
-                    )
-                elif suffix == ".ts":
-                    try:
-                        bun_path = _get_interpreter_path("bun")
-                    except FileNotFoundError:
-                        bun_path = "bun"
-                    calls.append(
-                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {bun_path} run {safe_path} || exit $?; }}'
-                    )
-                else:
-                    calls.append(
-                        f'[[ -f {safe_path} ]] && {{ echo "$INPUT" | {safe_path} || exit $?; }}'
-                    )
-
-            hook_calls_str = "\n".join(calls)
-            content = f"""#!/usr/bin/env bash
-# Auto-generated by hawk v2 - do not edit manually
-# Event: {event}
-# Regenerate with: hawk sync --force
-
-set -euo pipefail
-
-INPUT=$(cat)
-
-{hook_calls_str}
-
-exit 0
-"""
-            runner_path = runners_dir / f"{event}.sh"
-            _atomic_write_executable(runner_path, content)
-            runners[event] = runner_path
-
-        # Clean up stale runners for events that no longer have hooks
-        for existing in runners_dir.iterdir():
-            if existing.suffix == ".sh" and existing.stem not in hooks_by_event:
-                existing.unlink()
-
-        return runners
-
     # ── Helpers ──
 
     def _sync_component(
@@ -457,185 +319,6 @@ exit 0
                 except (OSError, ValueError):
                     pass
         return current
-
-    @staticmethod
-    def _load_mcp_servers(
-        mcp_names: list[str],
-        mcp_dir: Path,
-    ) -> dict[str, dict[str, Any]]:
-        """Load MCP server configs from registry yaml files.
-
-        Each .yaml file in registry/mcp/ defines a server config.
-        Returns dict of {server_name: config_dict}.
-        """
-        import yaml
-
-        servers: dict[str, dict[str, Any]] = {}
-        for name in mcp_names:
-            try:
-                _validate_name(name)
-            except ValueError:
-                continue
-
-            # Try with and without extension
-            candidates = [mcp_dir / name]
-            if not name.endswith((".yaml", ".yml", ".json")):
-                candidates.extend([
-                    mcp_dir / f"{name}.yaml",
-                    mcp_dir / f"{name}.yml",
-                    mcp_dir / f"{name}.json",
-                ])
-
-            for path in candidates:
-                if path.exists() and path.is_file():
-                    try:
-                        data = yaml.safe_load(path.read_text())
-                        if isinstance(data, dict):
-                            server_name = path.stem
-                            servers[server_name] = data
-                    except Exception:
-                        pass
-                    break
-
-        return servers
-
-    @staticmethod
-    def _merge_mcp_json(
-        config_path: Path,
-        servers: dict[str, dict],
-        server_key: str = "mcpServers",
-    ) -> None:
-        """Merge hawk-managed MCP servers into a JSON config file.
-
-        Preserves manually-added entries, replaces hawk-managed ones.
-        """
-        data: dict = {}
-        if config_path.exists():
-            try:
-                data = json.loads(config_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                data = {}
-
-        existing = data.get(server_key, {})
-        if not isinstance(existing, dict):
-            logger.warning(
-                "Expected %s to be a dict in %s, got %s; ignoring malformed section",
-                server_key,
-                config_path,
-                type(existing).__name__,
-            )
-            existing = {}
-
-        # Remove old hawk-managed entries
-        cleaned = {
-            k: v for k, v in existing.items()
-            if not (isinstance(v, dict) and v.get(HAWK_MCP_MARKER))
-        }
-
-        # Add new hawk-managed entries
-        for name, cfg in servers.items():
-            cleaned[name] = {**cfg, HAWK_MCP_MARKER: True}
-
-        data[server_key] = cleaned
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(data, indent=2) + "\n")
-
-    @staticmethod
-    def _read_mcp_json(
-        config_path: Path,
-        server_key: str = "mcpServers",
-    ) -> dict[str, dict]:
-        """Read only hawk-managed MCP entries from a JSON config file."""
-        if not config_path.exists():
-            return {}
-        try:
-            data = json.loads(config_path.read_text())
-        except (json.JSONDecodeError, OSError):
-            return {}
-        servers = data.get(server_key, {})
-        if not isinstance(servers, dict):
-            logger.warning(
-                "Expected %s to be a dict in %s, got %s; skipping malformed section",
-                server_key,
-                config_path,
-                type(servers).__name__,
-            )
-            return {}
-        return {
-            k: v for k, v in servers.items()
-            if isinstance(v, dict) and v.get(HAWK_MCP_MARKER)
-        }
-
-    @staticmethod
-    def _merge_mcp_sidecar(
-        config_path: Path,
-        servers: dict[str, dict],
-        server_key: str = "mcpServers",
-    ) -> None:
-        """Merge hawk-managed MCP servers using a sidecar tracking file.
-
-        Like _merge_mcp_json but keeps the server entries clean (no marker
-        key injected). Managed server names are tracked in a .hawk-mcp.json
-        sidecar file next to the config. Use this for tools with strict
-        config validation that reject unknown keys (e.g. Gemini).
-        """
-        sidecar_path = config_path.parent / ".hawk-mcp.json"
-
-        # Read existing managed names from sidecar
-        old_managed: set[str] = set()
-        if sidecar_path.exists():
-            try:
-                old_managed = set(json.loads(sidecar_path.read_text()))
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # Also detect legacy inline markers and migrate them
-        data: dict = {}
-        if config_path.exists():
-            try:
-                data = json.loads(config_path.read_text())
-            except (json.JSONDecodeError, OSError):
-                data = {}
-
-        existing = data.get(server_key, {})
-        if not isinstance(existing, dict):
-            logger.warning(
-                "Expected %s to be a dict in %s, got %s; ignoring malformed section",
-                server_key,
-                config_path,
-                type(existing).__name__,
-            )
-            existing = {}
-
-        # Collect legacy inline-marked entries
-        for k, v in existing.items():
-            if isinstance(v, dict) and v.get(HAWK_MCP_MARKER):
-                old_managed.add(k)
-
-        # Remove old hawk-managed entries (sidecar-tracked + legacy inline)
-        cleaned = {}
-        for k, v in existing.items():
-            if k in old_managed:
-                continue
-            # Also strip any leftover inline markers
-            if isinstance(v, dict):
-                v = {ek: ev for ek, ev in v.items() if ek != HAWK_MCP_MARKER}
-            cleaned[k] = v
-
-        # Add new hawk-managed entries (clean, no marker)
-        for name, cfg in servers.items():
-            cleaned[name] = cfg
-
-        data[server_key] = cleaned
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(data, indent=2) + "\n")
-
-        # Write sidecar with current managed names
-        new_managed = sorted(servers.keys())
-        if new_managed:
-            sidecar_path.write_text(json.dumps(new_managed, indent=2) + "\n")
-        elif sidecar_path.exists():
-            sidecar_path.unlink()
 
     @staticmethod
     def _create_symlink(source: Path, dest: Path) -> None:

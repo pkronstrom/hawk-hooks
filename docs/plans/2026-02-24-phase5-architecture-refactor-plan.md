@@ -607,14 +607,14 @@ git commit -m "refactor: extract download service to decouple TUI from CLI"
 
 ### Problem
 
-Design docs reference `src/hawk_hooks/v2_cli.py` but the actual implementation is `src/hawk_hooks/cli.py`. Similarly, `tests/test_v2_cli.py` exists and correctly imports from `cli.py`, but docs reference it inconsistently.
+Design docs reference `v2_cli.py` naming while the actual implementation lives in `src/hawk_hooks/cli.py`. Similarly, `tests/test_v2_cli.py` exists and correctly imports from `cli.py`, but docs reference source module naming inconsistently.
 
 ### Step 1: Fix references in completed plan docs
 
 Search-and-replace `v2_cli.py` → `cli.py` in each doc file, but only for source path references (not the test file which is actually named `test_v2_cli.py`).
 
 Specifically:
-- `src/hawk_hooks/v2_cli.py` → `src/hawk_hooks/cli.py`
+- source path references should use `src/hawk_hooks/cli.py`
 - Keep `tests/test_v2_cli.py` references as-is (file actually exists with that name)
 
 ### Step 2: Update CLAUDE.md architecture table

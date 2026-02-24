@@ -165,7 +165,7 @@ git commit -m "feat(v2): apply auto-sync on interactive leave/exit"
 ### Task 5: Update CLI output and docs for skipped diagnostics
 
 **Files:**
-- Modify: `src/hawk_hooks/v2_cli.py`
+- Modify: `src/hawk_hooks/cli.py`
 - Modify: `docs/plans/2026-02-22-autosync-ux-design.md` (if design deltas)
 - Modify: `README.md` or relevant docs if sync output examples exist
 - Test: `tests/test_v2_sync.py`
@@ -192,7 +192,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/hawk_hooks/v2_cli.py tests/test_v2_sync.py README.md docs/plans/2026-02-22-autosync-ux-design.md
+git add src/hawk_hooks/cli.py tests/test_v2_sync.py README.md docs/plans/2026-02-22-autosync-ux-design.md
 git commit -m "docs(v2): clarify skipped sync diagnostics and auto-sync UX"
 ```
 
@@ -211,7 +211,7 @@ Expected: all pass.
 
 **Step 2: Run compile checks**
 
-Run: `uv run python -m py_compile src/hawk_hooks/v2_sync.py src/hawk_hooks/v2_cli.py src/hawk_hooks/v2_interactive/dashboard.py src/hawk_hooks/adapters/base.py src/hawk_hooks/adapters/codex.py src/hawk_hooks/adapters/gemini.py`
+Run: `uv run python -m py_compile src/hawk_hooks/v2_sync.py src/hawk_hooks/cli.py src/hawk_hooks/v2_interactive/dashboard.py src/hawk_hooks/adapters/base.py src/hawk_hooks/adapters/codex.py src/hawk_hooks/adapters/gemini.py`
 Expected: exit 0.
 
 **Step 3: Final commit if any staged leftovers**

@@ -14,7 +14,7 @@
 
 **Files:**
 - Create: `tests/test_migrate_prompts.py`
-- Modify: `src/hawk_hooks/v2_cli.py`
+- Modify: `src/hawk_hooks/cli.py`
 
 **Step 1: Write the failing test**
 
@@ -44,7 +44,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add tests/test_migrate_prompts.py src/hawk_hooks/v2_cli.py
+git add tests/test_migrate_prompts.py src/hawk_hooks/cli.py
 git commit -m "test+feat: add migrate-prompts CLI entrypoint"
 ```
 
@@ -139,7 +139,7 @@ git commit -m "feat: migrate registry and package metadata to prompts"
 - Modify: `src/hawk_hooks/resolver.py`
 - Modify: `src/hawk_hooks/v2_config.py`
 - Modify: `src/hawk_hooks/v2_sync.py`
-- Modify: `src/hawk_hooks/v2_cli.py`
+- Modify: `src/hawk_hooks/cli.py`
 - Modify: `src/hawk_hooks/v2_interactive/dashboard.py`
 - Test: `tests/test_v2_types.py`, `tests/test_resolver.py`, `tests/test_v2_sync.py`, `tests/test_v2_cli.py`
 
@@ -172,7 +172,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/hawk_hooks/types.py src/hawk_hooks/resolver.py src/hawk_hooks/v2_config.py src/hawk_hooks/v2_sync.py src/hawk_hooks/v2_cli.py src/hawk_hooks/v2_interactive/dashboard.py tests/test_v2_types.py tests/test_resolver.py tests/test_v2_sync.py tests/test_v2_cli.py
+git add src/hawk_hooks/types.py src/hawk_hooks/resolver.py src/hawk_hooks/v2_config.py src/hawk_hooks/v2_sync.py src/hawk_hooks/cli.py src/hawk_hooks/v2_interactive/dashboard.py tests/test_v2_types.py tests/test_resolver.py tests/test_v2_sync.py tests/test_v2_cli.py
 git commit -m "refactor: make v2 runtime prompts-canonical"
 ```
 
@@ -222,7 +222,7 @@ git commit -m "refactor: align legacy v1 runtime with prompts terminology"
 ### Task 6: Wire Upgrader into CLI and Cache Invalidations
 
 **Files:**
-- Modify: `src/hawk_hooks/v2_cli.py`
+- Modify: `src/hawk_hooks/cli.py`
 - Modify: `src/hawk_hooks/migrate_prompts.py`
 - Modify: `src/hawk_hooks/v2_sync.py`
 - Test: `tests/test_migrate_prompts.py`, `tests/test_v2_cli.py`
@@ -256,7 +256,7 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add src/hawk_hooks/v2_cli.py src/hawk_hooks/migrate_prompts.py src/hawk_hooks/v2_sync.py tests/test_migrate_prompts.py tests/test_v2_cli.py
+git add src/hawk_hooks/cli.py src/hawk_hooks/migrate_prompts.py src/hawk_hooks/v2_sync.py tests/test_migrate_prompts.py tests/test_v2_cli.py
 git commit -m "feat: finalize migrate-prompts oneshot workflow"
 ```
 

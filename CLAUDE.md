@@ -1,13 +1,13 @@
 # hawk-hooks (v2)
 
 `hawk-hooks` is now a multi-tool component manager with registry-backed sync.
-The primary architecture is the v2 stack (`v2_cli.py`, `v2_config.py`, `v2_sync.py`, adapters, resolver, and `v2_interactive/`).
+The primary architecture is the v2 stack (`cli.py`, `v2_config.py`, `v2_sync.py`, adapters, resolver, and `v2_interactive/`).
 
 ## Primary Architecture (v2)
 
 ```
 src/hawk_hooks/
-├── v2_cli.py               # Main CLI entry (sync, scan, download, packages, update, clean, migrate)
+├── cli.py                  # Main CLI entry (hawk + hawk-hooks commands)
 ├── v2_config.py            # YAML config + directory index + package index
 ├── v2_sync.py              # Sync/clean orchestration + cache + result formatting
 ├── resolver.py             # Global/profile/dir-chain resolution

@@ -75,7 +75,7 @@ Independent package management improvements.
 
 **Agent B1: Scan Package Source Tracking**
 ```
-Files: src/hawk_hooks/v2_cli.py (cmd_scan), src/hawk_hooks/v2_config.py
+Files: src/hawk_hooks/cli.py (cmd_scan), src/hawk_hooks/v2_config.py
 Task:
 - When hawk scan imports from a local directory, record source path in
   packages.yaml as `path` field (alongside existing `url` field)
