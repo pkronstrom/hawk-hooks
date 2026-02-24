@@ -725,7 +725,7 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
             )
             groups.append(group)
 
-    scope = ToggleScope(key="select", label=f"Select — {package_name or 'Components'}", enabled=enabled)
+    scope = ToggleScope(key="select", label="Select components", enabled=enabled)
 
     enabled_lists, changed = run_toggle_list(
         package_name or "Components",
