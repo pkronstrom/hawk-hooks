@@ -20,7 +20,7 @@ from ..adapters import get_adapter
 from ..registry import Registry
 from ..resolver import resolve
 from ..scope_resolution import build_resolver_dir_chain
-from ..types import ComponentType, ToggleGroup, ToggleScope, Tool
+from ..types import ComponentType, ToggleScope, Tool
 from .pause import wait_for_continue
 from .theme import (
     action_style,
@@ -33,7 +33,13 @@ from .theme import (
     terminal_menu_style_kwargs,
     warning_style,
 )
-from .toggle import _open_in_editor, run_toggle_list
+from .toggle import (
+    UNGROUPED,
+    _open_in_editor,
+    build_picker_tree,
+    run_picker,
+    scopes_from_toggle_scopes,
+)
 from .uninstall_flow import run_uninstall_wizard
 
 console = Console(highlight=False)
@@ -147,18 +153,20 @@ def _load_state(scope_dir: str | None = None) -> dict:
 
 
 def _count_enabled(state: dict, field: str) -> str:
-    """Count configured items for a component field."""
-    g_count = len(getattr(state["resolved_global"], field, []))
+    """Count enabled/total items for a component field."""
+    ct = _COMPONENT_TYPE_BY_FIELD.get(field)
+    registry_total = len(state["contents"].get(ct, [])) if ct else 0
+    enabled = len(getattr(state["resolved_active"], field, []))
 
     if state["scope"] == "local" and state["project_dir"] is not None:
-        total = len(getattr(state["resolved_active"], field, []))
-        delta = total - g_count
+        g_count = len(getattr(state["resolved_global"], field, []))
+        delta = enabled - g_count
         if delta > 0:
-            return f"{total} configured ({g_count} global + {delta} local)"
+            return f"{enabled}/{registry_total} enabled ({g_count} global + {delta} local)"
         if delta < 0:
-            return f"{total} configured ({g_count} global - {abs(delta)} local)"
-        return f"{total} configured ({g_count} global)"
-    return f"{g_count} configured"
+            return f"{enabled}/{registry_total} enabled ({g_count} global - {abs(delta)} local)"
+        return f"{enabled}/{registry_total} enabled"
+    return f"{enabled}/{registry_total} enabled"
 
 
 def _get_codex_multi_agent_consent(cfg: dict) -> str:
@@ -251,13 +259,13 @@ def _handle_registry_browser(state: dict) -> None:
 
 def _build_header(state: dict) -> str:
     """Build the dashboard header string."""
-    header = f"\U0001f985 [bold]hawk {__version__}[/bold]"
+    header = f"[bold]hawk {__version__}[/bold]"
 
     if state["scope"] == "local" and state["project_name"]:
-        header += f"\n[dim]\U0001f4cd {state['project_dir']}[/dim]"
+        header += f"\n[dim]{state['project_dir']}[/dim]"
     else:
         header += (
-            "\n[dim]\U0001f310 Global \u2014 run 'hawk init' for local scope[/dim]"
+            "\n[dim]Global \u2014 run 'hawk init' for local scope[/dim]"
         )
 
     unsynced = state.get("unsynced_targets", 0)
@@ -431,7 +439,7 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
     global_enabled = list(state["global_cfg"].get(field, []))
     scopes.append(ToggleScope(
         key="global",
-        label="\U0001f310 Global (default)",
+        label="Global (default)",
         enabled=global_enabled,
     ))
 
@@ -451,9 +459,9 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
 
             # Label: innermost = "This project: name", parents = dir name
             if chain_dir == project_dir.resolve():
-                label = f"\U0001f4cd This project: {chain_dir.name}"
+                label = f"This project: {chain_dir.name}"
             else:
-                label = f"\U0001f4c1 {chain_dir.name}"
+                label = f"{chain_dir.name}"
 
             scopes.append(ToggleScope(
                 key=str(chain_dir),
@@ -472,7 +480,7 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
             project_name = state.get("project_name") or project_dir.name
             scopes.append(ToggleScope(
                 key=str(project_dir),
-                label=f"\U0001f4cd This project: {project_name}",
+                label=f"This project: {project_name}",
                 enabled=local_enabled,
             ))
 
@@ -481,6 +489,8 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
 
 def _handle_component_toggle(state: dict, field: str) -> bool:
     """Handle toggling a component type. Returns True if changes made."""
+    from .toggle import TieredMenuItem
+
     # Find component type info
     ct = None
     display_name = field.title()
@@ -495,109 +505,122 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
     # Get registry items for this type
     registry_names_set = set(state["contents"].get(ct, []))
 
-    # Build N-scope list
-    scopes = _build_toggle_scopes(state, field)
+    # Build N-scope list (ToggleScope objects)
+    toggle_scopes = _build_toggle_scopes(state, field)
 
     # Include enabled items that aren't in the registry (orphaned references)
-    all_enabled = set()
-    for scope in scopes:
-        all_enabled.update(scope.enabled)
+    all_enabled: set[str] = set()
+    for ts in toggle_scopes:
+        all_enabled.update(ts.enabled)
     registry_names = sorted(registry_names_set | all_enabled)
+
+    # Handle empty state
+    if not registry_names and ct != ComponentType.MCP:
+        from .pause import wait_for_continue as _wfc
+        from .theme import dim_separator as _ds, scoped_header as _sh
+
+        scope_idx = len(toggle_scopes) - 1
+        console.print(f"\n{_sh(display_name, toggle_scopes[scope_idx].label)}")
+        console.print(_ds(40))
+        console.print("  [dim](none in registry)[/dim]")
+        console.print(f"\n  Run [cyan]hawk download <url>[/cyan] to add {display_name.lower()}.")
+        console.print()
+        _wfc()
+        return False
 
     # Registry path for open/edit
     registry_path = v2_config.get_registry_path(state["cfg"])
     registry_dir = ct.registry_dir if ct else ""
 
-    # Build groups from packages
+    # Build TieredMenuItem list from packages + registry
     packages = v2_config.load_packages()
-    toggle_groups: list[ToggleGroup] | None = None
+    menu_items: list[TieredMenuItem] = []
+    grouped_names: set[str] = set()
 
     if packages:
-        toggle_groups = []
-        grouped_names: set[str] = set()
-        # field is e.g. "skills" -> item type is "skill"
         item_type = field.rstrip("s") if field != "mcp" else "mcp"
         all_names = set(registry_names)
 
         for pkg_name, pkg_data in sorted(packages.items()):
-            pkg_items = [
+            pkg_item_names = [
                 item["name"] for item in pkg_data.get("items", [])
                 if item.get("type") == item_type
                 and item["name"] in all_names
             ]
-            if pkg_items:
-                toggle_groups.append(ToggleGroup(
-                    key=pkg_name,
-                    label=f"\U0001f4e6 {pkg_name}",
-                    items=sorted(pkg_items),
-                    collapsed=True,
-                ))
-                grouped_names.update(pkg_items)
+            for name in sorted(pkg_item_names):
+                menu_items.append(TieredMenuItem(name=name, field=field, group=pkg_name))
+                grouped_names.add(name)
 
-        ungrouped = sorted(all_names - grouped_names)
-        if ungrouped:
-            toggle_groups.append(ToggleGroup(
-                key="__ungrouped__",
-                label="\u2500\u2500 ungrouped \u2500\u2500",
-                items=ungrouped,
-            ))
+    # Ungrouped items
+    for name in sorted(set(registry_names) - grouped_names):
+        menu_items.append(TieredMenuItem(name=name, field=field))
 
-        if not toggle_groups:
-            toggle_groups = None  # No packages for this type, flat list
+    package_order, package_tree, field_labels_map = build_picker_tree(
+        menu_items, {field: display_name}
+    )
+
+    # Convert ToggleScope to picker dict-based scopes
+    picker_scopes = scopes_from_toggle_scopes(toggle_scopes, field)
 
     # MCP gets an "Add" action
     on_add = None
-    add_label = "Add new..."
+    add_label_str = "Add new..."
     if ct == ComponentType.MCP:
         on_add = _make_mcp_add_callback(state)
-        add_label = "Add MCP server..."
+        add_label_str = "Add MCP server..."
 
     # Hint when no local config exists
     hint = None
-    if len(scopes) == 1 and state.get("local_cfg") is None:
+    if len(toggle_scopes) == 1 and state.get("local_cfg") is None:
         hint = "run 'hawk init' for local scope"
 
     # Delete callback
     registry = state["registry"]
 
-    def _delete_item(name: str) -> bool:
+    def _delete_item(fld: str, name: str) -> bool:
         if ct and registry.remove(ct, name):
             state["contents"] = registry.list()
             return True
         return False
 
     # Start on innermost scope
-    enabled_lists, changed = run_toggle_list(
+    final_scopes, changed = run_picker(
         display_name,
-        registry_names,
-        scopes=scopes,
-        start_scope_index=len(scopes) - 1,
+        package_tree,
+        package_order,
+        field_labels_map,
+        picker_scopes,
+        start_scope_index=len(picker_scopes) - 1,
         registry_path=registry_path,
         registry_dir=registry_dir,
+        show_change_indicators=True,
+        show_select_all=True,
         on_add=on_add,
-        add_label=add_label,
+        add_label=add_label_str,
         registry_items=registry_names_set,
-        groups=toggle_groups,
-        footer_hint=hint,
         on_delete=_delete_item,
+        scope_hint=hint,
     )
 
     if changed:
         # Save each scope that changed
-        for i, scope in enumerate(scopes):
-            new_enabled = enabled_lists[i]
-            old_enabled = scope.enabled
+        for i, ts in enumerate(toggle_scopes):
+            # Extract name-only enabled list from tuple-based set
+            new_enabled = sorted(
+                name for fld, name in final_scopes[i]["enabled"] if fld == field
+            )
+            old_enabled = sorted(ts.enabled)
 
-            if sorted(new_enabled) == sorted(old_enabled):
+            if new_enabled == old_enabled:
                 continue
 
-            if scope.key == "global":
+            if ts.key == "global":
                 state["global_cfg"][field] = new_enabled
                 cfg = state["cfg"]
                 cfg["global"] = state["global_cfg"]
                 v2_config.save_global_config(cfg)
             else:
-                dir_path = Path(scope.key)
+                dir_path = Path(ts.key)
                 dir_cfg = v2_config.load_dir_config(dir_path) or {}
                 section = dir_cfg.get(field, {})
                 if not isinstance(section, dict):
@@ -697,7 +720,7 @@ def _make_mcp_add_callback(state: dict):
             ["Yes, add to registry", "Cancel"],
             title="\nAdd this MCP server?",
             cursor_index=0,
-            menu_cursor="\u276f ",
+            menu_cursor="\u203a ",
             **terminal_menu_style_kwargs(),
         )
         result = confirm_menu.show()
@@ -1035,7 +1058,7 @@ def _prompt_sync_on_exit(dirty: bool, scope_dir: str | None = None) -> None:
         ["Yes", "No"],
         title="\nChanges made. Sync to tools now?",
         cursor_index=0,
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )

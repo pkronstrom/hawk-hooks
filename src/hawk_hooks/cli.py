@@ -668,10 +668,12 @@ def cmd_download(args):
 def _interactive_select_items(items, registry=None, package_name: str = "",
                               packages: list | None = None,
                               collapsed: bool = False, select_all: bool = False):
-    """Interactive item picker backed by run_three_tier_picker."""
-    from .v2_interactive.handlers.packages import (
+    """Interactive item picker backed by run_picker."""
+    from .v2_interactive.toggle import (
         UNGROUPED,
-        run_three_tier_picker,
+        run_picker,
+    )
+    from .v2_interactive.handlers.packages import (
         _ORDERED_COMPONENT_FIELDS,
     )
 
@@ -715,7 +717,7 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
 
     scopes = [{"key": "select", "label": "Select components", "enabled": enabled}]
 
-    final_scopes, changed = run_three_tier_picker(
+    final_scopes, changed = run_picker(
         package_name or "Components",
         package_tree,
         package_order,

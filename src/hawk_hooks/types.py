@@ -113,6 +113,15 @@ class ResolvedSet:
 
 
 @dataclass
+class TieredMenuItem:
+    """A single item for the unified picker."""
+
+    name: str  # item name (leaf)
+    field: str = ""  # type/category (e.g. "skills", "hooks") — tier 2
+    group: str = ""  # top-level group (e.g. package name) — tier 1
+
+
+@dataclass
 class ToggleScope:
     """A scope layer for the toggle list."""
 
@@ -127,7 +136,7 @@ class ToggleGroup:
     """A group of items in the toggle list (e.g. a downloaded package)."""
 
     key: str  # package name or "__ungrouped__"
-    label: str  # "📦 superpowers-marketplace" or "ungrouped"
+    label: str  # "superpowers-marketplace" or "ungrouped"
     items: list[str] = field(default_factory=list)
     collapsed: bool = False
 

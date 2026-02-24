@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Callable
 
 import readchar
-from rich.live import Live
-from rich.text import Text
 
 from ... import v2_config
 from ...types import ComponentType
@@ -18,44 +14,8 @@ console = _dashboard.console
 _ORDERED_COMPONENT_FIELDS = _dashboard._ORDERED_COMPONENT_FIELDS
 
 
-def TerminalMenu(*args, **kwargs):
-    return _dashboard.TerminalMenu(*args, **kwargs)
-
-
 def wait_for_continue(*args, **kwargs):
     return _dashboard.wait_for_continue(*args, **kwargs)
-
-
-def terminal_menu_style_kwargs(*args, **kwargs):
-    return _dashboard.terminal_menu_style_kwargs(*args, **kwargs)
-
-
-def cursor_prefix(*args, **kwargs):
-    return _dashboard.cursor_prefix(*args, **kwargs)
-
-
-def scoped_header(*args, **kwargs):
-    return _dashboard.scoped_header(*args, **kwargs)
-
-
-def dim_separator(*args, **kwargs):
-    return _dashboard.dim_separator(*args, **kwargs)
-
-
-def warning_style(*args, **kwargs):
-    return _dashboard.warning_style(*args, **kwargs)
-
-
-def enabled_count_style(*args, **kwargs):
-    return _dashboard.enabled_count_style(*args, **kwargs)
-
-
-def row_style(*args, **kwargs):
-    return _dashboard.row_style(*args, **kwargs)
-
-
-def action_style(*args, **kwargs):
-    return _dashboard.action_style(*args, **kwargs)
 
 
 def _run_editor_command(*args, **kwargs):
@@ -77,460 +37,14 @@ def confirm_registry_item_delete(ct: ComponentType, name: str) -> bool:
     return confirm.lower() == "y"
 
 
-# ---------------------------------------------------------------------------
-# Row kind constants shared by run_three_tier_picker and handle_packages
-# ---------------------------------------------------------------------------
-ROW_PACKAGE = "package"
-ROW_TYPE = "type"
-ROW_ITEM = "item"
-ROW_SEPARATOR = "separator"
-ROW_ACTION = "action"
-ACTION_DONE = "__done__"
-UNGROUPED = "__ungrouped__"
-
-
-# ---------------------------------------------------------------------------
-# Reusable three-tier picker
-# ---------------------------------------------------------------------------
-
-def run_three_tier_picker(
-    title: str,
-    package_tree: dict[str, dict[str, list[str]]],
-    package_order: list[str],
-    field_labels: dict[str, str],
-    scopes: list[dict],
-    *,
-    start_scope_index: int = 0,
-    packages_meta: dict | None = None,
-    collapsed_packages: dict[str, bool] | None = None,
-    collapsed_types: dict[tuple[str, str], bool] | None = None,
-    on_toggle: Callable | None = None,
-    on_rebuild: Callable | None = None,
-    extra_key_handler: Callable | None = None,
-    extra_hints: Callable | None = None,
-    action_label: str = "Done",
-    scope_hint: str | None = None,
-) -> tuple[list[dict], bool]:
-    """Three-tier picker: packages -> types -> items.
-
-    Args:
-        title: Header title (e.g. "Packages", "Components").
-        package_tree: {pkg_name: {field: [item_names]}}.
-        package_order: Display order of package names.
-        field_labels: {field: "Human Label"} for type rows.
-        scopes: [{key, label, enabled: set[(field, name)]}].
-        start_scope_index: Which scope to start on.
-        packages_meta: Package index data for URL display.
-        collapsed_packages: Mutable dict of pkg->collapsed state (created if None).
-        collapsed_types: Mutable dict of (pkg,field)->collapsed state (created if None).
-        on_toggle: (scope_key, field, name, enabled) -> None. Called on item toggle.
-        on_rebuild: () -> (package_order, package_tree, scopes). Called to refresh data.
-        extra_key_handler: (key, row, scope, live) -> (handled, status_msg).
-        extra_hints: (row_kind) -> str | None. Extra hint text per row kind.
-        action_label: Label for the Done/Save action button.
-        scope_hint: Shown when only 1 scope and no scope_hint provided.
-
-    Returns:
-        (final_scopes, changed) — the scopes list with updated enabled sets, and
-        whether any toggle happened.
-    """
-    if collapsed_packages is None:
-        collapsed_packages = {}
-    if collapsed_types is None:
-        collapsed_types = {}
-    if packages_meta is None:
-        packages_meta = {}
-
-    # Ordered fields from field_labels (preserve insertion order)
-    ordered_fields = list(field_labels.keys())
-
-    cursor = 0
-    scroll_offset = 0
-    scope_index = start_scope_index
-    status_msg = ""
-    changed = False
-
-    def _build_rows() -> list[dict]:
-        rows: list[dict] = []
-        for pkg_name in package_order:
-            collapsed_packages.setdefault(pkg_name, True)
-            field_map = package_tree.get(pkg_name, {})
-            item_count = sum(len(names) for f, names in field_map.items())
-            rows.append({
-                "kind": ROW_PACKAGE,
-                "package": pkg_name,
-                "count": item_count,
-                "is_ungrouped": pkg_name == UNGROUPED,
-            })
-
-            if collapsed_packages.get(pkg_name, False):
-                continue
-
-            for field in ordered_fields:
-                names = field_map.get(field, [])
-                if not names:
-                    continue
-                label = field_labels.get(field, field.title())
-                rows.append({
-                    "kind": ROW_TYPE,
-                    "package": pkg_name,
-                    "field": field,
-                    "label": label,
-                    "count": len(names),
-                })
-
-                if collapsed_types.get((pkg_name, field), True):
-                    continue
-
-                for name in names:
-                    rows.append({
-                        "kind": ROW_ITEM,
-                        "package": pkg_name,
-                        "field": field,
-                        "name": name,
-                    })
-
-        rows.append({"kind": ROW_SEPARATOR})
-        rows.append({"kind": ROW_ACTION, "action": ACTION_DONE, "label": action_label})
-        return rows
-
-    def _is_selectable(row: dict) -> bool:
-        return row.get("kind") != ROW_SEPARATOR
-
-    def _normalize_cursor(rows: list[dict], idx: int) -> int:
-        if not rows:
-            return 0
-        idx = max(0, min(idx, len(rows) - 1))
-        if _is_selectable(rows[idx]):
-            return idx
-        for i, row in enumerate(rows):
-            if _is_selectable(row):
-                return i
-        return 0
-
-    def _move_cursor(rows: list[dict], idx: int, direction: int) -> int:
-        total = len(rows)
-        if total == 0:
-            return 0
-        idx = max(0, min(idx, total - 1))
-        for _ in range(total):
-            idx = (idx + direction) % total
-            if _is_selectable(rows[idx]):
-                return idx
-        return idx
-
-    def _terminal_height() -> int:
-        try:
-            return os.get_terminal_size().lines
-        except OSError:
-            return 24
-
-    def _update_scroll(total: int, idx: int, max_visible: int, offset: int) -> int:
-        if total <= 0 or max_visible <= 0:
-            return 0
-        if idx < offset:
-            offset = idx
-        elif idx >= offset + max_visible:
-            offset = idx - max_visible + 1
-        max_offset = max(0, total - max_visible)
-        return max(0, min(offset, max_offset))
-
-    def _build_display(rows: list[dict], scopes_: list[dict]) -> str:
-        nonlocal scroll_offset
-
-        def _term_cols() -> int:
-            try:
-                return os.get_terminal_size().columns
-            except OSError:
-                return 80
-
-        def _truncate(text: str, max_len: int) -> str:
-            if max_len <= 1:
-                return text[:max_len]
-            if len(text) <= max_len:
-                return text
-            return text[: max_len - 1] + "\u2026"
-
-        scope = scopes_[scope_index]
-        checked = scope["enabled"]
-        next_scope = scopes_[(scope_index + 1) % len(scopes_)]["label"] if len(scopes_) > 1 else ""
-        package_count = len([p for p in package_order if p != UNGROUPED])
-        ungrouped_count = sum(len(names) for names in package_tree.get(UNGROUPED, {}).values())
-
-        lines: list[str] = [scoped_header(title, scope["label"])]
-        if len(scopes_) > 1:
-            lines[0] += f"    [dim]\\[Tab: {next_scope}][/dim]"
-        elif scope_hint:
-            lines[0] += f" [dim]\u2014 {scope_hint}[/dim]"
-        if ungrouped_count > 0:
-            lines.append(f"[dim]Packages: {package_count}  |  Ungrouped items: {ungrouped_count}[/dim]")
-        else:
-            lines.append(f"[dim]Packages: {package_count}[/dim]")
-        lines.append(dim_separator())
-
-        total_rows = len(rows)
-        max_visible = max(8, _terminal_height() - 10)
-        scroll_offset = _update_scroll(total_rows, cursor, max_visible, scroll_offset)
-        vis_start = scroll_offset
-        vis_end = min(total_rows, vis_start + max_visible)
-
-        if vis_start > 0:
-            lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
-
-        for i in range(vis_start, vis_end):
-            row = rows[i]
-            kind = row["kind"]
-            is_cur = i == cursor
-            prefix = cursor_prefix(is_cur)
-            cols = _term_cols()
-
-            if kind == ROW_PACKAGE:
-                pkg_name = row["package"]
-                is_ungrouped = row["is_ungrouped"]
-                collapsed = collapsed_packages.get(pkg_name, False)
-                arrow = "\u25b6" if collapsed else "\u25bc"
-                icon = "\U0001f4c1" if is_ungrouped else "\U0001f4e6"
-                label = "Ungrouped (not in package)" if is_ungrouped else pkg_name
-                pkg_items = package_tree.get(pkg_name, {})
-                enabled_count = sum(
-                    1
-                    for field, names in pkg_items.items()
-                    for name in names
-                    if (field, name) in checked
-                )
-                suffix = f" ({enabled_count}/{row['count']}) {arrow}"
-                max_label = max(10, cols - 8 - len(suffix))
-                label = _truncate(label, max_label)
-                if is_cur:
-                    style, end = row_style(True)
-                elif is_ungrouped:
-                    style, end = warning_style(False)
-                elif enabled_count == 0:
-                    style, end = "[dim]", "[/dim]"
-                else:
-                    style, end = "", ""
-                count_style = enabled_count_style(enabled_count)
-                lines.append(
-                    f"{prefix}{style}{icon} {label} "
-                    f"[{count_style}]({enabled_count}/{row['count']})[/{count_style}] {arrow}{end}"
-                )
-
-                if not is_ungrouped and not collapsed:
-                    url = str(packages_meta.get(pkg_name, {}).get("url", "")).strip()
-                    if url:
-                        lines.append(f"      [dim]{url}[/dim]")
-
-            elif kind == ROW_TYPE:
-                pkg_name = row["package"]
-                field = row["field"]
-                collapsed = collapsed_types.get((pkg_name, field), True)
-                arrow = "\u25b6" if collapsed else "\u25bc"
-                names = package_tree.get(pkg_name, {}).get(field, [])
-                enabled_count = sum(1 for name in names if (field, name) in checked)
-                total_count = len(names)
-                suffix = f" ({enabled_count}/{total_count}) {arrow}"
-                max_label = max(8, cols - 18 - len(suffix))
-                label = _truncate(row["label"], max_label)
-                if is_cur:
-                    style, end = row_style(True)
-                elif enabled_count == 0:
-                    style, end = "[dim]", "[/dim]"
-                else:
-                    style, end = "", ""
-                count_style = enabled_count_style(enabled_count)
-                lines.append(
-                    f"{prefix}    {style}{label} "
-                    f"[{count_style}]({enabled_count}/{total_count})[/{count_style}] {arrow}{end}"
-                )
-
-            elif kind == ROW_ITEM:
-                field = row["field"]
-                name = row["name"]
-                enabled = (field, name) in checked
-                if enabled:
-                    mark = "\u25cf"
-                else:
-                    mark = "[dim]\u25cb[/dim]"
-                if is_cur:
-                    if enabled:
-                        lines.append(f"{prefix}      {mark} [bold white]{name}[/bold white]")
-                    else:
-                        lines.append(f"{prefix}      {mark} [bold dim]{name}[/bold dim]")
-                else:
-                    if enabled:
-                        lines.append(f"{prefix}      {mark} [white]{name}[/white]")
-                    else:
-                        lines.append(f"{prefix}      {mark} [dim]{name}[/dim]")
-
-            elif kind == ROW_SEPARATOR:
-                lines.append(f"  {dim_separator(9)}")
-
-            elif kind == ROW_ACTION:
-                style, end = action_style(is_cur)
-                lines.append(f"{prefix}{style}{row['label']}{end}")
-
-        if vis_end < total_rows:
-            lines.append(f"[dim]  \u2193 {total_rows - vis_end} more[/dim]")
-
-        if status_msg:
-            lines.append(f"\n[dim]{status_msg}[/dim]")
-
-        current_kind = rows[cursor]["kind"] if rows else ROW_ACTION
-        lines.append("")
-        if extra_hints:
-            hints = extra_hints(current_kind)
-        else:
-            if current_kind == ROW_PACKAGE:
-                hints = "space/\u21b5 expand · t toggle all"
-            elif current_kind == ROW_TYPE:
-                hints = "space/\u21b5 expand · t toggle all"
-            elif current_kind == ROW_ITEM:
-                hints = "space/\u21b5 toggle · t toggle group"
-            else:
-                hints = "space/\u21b5 select"
-        if len(scopes_) > 1:
-            hints += " · tab scope"
-        hints += " · \u2191\u2193/jk nav · q/esc/^C back"
-        lines.append(f"[dim]{hints}[/dim]")
-        return "\n".join(lines)
-
-    def _do_toggle(scope: dict, field: str, name: str, enable: bool) -> None:
-        nonlocal changed
-        if enable:
-            scope["enabled"].add((field, name))
-        else:
-            scope["enabled"].discard((field, name))
-        changed = True
-        if on_toggle:
-            on_toggle(scope["key"], field, name, enable)
-
-    def _toggle_group_items(scope: dict, pairs: list[tuple[str, str]]) -> str:
-        """Toggle a list of (field, name) pairs. Returns status message."""
-        if not pairs:
-            return ""
-        all_enabled = all((f, n) in scope["enabled"] for f, n in pairs)
-        for f, n in pairs:
-            _do_toggle(scope, f, n, not all_enabled)
-        return "Disabled" if all_enabled else "Enabled"
-
-    with Live("", console=console, refresh_per_second=15, screen=True) as live:
-        while True:
-            # Allow caller to rebuild data (e.g. after external mutations)
-            if on_rebuild:
-                new_order, new_tree, new_scopes = on_rebuild()
-                package_order[:] = new_order
-                package_tree.clear()
-                package_tree.update(new_tree)
-                scopes[:] = new_scopes
-
-            scope_index = max(0, min(scope_index, len(scopes) - 1))
-            rows = _build_rows()
-            cursor = _normalize_cursor(rows, cursor)
-            live.update(Text.from_markup(_build_display(rows, scopes)))
-
-            try:
-                key = readchar.readkey()
-            except (KeyboardInterrupt, EOFError):
-                break
-
-            status_msg = ""
-            row = rows[cursor]
-            kind = row["kind"]
-            scope = scopes[scope_index]
-
-            # Navigation
-            if key in (readchar.key.UP, "k"):
-                cursor = _move_cursor(rows, cursor, -1)
-                continue
-            if key in (readchar.key.DOWN, "j"):
-                cursor = _move_cursor(rows, cursor, 1)
-                continue
-            if key == readchar.key.LEFT:
-                for i in range(len(rows)):
-                    if _is_selectable(rows[i]):
-                        cursor = i
-                        break
-                continue
-            if key == readchar.key.RIGHT:
-                for i in range(len(rows) - 1, -1, -1):
-                    if _is_selectable(rows[i]):
-                        cursor = i
-                        break
-                continue
-            if key in (readchar.key.TAB, "\t") and len(scopes) > 1:
-                scope_index = (scope_index + 1) % len(scopes)
-                continue
-            if key in ("q", "\x1b", getattr(readchar.key, "CTRL_C", "\x03"), "\x03"):
-                break
-
-            # Let caller handle extra keys first
-            if extra_key_handler:
-                handled, extra_status = extra_key_handler(key, row, scope, live)
-                if handled:
-                    if extra_status:
-                        status_msg = extra_status
-                    changed = True
-                    continue
-
-            primary = key in (readchar.key.ENTER, "\r", "\n", " ")
-
-            if kind == ROW_ACTION and primary:
-                break
-
-            if kind == ROW_PACKAGE:
-                pkg_name = row["package"]
-                if primary:
-                    collapsed_packages[pkg_name] = not collapsed_packages.get(pkg_name, False)
-                    continue
-
-            if kind == ROW_TYPE and primary:
-                pkg_name = row["package"]
-                field = row["field"]
-                key_id = (pkg_name, field)
-                collapsed_types[key_id] = not collapsed_types.get(key_id, True)
-                continue
-
-            # Toggle all items in a package or type group
-            if key == "t":
-                if kind == ROW_PACKAGE:
-                    pkg_name = row["package"]
-                    pkg_items = package_tree.get(pkg_name, {})
-                    all_pairs = [(f, n) for f, names in pkg_items.items() for n in names]
-                    action = _toggle_group_items(scope, all_pairs)
-                    if action:
-                        label = "ungrouped" if row["is_ungrouped"] else pkg_name
-                        status_msg = f"{action} all in {label}"
-                    continue
-                if kind == ROW_TYPE:
-                    pkg_name = row["package"]
-                    field = row["field"]
-                    names = package_tree.get(pkg_name, {}).get(field, [])
-                    pairs = [(field, n) for n in names]
-                    action = _toggle_group_items(scope, pairs)
-                    if action:
-                        status_msg = f"{action} all {row['label']} in {pkg_name}"
-                    continue
-                if kind == ROW_ITEM:
-                    pkg_name = row["package"]
-                    field = row["field"]
-                    names = package_tree.get(pkg_name, {}).get(field, [])
-                    pairs = [(field, n) for n in names]
-                    action = _toggle_group_items(scope, pairs)
-                    if action:
-                        status_msg = f"{action} all {field} in {pkg_name}"
-                    continue
-
-            if kind == ROW_ITEM and primary:
-                field = row["field"]
-                name = row["name"]
-                enabled_now = (field, name) in scope["enabled"]
-                _do_toggle(scope, field, name, not enabled_now)
-                status_msg = (
-                    f"{'Enabled' if not enabled_now else 'Disabled'} {name} in {scope['label']}"
-                )
-                continue
-
-    return scopes, changed
+from ..toggle import (  # noqa: F401 — re-exported for backward compat
+    ROW_ITEM,
+    ROW_PACKAGE,
+    ROW_SEPARATOR,
+    ROW_TYPE,
+    UNGROUPED,
+    run_picker,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -583,7 +97,7 @@ def handle_packages(state: dict) -> bool:
                 global_enabled.add((field, name))
         scopes.append({
             "key": "global",
-            "label": "\U0001f310 Global (default)",
+            "label": "Global (default)",
             "enabled": global_enabled,
         })
 
@@ -604,9 +118,9 @@ def handle_packages(state: dict) -> bool:
                         enabled.add((field, name))
 
                 if chain_dir == project_dir.resolve():
-                    label = f"\U0001f4cd This project: {chain_dir.name}"
+                    label = f"This project: {chain_dir.name}"
                 else:
-                    label = f"\U0001f4c1 {chain_dir.name}"
+                    label = f"{chain_dir.name}"
                 scopes.append({"key": str(chain_dir), "label": label, "enabled": enabled})
         else:
             local_cfg = state.get("local_cfg")
@@ -626,7 +140,7 @@ def handle_packages(state: dict) -> bool:
                 project_name = state.get("project_name") or project_dir.name
                 scopes.append({
                     "key": str(project_dir),
-                    "label": f"\U0001f4cd This project: {project_name}",
+                    "label": f"This project: {project_name}",
                     "enabled": enabled,
                 })
 
@@ -699,7 +213,7 @@ def handle_packages(state: dict) -> bool:
 
         return package_order, package_tree
 
-    # ── Callbacks for run_three_tier_picker ──
+    # ── Callbacks for run_picker ──
 
     def _on_toggle(scope_key: str, field: str, name: str, enabled: bool) -> None:
         nonlocal dirty
@@ -868,7 +382,7 @@ def handle_packages(state: dict) -> bool:
 
     show_scope_hint = len(scopes) == 1 and state.get("local_cfg") is None
 
-    run_three_tier_picker(
+    run_picker(
         "Packages",
         package_tree,
         package_order,

@@ -25,7 +25,7 @@ from rich.live import Live
 from rich.text import Text
 
 from ..hook_meta import parse_hook_meta
-from ..types import ToggleGroup, ToggleScope  # noqa: F401 — re-exported
+from ..types import TieredMenuItem, ToggleGroup, ToggleScope  # noqa: F401 — re-exported
 from .pause import wait_for_continue
 from .theme import (
     action_style,
@@ -37,6 +37,7 @@ from .theme import (
     row_style,
     scoped_header,
     terminal_menu_style_kwargs,
+    warning_style,
 )
 
 console = Console(highlight=False)
@@ -334,7 +335,7 @@ def _pick_file(path: Path) -> Path | None:
     menu = TerminalMenu(
         labels,
         title=f"\n{path.name}/ \u2014 {len(files)} files",
-        menu_cursor="\u276f ",
+        menu_cursor="\u203a ",
         **terminal_menu_style_kwargs(),
         quit_keys=("q", "\x1b"),
     )
@@ -387,7 +388,7 @@ def _browse_files(path: Path, initial_action: str = "view") -> None:
         lines = [f"[bold]{path.name}/[/bold] \u2014 {len(files)} files"]
         lines.append("[dim]\u2500" * 40 + "[/dim]")
         for i, f in enumerate(files):
-            prefix = "\u276f " if i == cursor else "  "
+            prefix = "\u203a " if i == cursor else "  "
             if i == cursor:
                 lines.append(f"[bold {accent}]{prefix}{f.name}[/bold {accent}]")
             else:
@@ -491,322 +492,508 @@ def _open_in_editor(path: Path) -> None:
     subprocess.run([editor, str(target)], check=False)
 
 
-def run_toggle_list(
-    component_type: str,
-    registry_names: list[str],
-    global_enabled: list[str] | None = None,
-    local_enabled: list[str] | None = None,
-    project_name: str | None = None,
-    start_scope: str = "local",
+# ---------------------------------------------------------------------------
+# Row kind constants shared across the unified picker
+# ---------------------------------------------------------------------------
+ROW_PACKAGE = "package"
+ROW_TYPE = "type"
+ROW_ITEM = "item"
+ROW_SEPARATOR = "separator"
+ROW_ACTION = "action"
+UNGROUPED = "__ungrouped__"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for building picker data from flat item lists
+# ---------------------------------------------------------------------------
+
+
+def build_picker_tree(
+    items: list[TieredMenuItem],
+    field_labels: dict[str, str] | None = None,
+) -> tuple[list[str], dict[str, dict[str, list[str]]], dict[str, str]]:
+    """Build (package_order, package_tree, field_labels) from flat item list.
+
+    Returns the triple expected by ``run_picker``.
+    """
+    if field_labels is None:
+        field_labels = {}
+
+    package_tree: dict[str, dict[str, list[str]]] = {}
+    for mi in items:
+        group = mi.group or UNGROUPED
+        fld = mi.field or "__default__"
+        package_tree.setdefault(group, {}).setdefault(fld, []).append(mi.name)
+        if fld not in field_labels:
+            field_labels[fld] = fld.title()
+
+    package_order = [p for p in sorted(package_tree.keys()) if p != UNGROUPED]
+    if UNGROUPED in package_tree:
+        package_order.append(UNGROUPED)
+
+    return package_order, package_tree, field_labels
+
+
+def scopes_from_toggle_scopes(
+    toggle_scopes: list[ToggleScope],
+    field: str,
+) -> list[dict]:
+    """Convert ToggleScope (name-only enabled) to picker scope format (field, name tuples)."""
+    result: list[dict] = []
+    for ts in toggle_scopes:
+        result.append({
+            "key": ts.key,
+            "label": ts.label,
+            "enabled": {(field, name) for name in ts.enabled},
+            "is_new": ts.is_new,
+        })
+    return result
+
+
+def _detect_tiers(
+    package_tree: dict[str, dict[str, list[str]]],
+    package_order: list[str],
+) -> int:
+    """Auto-detect tier depth from data shape.
+
+    Returns 1, 2, or 3.
+    """
+    real_packages = [p for p in package_order if p != UNGROUPED]
+    all_fields: set[str] = set()
+    for pkg in package_order:
+        for fld in package_tree.get(pkg, {}):
+            all_fields.add(fld)
+
+    num_groups = len(real_packages) + (1 if UNGROUPED in package_tree else 0)
+
+    if num_groups <= 1 and len(all_fields) <= 1:
+        return 1  # flat list
+    if len(all_fields) <= 1:
+        return 2  # groups -> items (type tier hidden)
+    return 3  # full 3-tier
+
+
+# ---------------------------------------------------------------------------
+# Unified picker
+# ---------------------------------------------------------------------------
+
+
+def run_picker(
+    title: str,
+    package_tree: dict[str, dict[str, list[str]]],
+    package_order: list[str],
+    field_labels: dict[str, str],
+    scopes: list[dict],
+    *,
+    start_scope_index: int = 0,
+    packages_meta: dict | None = None,
+    collapsed_packages: dict[str, bool] | None = None,
+    collapsed_types: dict[tuple[str, str], bool] | None = None,
+    on_toggle: Callable | None = None,
+    on_rebuild: Callable | None = None,
+    extra_key_handler: Callable | None = None,
+    extra_hints: Callable | None = None,
+    action_label: str = "Done",
+    scope_hint: str | None = None,
+    # --- Features from run_toggle_list ---
+    get_description: Callable[[str, str], str] | None = None,
     registry_path: Path | None = None,
     registry_dir: str = "",
-    local_is_new: bool = False,
+    show_change_indicators: bool = False,
+    show_select_all: bool = False,
     on_add: Callable[[], str | None] | None = None,
     add_label: str = "Add new...",
-    # N-scope API — when provided, the old 2-scope params are ignored
-    scopes: list[ToggleScope] | None = None,
-    start_scope_index: int = -1,
-    # Optional: set of names that actually exist in registry (for missing hints)
     registry_items: set[str] | None = None,
-    # Package grouping — when provided, items are shown under collapsible headers
-    groups: list[ToggleGroup] | None = None,
-    # Optional hint shown above keybinding footer
-    footer_hint: str | None = None,
-    # Delete callback — called with item name, returns True if deleted
-    on_delete: Callable[[str], bool] | None = None,
-    # Optional subtitle shown below the header
-    subtitle: str | None = None,
-) -> tuple[list[list[str]], bool]:
-    """Run an interactive toggle list for a component type.
+    on_delete: Callable[[str, str], bool] | None = None,
+    parent_hint_fn: Callable[[int, str, str], str | None] | None = None,
+) -> tuple[list[dict], bool]:
+    """Unified picker supporting 1, 2, and 3 tier layouts.
 
-    Supports two calling conventions:
+    Auto-detects tier depth from data shape:
+    - 1-tier: flat item list (no group/type headers)
+    - 2-tier: group headers + items (type tier hidden)
+    - 3-tier: package -> type -> items
 
-    **N-scope (new)**: Pass `scopes` list of ToggleScope objects.
-        Returns (list of enabled lists per scope, changed).
+    Args:
+        title: Header title.
+        package_tree: {pkg_name: {field: [item_names]}}.
+        package_order: Display order of package names.
+        field_labels: {field: "Human Label"} for type rows.
+        scopes: [{key, label, enabled: set[(field, name)]}].
+        start_scope_index: Which scope to start on.
+        packages_meta: Package index data for URL display.
+        collapsed_packages: Mutable dict of pkg->collapsed state.
+        collapsed_types: Mutable dict of (pkg,field)->collapsed state.
+        on_toggle: (scope_key, field, name, enabled) -> None.
+        on_rebuild: () -> (package_order, package_tree, scopes).
+        extra_key_handler: (key, row, scope, live) -> (handled, status_msg).
+        extra_hints: (row_kind) -> str | None.
+        action_label: Label for the Done/Save action button.
+        scope_hint: Shown when only 1 scope.
+        get_description: (field, name) -> str. For description panel.
+        registry_path: Registry path for v/e/o file browsing.
+        registry_dir: Registry subdir for file browsing (when single-field).
+        show_change_indicators: Yellow marks for modified items.
+        show_select_all: Add Select All / Select None actions.
+        on_add: Callback for "Add new..." action.
+        add_label: Label for the add action.
+        registry_items: Set of names in registry (for "not in registry" hints).
+        on_delete: (field, name) -> bool. Delete callback.
+        parent_hint_fn: (scope_index, field, name) -> hint | None.
 
-    **2-scope (backward compat)**: Pass global_enabled + local_enabled.
-        Returns (list of enabled lists per scope, changed) where
-        scopes[0] = global, scopes[1] = local (if provided).
-
-    Tab cycles through scopes. Shows parent-scope hints.
+    Returns:
+        (final_scopes, changed)
     """
-    # Convert old API to N-scope API
-    if scopes is None:
-        scopes = [ToggleScope(
-            key="global",
-            label="\U0001f310 Global (default)",
-            enabled=list(global_enabled or []),
-        )]
-        if local_enabled is not None:
-            scopes.append(ToggleScope(
-                key="local",
-                label=f"\U0001f4cd This project: {project_name or 'local'}",
-                enabled=list(local_enabled),
-                is_new=local_is_new,
-            ))
-            if start_scope == "local":
-                start_scope_index = len(scopes) - 1
-            else:
-                start_scope_index = 0
-        else:
-            start_scope_index = 0
+    if collapsed_packages is None:
+        collapsed_packages = {}
+    if collapsed_types is None:
+        collapsed_types = {}
+    if packages_meta is None:
+        packages_meta = {}
 
-    # Handle empty state — but if on_add is provided, still show the list
-    if not registry_names and on_add is None:
-        scope_idx = start_scope_index if start_scope_index >= 0 else len(scopes) - 1
-        _show_empty(component_type, scopes[scope_idx].label)
-        return [list(s.enabled) for s in scopes], False
+    tiers = _detect_tiers(package_tree, package_order)
+    ordered_fields = list(field_labels.keys())
 
-    # Mutable state: one checked set per scope
-    checked_sets: list[set[str]] = [set(s.enabled) for s in scopes]
-    initial_sets: list[set[str]] = [set(s.enabled) for s in scopes]
-
-    scope_index = start_scope_index if start_scope_index >= 0 else len(scopes) - 1
     cursor = 0
     scroll_offset = 0
-    changed = False
+    scope_index = start_scope_index
     status_msg = ""
-    description_cache: dict[str, str] = {}
+    changed = False
+    description_cache: dict[tuple[str, str], str] = {}
 
-    items = list(registry_names)
-    num_scopes = len(scopes)
+    # Track initial state for change indicators
+    initial_sets: list[set[tuple[str, str]]] = [set(s["enabled"]) for s in scopes]
 
-    # Row kinds for the virtual row model
-    ROW_GROUP_HEADER = "group_header"
-    ROW_ITEM = "item"
-    ROW_SEPARATOR = "separator"
-    ROW_ACTION = "action"
+    # --- Auto default description function from registry_path ---
+    if get_description is None and registry_path and registry_dir:
+        def get_description(field: str, name: str) -> str:
+            item_path = _resolve_item_path(registry_path, registry_dir, name)
+            if item_path is not None:
+                return _get_item_description(item_path, registry_dir)
+            return ""
 
-    def _get_actions() -> list[tuple[str, str]]:
-        actions = [
-            ("Select All", ACTION_SELECT_ALL),
-            ("Select None", ACTION_SELECT_NONE),
-        ]
+    # --- Auto default parent hint function ---
+    if parent_hint_fn is None and len(scopes) > 1:
+        def parent_hint_fn(si: int, field: str, name: str) -> str | None:
+            for i in range(si - 1, -1, -1):
+                if (field, name) in scopes[i]["enabled"]:
+                    return scopes[i]["label"]
+            return None
+
+    def _build_rows() -> list[dict]:
+        rows: list[dict] = []
+
+        if tiers == 1:
+            # Flat: just items from any package/field
+            for pkg_name in package_order:
+                field_map = package_tree.get(pkg_name, {})
+                for fld in ordered_fields:
+                    for name in field_map.get(fld, []):
+                        rows.append({
+                            "kind": ROW_ITEM,
+                            "package": pkg_name,
+                            "field": fld,
+                            "name": name,
+                        })
+
+        elif tiers == 2:
+            # Groups -> items (type tier hidden, single field)
+            the_field = ordered_fields[0] if ordered_fields else ""
+            for pkg_name in package_order:
+                collapsed_packages.setdefault(pkg_name, True)
+                field_map = package_tree.get(pkg_name, {})
+                item_count = sum(len(names) for names in field_map.values())
+
+                # Only show group header if there are multiple groups
+                num_groups = len(package_order)
+                if num_groups > 1:
+                    rows.append({
+                        "kind": ROW_PACKAGE,
+                        "package": pkg_name,
+                        "count": item_count,
+                        "is_ungrouped": pkg_name == UNGROUPED,
+                    })
+                    if collapsed_packages.get(pkg_name, False):
+                        continue
+
+                for name in field_map.get(the_field, []):
+                    rows.append({
+                        "kind": ROW_ITEM,
+                        "package": pkg_name,
+                        "field": the_field,
+                        "name": name,
+                    })
+
+        else:
+            # Full 3-tier
+            for pkg_name in package_order:
+                collapsed_packages.setdefault(pkg_name, True)
+                field_map = package_tree.get(pkg_name, {})
+                item_count = sum(len(names) for f, names in field_map.items())
+                rows.append({
+                    "kind": ROW_PACKAGE,
+                    "package": pkg_name,
+                    "count": item_count,
+                    "is_ungrouped": pkg_name == UNGROUPED,
+                })
+
+                if collapsed_packages.get(pkg_name, False):
+                    continue
+
+                for fld in ordered_fields:
+                    names = field_map.get(fld, [])
+                    if not names:
+                        continue
+                    label = field_labels.get(fld, fld.title())
+                    rows.append({
+                        "kind": ROW_TYPE,
+                        "package": pkg_name,
+                        "field": fld,
+                        "label": label,
+                        "count": len(names),
+                    })
+
+                    if collapsed_types.get((pkg_name, fld), True):
+                        continue
+
+                    for name in names:
+                        rows.append({
+                            "kind": ROW_ITEM,
+                            "package": pkg_name,
+                            "field": fld,
+                            "name": name,
+                        })
+
+        rows.append({"kind": ROW_SEPARATOR})
+
+        if show_select_all:
+            rows.append({"kind": ROW_ACTION, "action": ACTION_SELECT_ALL, "label": "Select All"})
+            rows.append({"kind": ROW_ACTION, "action": ACTION_SELECT_NONE, "label": "Select None"})
         if on_add is not None:
-            actions.append((add_label, ACTION_ADD))
-        actions.append(("Done", ACTION_DONE))
-        return actions
-
-    def _build_rows() -> list[tuple[str, str, int]]:
-        """Build the virtual row list: (kind, value, group_idx).
-
-        value: item name for items, group key for headers, action id for actions.
-        group_idx: index into groups list, -1 for non-grouped rows.
-        """
-        rows: list[tuple[str, str, int]] = []
-
-        if groups:
-            for gi, group in enumerate(groups):
-                rows.append((ROW_GROUP_HEADER, group.key, gi))
-                if not group.collapsed:
-                    for name in group.items:
-                        rows.append((ROW_ITEM, name, gi))
-        else:
-            for name in items:
-                rows.append((ROW_ITEM, name, -1))
-
-        if not items and not groups:
-            pass  # empty state handled in display
-        else:
-            rows.append((ROW_SEPARATOR, "", -1))
-
-        for _, aid in _get_actions():
-            rows.append((ROW_ACTION, aid, -1))
-
+            rows.append({"kind": ROW_ACTION, "action": ACTION_ADD, "label": add_label})
+        rows.append({"kind": ROW_ACTION, "action": ACTION_DONE, "label": action_label})
         return rows
 
-    row_list = _build_rows()
+    def _is_selectable(row: dict) -> bool:
+        return row.get("kind") != ROW_SEPARATOR
 
-    def _rebuild_rows() -> None:
-        nonlocal row_list
-        row_list = _build_rows()
+    def _normalize_cursor(rows: list[dict], idx: int) -> int:
+        if not rows:
+            return 0
+        idx = max(0, min(idx, len(rows) - 1))
+        if _is_selectable(rows[idx]):
+            return idx
+        for i, row in enumerate(rows):
+            if _is_selectable(row):
+                return i
+        return 0
 
-    def _checked_set() -> set[str]:
-        return checked_sets[scope_index]
+    def _move_cursor(rows: list[dict], idx: int, direction: int) -> int:
+        total = len(rows)
+        if total == 0:
+            return 0
+        idx = max(0, min(idx, total - 1))
+        for _ in range(total):
+            idx = (idx + direction) % total
+            if _is_selectable(rows[idx]):
+                return idx
+        return idx
 
-    def _initial_set() -> set[str]:
-        return initial_sets[scope_index]
+    def _update_scroll(total: int, idx: int, max_visible: int, offset: int) -> int:
+        if total <= 0 or max_visible <= 0:
+            return 0
+        if idx < offset:
+            offset = idx
+        elif idx >= offset + max_visible:
+            offset = idx - max_visible + 1
+        max_offset = max(0, total - max_visible)
+        return max(0, min(offset, max_offset))
 
-    def _find_parent_hint(name: str) -> str | None:
-        """Walk up from current scope to find nearest parent that enables an item."""
-        for i in range(scope_index - 1, -1, -1):
-            if name in checked_sets[i]:
-                return scopes[i].label
-        return None
+    def _get_all_item_pairs() -> list[tuple[str, str]]:
+        """Get all (field, name) pairs from current tree."""
+        pairs: list[tuple[str, str]] = []
+        for pkg in package_order:
+            fm = package_tree.get(pkg, {})
+            for fld, names in fm.items():
+                for name in names:
+                    pairs.append((fld, name))
+        return pairs
 
-    def _handle_action(aid: str) -> bool:
-        """Handle an action. Returns True if should break loop."""
-        nonlocal changed
-        if aid == ACTION_SELECT_ALL:
-            _checked_set().update(items)
-            changed = True
-        elif aid == ACTION_SELECT_NONE:
-            _checked_set().clear()
-            changed = True
-        elif aid == ACTION_ADD:
-            return False  # Handled separately in the main loop
-        elif aid == ACTION_DONE:
-            changed = True  # Signal that user explicitly saved
-            return True
-        return False
+    def _build_display(rows: list[dict], scopes_: list[dict]) -> str:
+        nonlocal scroll_offset
 
-    def _toggle_item_by_name(name: str) -> None:
-        """Toggle an item by name."""
-        nonlocal changed
-        checked = _checked_set()
-        if name in checked:
-            checked.discard(name)
-        else:
-            checked.add(name)
-        changed = True
+        def _term_cols() -> int:
+            try:
+                return os.get_terminal_size().columns
+            except OSError:
+                return 80
 
-    def _toggle_group(group: ToggleGroup) -> None:
-        """Toggle all items in a group: if all enabled → disable all, else → enable all."""
-        nonlocal changed
-        checked = _checked_set()
-        enabled = sum(1 for name in group.items if name in checked)
-        if enabled == len(group.items):
-            # All enabled → disable all
-            for name in group.items:
-                checked.discard(name)
-        else:
-            # Some or none enabled → enable all
-            for name in group.items:
-                checked.add(name)
-        changed = True
+        def _truncate(text: str, max_len: int) -> str:
+            if max_len <= 1:
+                return text[:max_len]
+            if len(text) <= max_len:
+                return text
+            return text[: max_len - 1] + "\u2026"
 
-    def _get_group_at_cursor() -> ToggleGroup | None:
-        """Get the group for the current cursor position, or None."""
-        if not groups or cursor >= len(row_list):
-            return None
-        kind, value, gi = row_list[cursor]
-        if kind == ROW_GROUP_HEADER:
-            return groups[gi]
-        if kind == ROW_ITEM and gi >= 0:
-            return groups[gi]
-        return None
+        scope = scopes_[scope_index]
+        checked: set[tuple[str, str]] = scope["enabled"]
+        initial = initial_sets[scope_index] if show_change_indicators else set()
+        next_scope = scopes_[(scope_index + 1) % len(scopes_)]["label"] if len(scopes_) > 1 else ""
 
-    def _group_enabled_count(group: ToggleGroup) -> tuple[int, int]:
-        """Count (enabled, total) for a group in current scope."""
-        checked = _checked_set()
-        enabled = sum(1 for name in group.items if name in checked)
-        return enabled, len(group.items)
-
-    def _action_label(aid: str) -> str:
-        for label, a in _get_actions():
-            if a == aid:
-                return label
-        return ""
-
-    def _build_display() -> str:
-        """Build the display string for Rich."""
-        lines: list[str] = []
-
-        # Header with scope label + Tab hint
-        current_scope = scopes[scope_index]
-        scope_label = current_scope.label
         theme = get_theme()
         warning = theme.warning_rich
-        if current_scope.is_new:
+
+        lines: list[str] = []
+
+        # Header
+        scope_label = scope["label"]
+        if scope.get("is_new"):
             scope_label += f" [{warning}](new)[/{warning}]"
-        if footer_hint and num_scopes == 1:
-            scope_label += f" [dim]\u2014 {footer_hint}[/dim]"
 
-        if num_scopes > 1:
-            next_idx = (scope_index + 1) % num_scopes
-            next_label = scopes[next_idx].label
-            tab_hint = f"\\[Tab: {next_label}]"
-        else:
-            tab_hint = ""
+        lines.append(scoped_header(title, scope_label))
+        if len(scopes_) > 1:
+            lines[-1] += f"    [dim]\\[Tab: {next_scope}][/dim]"
+        elif scope_hint:
+            lines[-1] += f" [dim]\u2014 {scope_hint}[/dim]"
 
-        lines.append(scoped_header(component_type, scope_label, tab_hint))
-        if subtitle:
-            lines.append(f"[dim]{subtitle}[/dim]")
+        # Sub-header for 3-tier
+        if tiers == 3:
+            package_count = len([p for p in package_order if p != UNGROUPED])
+            ungrouped_count = sum(len(names) for names in package_tree.get(UNGROUPED, {}).values())
+            if ungrouped_count > 0:
+                lines.append(f"[dim]Packages: {package_count}  |  Ungrouped items: {ungrouped_count}[/dim]")
+            else:
+                lines.append(f"[dim]Packages: {package_count}[/dim]")
+
         lines.append(dim_separator())
 
-        def _description_panel_lines() -> list[str]:
-            if not row_list or not registry_path or not registry_dir:
-                return []
-            current_kind, current_value, _ = row_list[cursor]
-            if current_kind != ROW_ITEM:
-                return []
-
-            item_name = current_value
-            description = description_cache.get(item_name)
-            if description is None:
-                item_path = _resolve_item_path(registry_path, registry_dir, item_name)
-                description = (
-                    _get_item_description(item_path, registry_dir)
-                    if item_path is not None
-                    else ""
+        # Description panel
+        desc_lines: list[str] = []
+        if get_description and rows:
+            cur_row = rows[cursor] if cursor < len(rows) else {}
+            if cur_row.get("kind") == ROW_ITEM:
+                cache_key = (cur_row["field"], cur_row["name"])
+                desc = description_cache.get(cache_key)
+                if desc is None:
+                    desc = get_description(cur_row["field"], cur_row["name"])
+                    description_cache[cache_key] = desc
+                width = _get_description_wrap_width()
+                wrapped = textwrap.wrap(
+                    desc or "No description metadata found for this item.",
+                    width=width,
+                    break_long_words=False,
+                    replace_whitespace=False,
                 )
-                description_cache[item_name] = description
+                wrapped = wrapped[:3] if wrapped else ["No description metadata found for this item."]
+                info_style = get_theme().info_rich
+                desc_lines = [f"[{info_style}]{line}[/{info_style}]" for line in wrapped]
 
-            width = _get_description_wrap_width()
-            wrapped = textwrap.wrap(
-                description or "No description metadata found for this item.",
-                width=width,
-                break_long_words=False,
-                replace_whitespace=False,
-            )
-            wrapped = wrapped[:3] if wrapped else ["No description metadata found for this item."]
-            info_style = get_theme().info_rich
-            return [f"[{info_style}]{line}[/{info_style}]" for line in wrapped]
-
-        description_lines = _description_panel_lines()
-        total = len(row_list)
-        reserved_lines = 2  # header + separator
-        if subtitle:
-            reserved_lines += 1
-        reserved_lines += 2  # footer spacer + key hints
-        reserved_lines += 2  # potential up/down scroll indicators
+        total_rows = len(rows)
+        reserved = 4  # header + separator + footer spacer + hints
+        if tiers == 3:
+            reserved += 1  # sub-header
         if status_msg:
-            reserved_lines += 2
-        if description_lines:
-            reserved_lines += 1 + len(description_lines)  # spacer + panel
+            reserved += 2
+        if desc_lines:
+            reserved += 1 + len(desc_lines)
+        reserved += 2  # scroll indicators
 
-        max_visible = max(3, _get_terminal_height() - reserved_lines)
-        _, vis_start, vis_end = _calculate_visible_range(cursor, total, max_visible, scroll_offset)
+        max_visible = max(8, _get_terminal_height() - reserved)
+        scroll_offset = _update_scroll(total_rows, cursor, max_visible, scroll_offset)
+        vis_start = scroll_offset
+        vis_end = min(total_rows, vis_start + max_visible)
 
-        checked = _checked_set()
-        initial = _initial_set()
-
-        # Scroll indicator (above)
         if vis_start > 0:
             lines.append(f"[dim]  \u2191 {vis_start} more[/dim]")
 
-        # Empty state
-        if not items and not groups:
+        # Empty state — check actual data, not collapsed rows
+        has_any_items = any(
+            names
+            for pkg in package_order
+            for names in package_tree.get(pkg, {}).values()
+        )
+        if not has_any_items:
             lines.append("  [dim](none in registry)[/dim]")
             lines.append("")
 
+        cols = _term_cols()
+
         for i in range(vis_start, vis_end):
-            kind, value, gi = row_list[i]
+            row = rows[i]
+            kind = row["kind"]
             is_cur = i == cursor
             prefix = cursor_prefix(is_cur)
 
-            if kind == ROW_GROUP_HEADER:
-                group = groups[gi]
-                en, tot = _group_enabled_count(group)
-                arrow = "\u25b6" if group.collapsed else "\u25bc"
+            if kind == ROW_PACKAGE:
+                pkg_name = row["package"]
+                is_ungrouped = row["is_ungrouped"]
+                collapsed = collapsed_packages.get(pkg_name, False)
+                icon = "+" if collapsed else "-"
+                label = "Ungrouped (not in package)" if is_ungrouped else pkg_name
+                pkg_items = package_tree.get(pkg_name, {})
+                enabled_count = sum(
+                    1
+                    for fld, names in pkg_items.items()
+                    for name in names
+                    if (fld, name) in checked
+                )
+                suffix = f" ({enabled_count}/{row['count']})"
+                max_label = max(10, cols - 8 - len(suffix))
+                label = _truncate(label, max_label)
                 if is_cur:
-                    style, end_style = row_style(True)
-                elif en == 0:
-                    style, end_style = "[dim]", "[/dim]"
+                    style, end = row_style(True)
+                elif is_ungrouped:
+                    style, end = warning_style(False)
+                elif enabled_count == 0:
+                    style, end = "[dim]", "[/dim]"
                 else:
-                    style, end_style = "", ""
-                count_style = enabled_count_style(en)
-                lines.append(f"{prefix}{style}{group.label}  [{count_style}]({en}/{tot})[/{count_style}]  {arrow}{end_style}")
+                    style, end = "", ""
+                count_style = enabled_count_style(enabled_count)
+                lines.append(
+                    f"{prefix}{style}{icon} {label} "
+                    f"[{count_style}]({enabled_count}/{row['count']})[/{count_style}]{end}"
+                )
+
+                # Show URL for non-ungrouped expanded packages in 3-tier
+                if tiers == 3 and not is_ungrouped and not collapsed:
+                    url = str(packages_meta.get(pkg_name, {}).get("url", "")).strip()
+                    if url:
+                        lines.append(f"      [dim]{url}[/dim]")
+
+            elif kind == ROW_TYPE:
+                pkg_name = row["package"]
+                fld = row["field"]
+                collapsed = collapsed_types.get((pkg_name, fld), True)
+                icon = "+" if collapsed else "-"
+                names = package_tree.get(pkg_name, {}).get(fld, [])
+                enabled_count = sum(1 for name in names if (fld, name) in checked)
+                total_count = len(names)
+                suffix = f" ({enabled_count}/{total_count})"
+                max_label = max(8, cols - 18 - len(suffix))
+                label = _truncate(row["label"], max_label)
+                if is_cur:
+                    style, end = row_style(True)
+                elif enabled_count == 0:
+                    style, end = "[dim]", "[/dim]"
+                else:
+                    style, end = "", ""
+                count_style = enabled_count_style(enabled_count)
+                lines.append(
+                    f"{prefix}  {style}{icon} {label} "
+                    f"[{count_style}]({enabled_count}/{total_count})[/{count_style}]{end}"
+                )
 
             elif kind == ROW_ITEM:
-                name = value
-                is_checked = name in checked
-                was_checked = name in initial
-                is_changed = is_checked != was_checked
+                fld = row["field"]
+                name = row["name"]
+                enabled = (fld, name) in checked
+                was_enabled = (fld, name) in initial if show_change_indicators else enabled
+                is_changed = show_change_indicators and enabled != was_enabled
 
-                if is_checked and is_changed:
+                # Check mark with change indicators
+                if enabled and is_changed:
                     mark = f"[{warning}]\u25cf[/{warning}]"
-                elif is_checked:
+                elif enabled:
                     mark = "\u25cf"
                 elif is_changed:
                     mark = f"[{warning}]\u25cb[/{warning}]"
@@ -814,193 +1001,261 @@ def run_toggle_list(
                     mark = "[dim]\u25cb[/dim]"
 
                 if is_cur:
-                    if is_checked:
-                        style, end_style = "[bold white]", "[/bold white]"
+                    if enabled:
+                        style, end = "[bold white]", "[/bold white]"
                     else:
-                        style, end_style = "[bold dim]", "[/bold dim]"
-                elif is_checked:
-                    style, end_style = "[white]", "[/white]"
+                        style, end = "[bold dim]", "[/bold dim]"
+                elif enabled:
+                    style, end = "[white]", "[/white]"
                 else:
-                    style, end_style = "[dim]", "[/dim]"
+                    style, end = "[dim]", "[/dim]"
 
-                # Indent items under groups
-                indent = "  " if groups else ""
+                # Indentation depends on tier mode
+                if tiers == 1:
+                    indent = ""
+                elif tiers == 2:
+                    indent = "  " if len(package_order) > 1 else ""
+                else:
+                    indent = "    "
 
                 # Hints
                 hint = ""
                 if registry_items is not None and name not in registry_items:
                     hint = "  [dim italic](not in registry)[/dim italic]"
-                elif scope_index > 0 and not is_checked:
-                    parent_label = _find_parent_hint(name)
+                elif parent_hint_fn and scope_index > 0 and not enabled:
+                    parent_label = parent_hint_fn(scope_index, fld, name)
                     if parent_label:
                         hint = f"  [dim](enabled in {parent_label})[/dim]"
                 if not hint and is_changed:
                     hint = f"[bold {warning}]*[/bold {warning}]"
 
-                lines.append(f"{prefix}{indent}{mark} {style}{name}{end_style}{hint}")
+                lines.append(f"{prefix}{indent}{mark} {style}{name}{end}{hint}")
 
             elif kind == ROW_SEPARATOR:
-                lines.append("  [dim]\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500[/dim]")
+                lines.append(f"  {dim_separator(9)}")
 
             elif kind == ROW_ACTION:
-                label = _action_label(value)
                 style, end = action_style(is_cur)
-                lines.append(f"{prefix}{style}{label}{end}")
+                lines.append(f"{prefix}{style}{row['label']}{end}")
 
-        # Scroll indicator (below)
-        if vis_end < total:
-            remaining = total - vis_end
-            lines.append(f"[dim]  \u2193 {remaining} more[/dim]")
+        if vis_end < total_rows:
+            lines.append(f"[dim]  \u2193 {total_rows - vis_end} more[/dim]")
 
-        # Status message
         if status_msg:
-            lines.append("")
-            lines.append(f"[dim]{status_msg}[/dim]")
+            lines.append(f"\n[dim]{status_msg}[/dim]")
 
-        if description_lines:
+        if desc_lines:
             lines.append("")
-            lines.extend(description_lines)
+            lines.extend(desc_lines)
 
-        # Footer
+        # Footer hints
         lines.append("")
-        hints = "space/\u21b5 toggle · \u2191\u2193/jk nav · q done"
-        if num_scopes > 1:
+        current_kind = rows[cursor]["kind"] if rows else ROW_ACTION
+        if extra_hints:
+            hints = extra_hints(current_kind)
+        else:
+            if current_kind == ROW_PACKAGE:
+                hints = "space/\u21b5 expand · t toggle all"
+            elif current_kind == ROW_TYPE:
+                hints = "space/\u21b5 expand · t toggle all"
+            elif current_kind == ROW_ITEM:
+                hints = "space/\u21b5 toggle · t toggle group"
+            else:
+                hints = "space/\u21b5 select"
+        if len(scopes_) > 1:
             hints += " · tab scope"
-        if registry_path:
+        if registry_path and registry_dir:
             hints += " · v view · e edit · o open"
         if on_delete:
             hints += " · d delete"
-        if groups:
-            hints += " · t toggle group"
-        if footer_hint and num_scopes > 1:
-            hints += f" · {footer_hint}"
+        hints += " · \u2191\u2193/jk nav · q/esc back"
         lines.append(f"[dim]{hints}[/dim]")
-
         return "\n".join(lines)
 
-    def _get_item_name_at_cursor() -> str | None:
-        """Get the item name at the current cursor position, or None."""
-        if cursor < len(row_list):
-            kind, value, _ = row_list[cursor]
-            if kind == ROW_ITEM:
-                return value
-        return None
+    def _do_toggle(scope: dict, fld: str, name: str, enable: bool) -> None:
+        nonlocal changed
+        if enable:
+            scope["enabled"].add((fld, name))
+        else:
+            scope["enabled"].discard((fld, name))
+        changed = True
+        if on_toggle:
+            on_toggle(scope["key"], fld, name, enable)
 
-    # Main loop
-    with Live("", console=console, refresh_per_second=15, transient=True) as live:
-        live.update(Text.from_markup(_build_display()))
+    def _toggle_group_items(scope: dict, pairs: list[tuple[str, str]]) -> str:
+        if not pairs:
+            return ""
+        all_enabled = all((f, n) in scope["enabled"] for f, n in pairs)
+        for f, n in pairs:
+            _do_toggle(scope, f, n, not all_enabled)
+        return "Disabled" if all_enabled else "Enabled"
+
+    def _handle_select_all(scope: dict) -> None:
+        nonlocal changed
+        for f, n in _get_all_item_pairs():
+            scope["enabled"].add((f, n))
+        changed = True
+
+    def _handle_select_none(scope: dict) -> None:
+        nonlocal changed
+        scope["enabled"].clear()
+        changed = True
+
+    def _handle_add(live: Live) -> str:
+        nonlocal changed
+        if not on_add:
+            return ""
+        live.stop()
+        new_name = on_add()
+        if new_name:
+            # Add to the first field in the ungrouped package
+            fld = ordered_fields[0] if ordered_fields else "__default__"
+            package_tree.setdefault(UNGROUPED, {}).setdefault(fld, []).append(new_name)
+            if UNGROUPED not in package_order:
+                package_order.append(UNGROUPED)
+            scopes[scope_index]["enabled"].add((fld, new_name))
+            changed = True
+            live.start()
+            return f"Added {new_name}"
+        live.start()
+        return ""
+
+    with Live("", console=console, refresh_per_second=15, screen=True) as live:
         while True:
+            if on_rebuild:
+                new_order, new_tree, new_scopes = on_rebuild()
+                package_order[:] = new_order
+                package_tree.clear()
+                package_tree.update(new_tree)
+                scopes[:] = new_scopes
+
+            scope_index = max(0, min(scope_index, len(scopes) - 1))
+            rows = _build_rows()
+            cursor = _normalize_cursor(rows, cursor)
+            live.update(Text.from_markup(_build_display(rows, scopes)))
+
             try:
                 key = readchar.readkey()
             except (KeyboardInterrupt, EOFError):
                 break
 
-            total = len(row_list)
             status_msg = ""
+            row = rows[cursor]
+            kind = row["kind"]
+            scope = scopes[scope_index]
 
-            # Navigation — skip separators but land on everything else
+            # Navigation
             if key in (readchar.key.UP, "k"):
-                cursor = (cursor - 1) % total
-                if row_list[cursor][0] == ROW_SEPARATOR:
-                    cursor = (cursor - 1) % total
-            elif key in (readchar.key.DOWN, "j"):
-                cursor = (cursor + 1) % total
-                if row_list[cursor][0] == ROW_SEPARATOR:
-                    cursor = (cursor + 1) % total
-
-            # Jump to first / last selectable row
-            elif key == readchar.key.LEFT:
-                for i in range(total):
-                    if row_list[i][0] != ROW_SEPARATOR:
+                cursor = _move_cursor(rows, cursor, -1)
+                continue
+            if key in (readchar.key.DOWN, "j"):
+                cursor = _move_cursor(rows, cursor, 1)
+                continue
+            if key == readchar.key.LEFT:
+                for i in range(len(rows)):
+                    if _is_selectable(rows[i]):
                         cursor = i
                         break
-            elif key == readchar.key.RIGHT:
-                for i in range(total - 1, -1, -1):
-                    if row_list[i][0] != ROW_SEPARATOR:
+                continue
+            if key == readchar.key.RIGHT:
+                for i in range(len(rows) - 1, -1, -1):
+                    if _is_selectable(rows[i]):
                         cursor = i
                         break
+                continue
+            if key in (readchar.key.TAB, "\t") and len(scopes) > 1:
+                scope_index = (scope_index + 1) % len(scopes)
+                continue
+            if key in ("q", "\x1b", getattr(readchar.key, "CTRL_C", "\x03"), "\x03"):
+                break
 
-            # Toggle (Space) or collapse/expand
-            elif key == " ":
-                kind, value, gi = row_list[cursor]
-                if kind == ROW_GROUP_HEADER and groups:
-                    groups[gi].collapsed = not groups[gi].collapsed
-                    _rebuild_rows()
-                    # Keep cursor on the header
-                    cursor = min(cursor, len(row_list) - 1)
-                elif kind == ROW_ITEM:
-                    _toggle_item_by_name(value)
-                elif kind == ROW_ACTION:
-                    if value == ACTION_ADD and on_add:
-                        live.stop()
-                        new_name = on_add()
-                        if new_name:
-                            items.append(new_name)
-                            items.sort()
-                            # Add to ungrouped group if groups exist
-                            if groups:
-                                ungrouped = next((g for g in groups if g.key == "__ungrouped__"), None)
-                                if ungrouped:
-                                    ungrouped.items.append(new_name)
-                                    ungrouped.items.sort()
-                                else:
-                                    groups.append(ToggleGroup(
-                                        key="__ungrouped__",
-                                        label="\u2500\u2500 ungrouped \u2500\u2500",
-                                        items=[new_name],
-                                    ))
-                            _checked_set().add(new_name)
-                            changed = True
-                            status_msg = f"Added {new_name}"
-                            _rebuild_rows()
-                        live.start()
-                    elif _handle_action(value):
-                        break
+            # Let caller handle extra keys first
+            if extra_key_handler:
+                handled, extra_status = extra_key_handler(key, row, scope, live)
+                if handled:
+                    if extra_status:
+                        status_msg = extra_status
+                    changed = True
+                    continue
 
-            # Enter — same as Space
-            elif key in ("\r", "\n", readchar.key.ENTER):
-                kind, value, gi = row_list[cursor]
-                if kind == ROW_GROUP_HEADER and groups:
-                    groups[gi].collapsed = not groups[gi].collapsed
-                    _rebuild_rows()
-                    cursor = min(cursor, len(row_list) - 1)
-                elif kind == ROW_ITEM:
-                    _toggle_item_by_name(value)
-                elif kind == ROW_ACTION:
-                    if value == ACTION_ADD and on_add:
-                        live.stop()
-                        new_name = on_add()
-                        if new_name:
-                            items.append(new_name)
-                            items.sort()
-                            if groups:
-                                ungrouped = next((g for g in groups if g.key == "__ungrouped__"), None)
-                                if ungrouped:
-                                    ungrouped.items.append(new_name)
-                                    ungrouped.items.sort()
-                                else:
-                                    groups.append(ToggleGroup(
-                                        key="__ungrouped__",
-                                        label="\u2500\u2500 ungrouped \u2500\u2500",
-                                        items=[new_name],
-                                    ))
-                            _checked_set().add(new_name)
-                            changed = True
-                            status_msg = f"Added {new_name}"
-                            _rebuild_rows()
-                        live.start()
-                    elif _handle_action(value):
-                        break
+            primary = key in (readchar.key.ENTER, "\r", "\n", " ")
 
-            # Tab = cycle scope
-            elif key == "\t":
-                if num_scopes > 1:
-                    scope_index = (scope_index + 1) % num_scopes
+            # Actions
+            if kind == ROW_ACTION and primary:
+                action = row.get("action", "")
+                if action == ACTION_DONE:
+                    changed = True
+                    break
+                if action == ACTION_SELECT_ALL:
+                    _handle_select_all(scope)
+                    continue
+                if action == ACTION_SELECT_NONE:
+                    _handle_select_none(scope)
+                    continue
+                if action == ACTION_ADD:
+                    status_msg = _handle_add(live)
+                    continue
 
-            # View in terminal (browse files for directories)
-            elif key == "v":
-                name = _get_item_name_at_cursor()
-                if name and registry_path and registry_dir:
+            # Package collapse/expand
+            if kind == ROW_PACKAGE:
+                pkg_name = row["package"]
+                if primary:
+                    collapsed_packages[pkg_name] = not collapsed_packages.get(pkg_name, False)
+                    continue
+
+            # Type collapse/expand
+            if kind == ROW_TYPE and primary:
+                pkg_name = row["package"]
+                fld = row["field"]
+                key_id = (pkg_name, fld)
+                collapsed_types[key_id] = not collapsed_types.get(key_id, True)
+                continue
+
+            # Toggle group (t key)
+            if key == "t":
+                if kind == ROW_PACKAGE:
+                    pkg_name = row["package"]
+                    pkg_items = package_tree.get(pkg_name, {})
+                    all_pairs = [(f, n) for f, names in pkg_items.items() for n in names]
+                    action = _toggle_group_items(scope, all_pairs)
+                    if action:
+                        label = "ungrouped" if row.get("is_ungrouped") else pkg_name
+                        status_msg = f"{action} all in {label}"
+                    continue
+                if kind == ROW_TYPE:
+                    pkg_name = row["package"]
+                    fld = row["field"]
+                    names = package_tree.get(pkg_name, {}).get(fld, [])
+                    pairs = [(fld, n) for n in names]
+                    action = _toggle_group_items(scope, pairs)
+                    if action:
+                        status_msg = f"{action} all {row['label']} in {pkg_name}"
+                    continue
+                if kind == ROW_ITEM:
+                    pkg_name = row["package"]
+                    fld = row["field"]
+                    names = package_tree.get(pkg_name, {}).get(fld, [])
+                    pairs = [(fld, n) for n in names]
+                    action = _toggle_group_items(scope, pairs)
+                    if action:
+                        status_msg = f"{action} all {fld} in {pkg_name}"
+                    continue
+
+            # Item toggle
+            if kind == ROW_ITEM and primary:
+                fld = row["field"]
+                name = row["name"]
+                enabled_now = (fld, name) in scope["enabled"]
+                _do_toggle(scope, fld, name, not enabled_now)
+                status_msg = (
+                    f"{'Enabled' if not enabled_now else 'Disabled'} {name} in {scope['label']}"
+                )
+                continue
+
+            # File browsing (v/e/o)
+            if kind == ROW_ITEM and registry_path and registry_dir:
+                name = row["name"]
+                if key == "v":
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
@@ -1008,11 +1263,17 @@ def run_toggle_list(
                         live.start()
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
-
-            # Open in Finder / file manager
-            elif key == "o":
-                name = _get_item_name_at_cursor()
-                if name and registry_path and registry_dir:
+                    continue
+                if key == "e":
+                    item_path = _resolve_item_path(registry_path, registry_dir, name)
+                    if item_path:
+                        live.stop()
+                        _browse_files(item_path, initial_action="edit")
+                        live.start()
+                    else:
+                        status_msg = f"Not found: {registry_dir}/{name}"
+                    continue
+                if key == "o":
                     item_path = _resolve_item_path(registry_path, registry_dir, name)
                     if item_path:
                         live.stop()
@@ -1021,102 +1282,44 @@ def run_toggle_list(
                         live.start()
                     else:
                         status_msg = f"Not found: {registry_dir}/{name}"
+                    continue
 
-            # Edit in $EDITOR (browse files for directories)
-            elif key == "e":
-                name = _get_item_name_at_cursor()
-                if name and registry_path and registry_dir:
-                    item_path = _resolve_item_path(registry_path, registry_dir, name)
-                    if item_path:
-                        live.stop()
-                        _browse_files(item_path, initial_action="edit")
-                        live.start()
+            # Delete (d key on items — only when on_delete is provided and
+            # extra_key_handler didn't handle it)
+            if key == "d" and kind == ROW_ITEM and on_delete:
+                fld = row["field"]
+                name = row["name"]
+                is_orphan = registry_items is not None and name not in registry_items
+                live.stop()
+                if is_orphan:
+                    console.print(
+                        f"\n[yellow]Remove [bold]{name}[/bold] (not in registry) from config?[/yellow] [dim](y/N)[/dim] ",
+                        end="",
+                    )
+                else:
+                    console.print(
+                        f"\n[yellow]Delete [bold]{name}[/bold] from registry?[/yellow] [dim](y/N)[/dim] ",
+                        end="",
+                    )
+                confirm = readchar.readkey()
+                console.print()
+                if confirm.lower() == "y":
+                    if is_orphan or on_delete(fld, name):
+                        # Remove from tree
+                        for pkg in list(package_tree.keys()):
+                            fm = package_tree[pkg]
+                            if fld in fm and name in fm[fld]:
+                                fm[fld].remove(name)
+                        # Remove from all scopes
+                        for s in scopes:
+                            s["enabled"].discard((fld, name))
+                        for ins in initial_sets:
+                            ins.discard((fld, name))
+                        status_msg = f"{'Removed' if is_orphan else 'Deleted'} {name}"
+                        changed = True
                     else:
-                        status_msg = f"Not found: {registry_dir}/{name}"
+                        status_msg = f"Failed to delete {name}"
+                live.start()
+                continue
 
-            # Delete item from registry (or remove orphaned reference)
-            elif key == "d":
-                name = _get_item_name_at_cursor()
-                if name:
-                    is_orphan = registry_items is not None and name not in registry_items
-                    if is_orphan:
-                        # Orphaned config reference — just remove from lists
-                        live.stop()
-                        console.print(f"\n[yellow]Remove [bold]{name}[/bold] (not in registry) from config?[/yellow] [dim](y/N)[/dim] ", end="")
-                        confirm = readchar.readkey()
-                        console.print()
-                        if confirm.lower() == "y":
-                            if name in items:
-                                items.remove(name)
-                            for cs in checked_sets:
-                                cs.discard(name)
-                            for ins in initial_sets:
-                                ins.discard(name)
-                            if groups:
-                                for g in groups:
-                                    if name in g.items:
-                                        g.items.remove(name)
-                                groups[:] = [g for g in groups if g.items]
-                            status_msg = f"Removed {name}"
-                            _rebuild_rows()
-                            if row_list:
-                                cursor = min(cursor, len(row_list) - 1)
-                                if row_list[cursor][0] == ROW_SEPARATOR and cursor > 0:
-                                    cursor -= 1
-                            changed = True
-                        live.start()
-                    elif on_delete:
-                        # Real registry item — delete from registry
-                        live.stop()
-                        console.print(f"\n[yellow]Delete [bold]{name}[/bold] from registry?[/yellow] [dim](y/N)[/dim] ", end="")
-                        confirm = readchar.readkey()
-                        console.print()
-                        if confirm.lower() == "y":
-                            if on_delete(name):
-                                if name in items:
-                                    items.remove(name)
-                                for cs in checked_sets:
-                                    cs.discard(name)
-                                for ins in initial_sets:
-                                    ins.discard(name)
-                                if groups:
-                                    for g in groups:
-                                        if name in g.items:
-                                            g.items.remove(name)
-                                    groups[:] = [g for g in groups if g.items]
-                                status_msg = f"Deleted {name}"
-                                _rebuild_rows()
-                                if row_list:
-                                    cursor = min(cursor, len(row_list) - 1)
-                                    if row_list[cursor][0] == ROW_SEPARATOR and cursor > 0:
-                                        cursor -= 1
-                                changed = True
-                            else:
-                                status_msg = f"Failed to delete {name}"
-                        live.start()
-
-            # Toggle all items in current group
-            elif key == "t":
-                grp = _get_group_at_cursor()
-                if grp:
-                    _toggle_group(grp)
-                    status_msg = f"Toggled group: {grp.label}"
-
-            # Quit / done
-            elif key in ("q", "\x1b"):
-                break
-
-            _rebuild_rows()
-            live.update(Text.from_markup(_build_display()))
-
-    return [sorted(cs) for cs in checked_sets], changed
-
-
-def _show_empty(component_type: str, scope_label: str) -> None:
-    """Show empty state for a component type."""
-    console.print(f"\n{scoped_header(component_type, scope_label)}")
-    console.print(dim_separator(40))
-    console.print("  [dim](none in registry)[/dim]")
-    console.print(f"\n  Run [cyan]hawk download <url>[/cyan] to add {component_type.lower()}.")
-    console.print()
-    wait_for_continue()
+    return scopes, changed
