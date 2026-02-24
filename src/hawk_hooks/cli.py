@@ -762,21 +762,24 @@ def cmd_scan(args):
     registry.ensure_dirs()
 
     # Scan
+    use_ui = getattr(args, "ui", False)
     depth = getattr(args, "depth", 5)
-    print(f"Scanning {scan_path} (max depth {depth})...")
+    if not use_ui:
+        print(f"Scanning {scan_path} (max depth {depth})...")
     content = scan_directory(scan_path, max_depth=depth)
 
     if not content.items:
         print("No components found.")
         return
 
-    # Show compact summary (avoid flooding terminal before interactive menu)
-    by_type = content.by_type
-    type_counts = ", ".join(
-        f"{len(items)} {ct.value}{'s' if len(items) != 1 else ''}"
-        for ct, items in sorted(by_type.items(), key=lambda x: x[0].value)
-    )
-    print(f"\nFound {len(content.items)} component(s): {type_counts}")
+    if not use_ui:
+        # Show compact summary (avoid flooding terminal before interactive picker)
+        by_type = content.by_type
+        type_counts = ", ".join(
+            f"{len(items)} {ct.value}{'s' if len(items) != 1 else ''}"
+            for ct, items in sorted(by_type.items(), key=lambda x: x[0].value)
+        )
+        print(f"\nFound {len(content.items)} component(s): {type_counts}")
 
     # Filter by --select names, --ui picker, or default to all
     select_names = None
