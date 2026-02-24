@@ -9,6 +9,7 @@ import readchar
 from ... import v2_config
 from ...types import ComponentType
 from .. import dashboard as _dashboard
+from ..toggle import _browse_files, _open_in_finder
 
 console = _dashboard.console
 _ORDERED_COMPONENT_FIELDS = _dashboard._ORDERED_COMPONENT_FIELDS
@@ -324,6 +325,14 @@ def handle_packages(state: dict) -> bool:
             name = row["name"]
             ct = field_to_ct[field]
 
+            if key == "v":
+                item_path = registry.get_path(ct, name)
+                if item_path is not None:
+                    live.stop()
+                    _browse_files(item_path, initial_action="view")
+                    live.start()
+                return True, ""
+
             if key == "e":
                 item_path = registry.get_path(ct, name)
                 if item_path is not None:
@@ -332,6 +341,15 @@ def handle_packages(state: dict) -> bool:
                         console.print(f"\n[red]Could not open {item_path} in $EDITOR[/red]")
                         wait_for_continue()
                     live.start()
+                return True, ""
+
+            if key == "o":
+                item_path = registry.get_path(ct, name)
+                if item_path is not None:
+                    live.stop()
+                    _open_in_finder(item_path)
+                    live.start()
+                    return True, f"Opened {name} in file manager"
                 return True, ""
 
             if key == "d":
@@ -358,7 +376,7 @@ def handle_packages(state: dict) -> bool:
         elif current_kind == ROW_TYPE:
             return "space/\u21b5 expand · t toggle all"
         elif current_kind == ROW_ITEM:
-            return "space/\u21b5 toggle · t toggle group · e open · d remove item · U update all"
+            return "space/\u21b5 toggle · t toggle group · v view · e edit · o open · d remove · U update all"
         else:
             return "space/\u21b5 select · U update all"
 

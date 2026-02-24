@@ -315,7 +315,6 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     total_targets = int(state.get("sync_targets_total", 0) or 0)
     if unsynced > 0:
         options.append((f"Sync now       {unsynced} pending of {total_targets}", "sync_now"))
-    options.append(("Registry       Browse installed items", "registry"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
@@ -1118,9 +1117,6 @@ def run_dashboard(scope_dir: str | None = None) -> None:
 
         elif action == "sync_now":
             _handle_sync(state)
-
-        elif action == "registry":
-            _handle_registry_browser(state)
 
         elif action == "codex_multi_agent_setup":
             if _handle_codex_multi_agent_setup(state):
