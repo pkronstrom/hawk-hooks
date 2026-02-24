@@ -15,7 +15,7 @@ from rich.text import Text
 
 from .. import v2_config
 from .toggle import _get_terminal_height, _calculate_visible_range
-from .theme import action_style, cursor_prefix, dim_separator
+from .theme import action_style, cursor_prefix, dim_separator, get_theme, keybinding_hint
 from .uninstall_flow import run_uninstall_wizard
 
 console = Console()
@@ -38,8 +38,11 @@ def _get_value(cfg: dict, key: str, default):
 
 def _display_value(key: str, value, setting_type: str, options=None) -> str:
     """Format a value for display."""
+    theme = get_theme()
     if setting_type == "toggle":
-        return "[green]on[/green]" if value else "off"
+        if value:
+            return f"[{theme.success_rich}]on[/{theme.success_rich}]"
+        return f"[{theme.muted_rich}]off[/{theme.muted_rich}]"
     if setting_type == "cycle":
         return str(value)
     if setting_type == "text":
@@ -52,7 +55,7 @@ def _display_value(key: str, value, setting_type: str, options=None) -> str:
             return str(value)
         return f"[dim]{options}[/dim]" if options else "[dim](empty)[/dim]"
     if setting_type == "action":
-        return "[red]Run cleanup[/red]"
+        return f"[{theme.error_rich}]Run cleanup[/{theme.error_rich}]"
     return str(value)
 
 
@@ -108,7 +111,7 @@ def run_config_editor() -> bool:
             lines.append(f"\n[dim]{status_msg}[/dim]")
 
         lines.append("")
-        lines.append("[dim]space/\u21b5 change · \u2191\u2193/jk nav · q back[/dim]")
+        lines.append(keybinding_hint(["space/\u21b5 change"], include_nav=True))
         return "\n".join(lines)
 
     def _handle_change(idx: int) -> str:

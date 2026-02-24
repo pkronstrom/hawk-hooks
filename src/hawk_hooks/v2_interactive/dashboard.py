@@ -263,6 +263,17 @@ def _run_editor_command(path: Path) -> bool:
         return False
 
 
+def _confirm_registry_item_delete(ct: ComponentType, name: str) -> bool:
+    """Ask for confirmation before deleting an item from registry."""
+    console.print(
+        f"\n[yellow]Delete {ct.registry_dir}/{name} from registry?[/yellow] [dim](y/N)[/dim] ",
+        end="",
+    )
+    confirm = readchar.readkey()
+    console.print()
+    return confirm.lower() == "y"
+
+
 def _handle_registry_browser(state: dict) -> None:
     """Read-only registry browser with grouped rows and open-in-editor."""
     registry = state["registry"]
@@ -389,6 +400,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     total_targets = int(state.get("sync_targets_total", 0) or 0)
     if unsynced > 0:
         options.append((f"Sync now       {unsynced} pending of {total_targets}", "sync_now"))
+    options.append(("Registry       Browse installed items", "registry"))
 
     options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
@@ -1475,6 +1487,12 @@ def _handle_packages(state: dict) -> bool:
                     continue
 
                 if key == "d":
+                    live.stop()
+                    if not _confirm_registry_item_delete(ct, name):
+                        status_msg = f"Delete cancelled for {ct.registry_dir}/{name}."
+                        live.start()
+                        continue
+
                     removed = registry.remove(ct, name)
                     if removed:
                         dirty = True
@@ -1482,6 +1500,7 @@ def _handle_packages(state: dict) -> bool:
                         status_msg = f"Removed {ct.registry_dir}/{name} from registry."
                     else:
                         status_msg = f"Could not remove {ct.registry_dir}/{name}."
+                    live.start()
                     continue
 
     return dirty
@@ -2004,6 +2023,20 @@ def _handle_missing_components_setup(state: dict) -> bool:
         "[green]Remove missing references[/green]: clean stale names from active configs.",
         "[yellow]Ignore for now[/yellow]: keep current state.",
     ]
+    if missing_map:
+        lines.extend(["", "[bold]Missing item names:[/bold]"])
+        field_labels = {
+            "skills": "Skills",
+            "hooks": "Hooks",
+            "prompts": "Prompts",
+            "agents": "Agents",
+            "mcp": "MCP",
+        }
+        for field, label in field_labels.items():
+            names = list(missing_map.get(field, []))
+            if not names:
+                continue
+            lines.append(f"  - {label}: {', '.join(sorted(names))}")
 
     console.print()
     warn_start, warn_end = warning_style(True)
@@ -2272,6 +2305,9 @@ def run_dashboard(scope_dir: str | None = None) -> None:
 
         elif action == "sync_now":
             _handle_sync(state)
+
+        elif action == "registry":
+            _handle_registry_browser(state)
 
         elif action == "codex_multi_agent_setup":
             if _handle_codex_multi_agent_setup(state):

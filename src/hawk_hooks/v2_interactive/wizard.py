@@ -31,6 +31,7 @@ def _get_builtins_path() -> Path | None:
 
 def run_wizard() -> bool:
     """Guided first-time setup. Returns True if completed, False if cancelled."""
+    theme = get_theme()
     console.clear()
     console.print(f"\n[bold]\U0001f985 Welcome to hawk v{__version__}[/bold]")
     console.print("[dim]Multi-agent CLI package manager for AI tools[/dim]\n")
@@ -43,7 +44,10 @@ def run_wizard() -> bool:
         adapter = get_adapter(tool)
         installed = adapter.detect_installed()
         found[tool] = installed
-        icon = "[green]\u2714[/green]" if installed else "[dim]\u2716[/dim]"
+        if installed:
+            icon = f"[{theme.success_rich}]\u2714[/{theme.success_rich}]"
+        else:
+            icon = f"[{theme.muted_rich}]\u2716[/{theme.muted_rich}]"
         console.print(f"  {icon} {tool}")
 
     found_count = sum(1 for v in found.values() if v)
@@ -77,14 +81,16 @@ def run_wizard() -> bool:
     cfg["tools"] = tools_cfg
     v2_config.save_global_config(cfg)
 
-    accent = get_theme().accent_rich
-    console.print(f"\n[green]\u2714[/green] Config created at [{accent}]{v2_config.get_global_config_path()}[/{accent}]")
+    accent = theme.accent_rich
+    console.print(
+        f"\n[{theme.success_rich}]\u2714[/{theme.success_rich}] Config created at [{accent}]{v2_config.get_global_config_path()}[/{accent}]"
+    )
 
     # Step 3a: Install bundled builtins
     _offer_builtins_install()
 
     # Done
-    console.print(f"\n[green]\u2714[/green] [bold]Setup complete![/bold]")
+    console.print(f"\n[{theme.success_rich}]\u2714[/{theme.success_rich}] [bold]Setup complete![/bold]")
     console.print()
     console.print("[dim]Next steps:[/dim]")
     console.print(f"  [{accent}]hawk download <url>[/{accent}]   Add components from git")

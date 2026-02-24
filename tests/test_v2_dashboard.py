@@ -108,7 +108,7 @@ def test_build_menu_options_hides_sync_now_when_clean():
     options = dashboard._build_menu_options(_minimal_state())
     assert not any(action == "sync_now" for _, action in options)
     assert any(action == "environment" for _, action in options)
-    assert not any(action == "registry" for _, action in options)
+    assert any(action == "registry" for _, action in options)
     assert not any(action == "tools" for _, action in options)
     assert not any(action == "projects" for _, action in options)
     assert not any(action == "settings" for _, action in options)
@@ -152,6 +152,44 @@ def test_build_menu_options_shows_missing_components_item_when_required():
 
     options = dashboard._build_menu_options(state)
     assert any(action == "resolve_missing_components" for _, action in options)
+
+
+def test_missing_components_setup_lists_missing_names(monkeypatch):
+    printed: list[str] = []
+
+    def _capture_print(*args, **kwargs):
+        if args and isinstance(args[0], str):
+            printed.append(args[0])
+
+    monkeypatch.setattr(dashboard.console, "print", _capture_print)
+    monkeypatch.setattr(dashboard, "_find_package_lock_path", lambda _state: None)
+    monkeypatch.setattr(
+        dashboard,
+        "TerminalMenu",
+        lambda *args, **kwargs: SimpleNamespace(show=lambda: 2),
+    )
+
+    changed = dashboard._handle_missing_components_setup(
+        {
+            "missing_components": {
+                "skills": ["python-core-reviewer.md"],
+                "prompts": ["deploy.md"],
+            },
+            "missing_components_total": 2,
+        }
+    )
+    assert changed is False
+    rendered = "\n".join(printed)
+    assert "python-core-reviewer.md" in rendered
+    assert "deploy.md" in rendered
+
+
+def test_confirm_registry_item_delete_requires_explicit_yes(monkeypatch):
+    monkeypatch.setattr(dashboard.readchar, "readkey", lambda: "n")
+    assert dashboard._confirm_registry_item_delete(ComponentType.SKILL, "demo.md") is False
+
+    monkeypatch.setattr(dashboard.readchar, "readkey", lambda: "y")
+    assert dashboard._confirm_registry_item_delete(ComponentType.SKILL, "demo.md") is True
 
 
 def test_compute_missing_components_treats_mcp_yaml_as_present():
@@ -370,6 +408,31 @@ def test_run_dashboard_dispatches_sync_now(monkeypatch):
 
     assert len(calls) == 1
     assert calls[0]["unsynced_targets"] == 2
+
+
+def test_run_dashboard_dispatches_registry_browser(monkeypatch):
+    state = _minimal_state()
+    calls: list[dict] = []
+
+    monkeypatch.setattr(dashboard, "_load_state", lambda _scope_dir=None: state)
+    monkeypatch.setattr(dashboard, "_run_main_menu", lambda *_args, **_kwargs: 8)
+    monkeypatch.setattr(dashboard, "set_project_theme", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(dashboard, "_prompt_sync_on_exit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(dashboard.console, "clear", lambda: None)
+
+    def _registry_handler(received_state):
+        calls.append(received_state)
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(dashboard, "_handle_registry_browser", _registry_handler)
+
+    try:
+        dashboard.run_dashboard()
+    except KeyboardInterrupt:
+        pass
+
+    assert len(calls) == 1
+    assert calls[0] is state
 
 
 def test_delete_project_scope_unregisters_and_keeps_local_hawk(tmp_path, monkeypatch):

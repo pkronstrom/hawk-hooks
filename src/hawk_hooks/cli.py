@@ -1754,9 +1754,10 @@ def main():
     try:
         if args.command is None:
             try:
-                from .v2_interactive import v2_interactive_menu
+                from hawk_hooks.v2_interactive import v2_interactive_menu
                 v2_interactive_menu(scope_dir=args.main_dir)
-            except ImportError:
+            except ImportError as exc:
+                print(f"Interactive TUI unavailable: {exc}")
                 parser.print_help()
         elif hasattr(args, "func"):
             args.func(args)

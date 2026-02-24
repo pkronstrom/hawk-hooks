@@ -33,6 +33,7 @@ from .theme import (
     dim_separator,
     enabled_count_style,
     get_theme,
+    keybinding_hint,
     row_style,
     scoped_header,
     terminal_menu_style_kwargs,
@@ -392,7 +393,12 @@ def _browse_files(path: Path, initial_action: str = "view") -> None:
             else:
                 lines.append(f"{prefix}{f.name}")
         lines.append("")
-        lines.append("[dim]v/Enter: view  e: edit  o: open in finder  q: back[/dim]")
+        lines.append(
+            keybinding_hint(
+                ["v/\u21b5 view", "e edit", "o open in finder"],
+                include_nav=True,
+            )
+        )
         return "\n".join(lines)
 
     with FileLive(FileText.from_markup(_build()), refresh_per_second=30, screen=True) as live:

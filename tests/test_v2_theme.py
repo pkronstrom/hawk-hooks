@@ -19,3 +19,13 @@ def test_set_project_theme_honors_env_override(monkeypatch):
     monkeypatch.setenv("HAWK_TUI_THEME", "dodo-tasks")
     selected = theme.set_project_theme("hawk-hooks")
     assert selected.name == "dodo-tasks"
+
+
+def test_keybinding_hint_includes_nav_and_back():
+    hint = theme.keybinding_hint(
+        ["space/↵ change"],
+        include_nav=True,
+    )
+    assert "space/↵ change" in hint
+    assert "↑↓/jk nav" in hint
+    assert "q/esc back" in hint

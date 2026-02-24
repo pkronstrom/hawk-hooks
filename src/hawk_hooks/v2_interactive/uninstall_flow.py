@@ -18,6 +18,8 @@ def run_uninstall_wizard(console: Console) -> bool:
     Returns:
         True when cleanup was executed, False when cancelled.
     """
+    theme = get_theme()
+
     step1 = TerminalMenu(
         ["Unlink only", "Full uninstall", "Cancel"],
         title=(
@@ -81,21 +83,25 @@ def run_uninstall_wizard(console: Console) -> bool:
         return False
 
     if full_uninstall:
-        console.print("\n[bold red]Unlinking and uninstalling...[/bold red]")
+        console.print(f"\n[bold {theme.error_rich}]Unlinking and uninstalling...[/bold {theme.error_rich}]")
         results = uninstall_all(remove_project_configs=remove_project_configs)
         formatted = format_sync_results(results, verbose=False)
         console.print(formatted or "  No changes.")
-        console.print("\n[green]\u2714 Cleared hawk-managed config, packages, and registry state.[/green]\n")
+        console.print(
+            f"\n[{theme.success_rich}]\u2714 Cleared hawk-managed config, packages, and registry state.[/{theme.success_rich}]\n"
+        )
         uninstall_cmd = detect_uninstall_command()
-        accent = get_theme().accent_rich
+        accent = theme.accent_rich
         console.print("[dim]To remove the hawk program itself, run:[/dim]")
         console.print(f"  [{accent}]{uninstall_cmd}[/{accent}]\n")
     else:
-        console.print("\n[bold red]Unlinking hawk-managed items...[/bold red]")
+        console.print(f"\n[bold {theme.error_rich}]Unlinking hawk-managed items...[/bold {theme.error_rich}]")
         results = purge_all()
         formatted = format_sync_results(results, verbose=False)
         console.print(formatted or "  No changes.")
-        console.print("\n[green]\u2714 Removed hawk-managed links from tool configs.[/green]\n")
+        console.print(
+            f"\n[{theme.success_rich}]\u2714 Removed hawk-managed links from tool configs.[/{theme.success_rich}]\n"
+        )
 
     wait_for_continue()
     return True

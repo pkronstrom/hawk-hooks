@@ -209,3 +209,21 @@ def enabled_count_style(enabled_count: int) -> str:
     """Style for enabled/total counters."""
     theme = get_theme()
     return "white" if enabled_count > 0 else theme.muted_rich
+
+
+def keybinding_hint(
+    actions: list[str],
+    *,
+    include_nav: bool = False,
+    include_back: bool = True,
+) -> str:
+    """Return a standardized dim keybinding hint line."""
+    parts = list(actions)
+    if include_nav:
+        parts.append("↑↓/jk nav")
+    if include_back:
+        parts.append("q/esc back")
+
+    theme = get_theme()
+    joined = " · ".join(parts)
+    return f"[{theme.muted_rich}]{joined}[/{theme.muted_rich}]"
