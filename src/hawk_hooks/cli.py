@@ -616,12 +616,13 @@ def cmd_download(args):
     if getattr(args, "select", None):
         select_names = {s.strip() for s in args.select.split(",") if s.strip()}
 
+    use_ui = getattr(args, "ui", False)
     result = download_and_install(
         args.url,
-        select_all=True,
+        select_all=not use_ui,
         replace=getattr(args, "replace", False),
         name=getattr(args, "name", None),
-        select_fn=None,
+        select_fn=_interactive_select_items if use_ui else None,
         select_names=select_names,
         log=print,
     )
@@ -1012,7 +1013,7 @@ def cmd_scan(args):
     )
     print(f"\nFound {len(content.items)} component(s): {type_counts}")
 
-    # Filter by --select names if provided, otherwise import all
+    # Filter by --select names, --ui picker, or default to all
     select_names = None
     if getattr(args, "select", None):
         select_names = {s.strip() for s in args.select.split(",") if s.strip()}
@@ -1024,6 +1025,15 @@ def cmd_scan(args):
             print(f"\nWarning: not found: {', '.join(sorted(unknown))}")
         if not selected_items:
             print("\nNo matching components found.")
+            return
+    elif getattr(args, "ui", False):
+        pkg = content.package_meta.name if content.package_meta else ""
+        selected_items, action = _interactive_select_items(
+            content.items, registry, package_name=pkg,
+            packages=content.packages,
+        )
+        if not selected_items or action == "cancel":
+            print("\nNo components selected.")
             return
     else:
         selected_items = content.items
@@ -1274,6 +1284,11 @@ def cmd_prune(args):
 
 def cmd_config(args):
     """Show or update configuration."""
+    if getattr(args, "ui", False):
+        from .v2_interactive.config_editor import run_config_editor
+        run_config_editor()
+        return
+
     import yaml
     from . import v2_config
 
@@ -1933,6 +1948,7 @@ def build_parser() -> argparse.ArgumentParser:
     # scan
     scan_p = subparsers.add_parser("scan", help="Scan directory for components to import")
     scan_p.add_argument("path", nargs="?", default=".", help="Directory to scan (default: cwd)")
+    scan_p.add_argument("--ui", action="store_true", help="Launch interactive TUI picker")
     scan_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     scan_p.add_argument("--select", help="Comma-separated component names to import (default: all)")
     scan_p.add_argument("--depth", type=int, default=5, help="Max scan depth (default: 5)")
@@ -1943,6 +1959,7 @@ def build_parser() -> argparse.ArgumentParser:
     # download
     dl_p = subparsers.add_parser("download", help="Download components from git URL")
     dl_p.add_argument("url", help="Git URL to clone")
+    dl_p.add_argument("--ui", action="store_true", help="Launch interactive TUI picker")
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.add_argument("--name", help="Package name (default: derived from URL)")
     dl_p.add_argument("--select", help="Comma-separated component names to install (default: all)")
@@ -1995,6 +2012,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # config
     config_p = subparsers.add_parser("config", help="Show or update configuration")
+    config_p.add_argument("--ui", action="store_true", help="Launch interactive settings editor")
     config_p.add_argument("key", nargs="?", help="Config key (dot-separated path, e.g. debug or tools.claude.enabled)")
     config_p.add_argument("value", nargs="?", help="Value to set")
     config_p.set_defaults(func=cmd_config)
