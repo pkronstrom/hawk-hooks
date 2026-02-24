@@ -34,16 +34,16 @@ def hawk_env(tmp_path, monkeypatch):
     config_file = config_dir / "config.yaml"
     config_file.write_text(yaml.dump(global_config))
 
-    # Patch v2_config to use our temp dirs
-    monkeypatch.setattr("hawk_hooks.v2_config.get_config_dir", lambda: config_dir)
-    monkeypatch.setattr("hawk_hooks.v2_config.get_global_config_path", lambda: config_file)
-    monkeypatch.setattr("hawk_hooks.v2_config.get_registry_path", lambda cfg=None: registry_dir)
+    # Patch config to use our temp dirs
+    monkeypatch.setattr("hawk_hooks.config.get_config_dir", lambda: config_dir)
+    monkeypatch.setattr("hawk_hooks.config.get_global_config_path", lambda: config_file)
+    monkeypatch.setattr("hawk_hooks.config.get_registry_path", lambda cfg=None: registry_dir)
 
     # Packages file
     packages_file = config_dir / "packages.yaml"
     packages_file.write_text("{}")
     monkeypatch.setattr(
-        "hawk_hooks.v2_config.load_packages",
+        "hawk_hooks.config.load_packages",
         lambda: yaml.safe_load(packages_file.read_text()) or {},
     )
 
@@ -305,7 +305,7 @@ class TestStatus:
     def test_status_global(self, hawk_env, monkeypatch):
         # Patch out adapter detection and sync counting
         monkeypatch.setattr(
-            "hawk_hooks.mcp_handler.v2_config.get_registered_directories",
+            "hawk_hooks.mcp_handler.config.get_registered_directories",
             lambda: {},
         )
         result = run(handle_action({"action": "status"}))

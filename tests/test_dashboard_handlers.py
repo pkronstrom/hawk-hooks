@@ -86,24 +86,21 @@ if "readchar" not in sys.modules:
 
 
 def test_import_packages_handler_module():
-    importlib.import_module("hawk_hooks.v2_interactive.handlers.packages")
+    importlib.import_module("hawk_hooks.interactive.handlers.packages")
 
 
 def test_import_codex_consent_handler_module():
-    importlib.import_module("hawk_hooks.v2_interactive.handlers.codex_consent")
+    importlib.import_module("hawk_hooks.interactive.handlers.codex_consent")
 
 
 def test_import_missing_components_handler_module():
-    importlib.import_module("hawk_hooks.v2_interactive.handlers.missing_components")
+    importlib.import_module("hawk_hooks.interactive.handlers.missing_components")
 
 
 def test_import_environment_handler_module():
-    importlib.import_module("hawk_hooks.v2_interactive.handlers.environment")
+    importlib.import_module("hawk_hooks.interactive.handlers.environment")
 
-
-def test_import_registry_browser_handler_module():
-    importlib.import_module("hawk_hooks.v2_interactive.handlers.registry_browser")
 
 
 def test_import_projects_handler_module():
-    importlib.import_module("hawk_hooks.v2_interactive.handlers.projects")
+    importlib.import_module("hawk_hooks.interactive.handlers.projects")

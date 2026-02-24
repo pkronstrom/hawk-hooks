@@ -12,12 +12,12 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from . import v2_config
+from . import config
 
 
 def detect_v1_config() -> Path | None:
     """Check if a v1 config.json exists. Returns path or None."""
-    config_path = v2_config.get_config_dir() / "config.json"
+    config_path = config.get_config_dir() / "config.json"
     if config_path.exists():
         return config_path
     return None
@@ -51,7 +51,7 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(v1, dict):
         raise ValueError("v1 config must be a mapping")
 
-    v2: dict[str, Any] = copy.deepcopy(v2_config.DEFAULT_GLOBAL_CONFIG)
+    v2: dict[str, Any] = copy.deepcopy(config.DEFAULT_GLOBAL_CONFIG)
     v2["debug"] = bool(v1.get("debug", False))
 
     # Migrate enabled hooks -> global.hooks
@@ -91,7 +91,7 @@ def migrate_config(v1: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(destinations, dict):
         destinations = {}
     tools_cfg: dict[str, Any] = {}
-    for tool_name, defaults in v2_config.DEFAULT_GLOBAL_CONFIG.get("tools", {}).items():
+    for tool_name, defaults in config.DEFAULT_GLOBAL_CONFIG.get("tools", {}).items():
         tool_entry = copy.deepcopy(defaults)
         tool_destinations = destinations.get(tool_name)
         if isinstance(tool_destinations, dict):
@@ -132,7 +132,7 @@ def run_migration(backup: bool = True) -> tuple[bool, str]:
     if v1_path is None:
         return False, "No v1 config.json found"
 
-    v2_path = v2_config.get_global_config_path()
+    v2_path = config.get_global_config_path()
     if v2_path.exists():
         return False, f"v2 config already exists at {v2_path}"
 
@@ -156,10 +156,10 @@ def run_migration(backup: bool = True) -> tuple[bool, str]:
 
     # Save v2 config
     try:
-        v2_config.save_global_config(v2_data)
+        config.save_global_config(v2_data)
 
         # Ensure registry directories exist
-        v2_config.ensure_v2_dirs(v2_data)
+        config.ensure_v2_dirs(v2_data)
     except OSError as e:
         return False, f"Failed to write v2 config: {e}"
 

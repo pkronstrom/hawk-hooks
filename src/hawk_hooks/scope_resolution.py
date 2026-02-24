@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import v2_config
+from . import config
 
 
 def resolve_profile_name_for_dir(
@@ -42,31 +42,31 @@ def build_config_layers_with_profiles(
     `.hawk/config.yaml` in `project_dir`.
     """
     if cfg is None:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
 
     layers: list[tuple[Path, dict[str, Any], dict[str, Any] | None]] = []
-    for chain_dir, chain_config in v2_config.get_config_chain(project_dir):
+    for chain_dir, chain_config in config.get_config_chain(project_dir):
         profile_name = resolve_profile_name_for_dir(chain_config, chain_dir, cfg)
-        profile = v2_config.load_profile(profile_name) if profile_name else None
+        profile = config.load_profile(profile_name) if profile_name else None
         layers.append((chain_dir, chain_config, profile))
 
     if layers:
         # Include unregistered leaf local config when parent chain is registered.
         project_dir_resolved = project_dir.resolve()
         if not any(layer_dir == project_dir_resolved for layer_dir, _cfg, _profile in layers):
-            dir_config = v2_config.load_dir_config(project_dir_resolved)
+            dir_config = config.load_dir_config(project_dir_resolved)
             if dir_config is not None:
                 profile_name = resolve_profile_name_for_dir(dir_config, project_dir_resolved, cfg)
-                profile = v2_config.load_profile(profile_name) if profile_name else None
+                profile = config.load_profile(profile_name) if profile_name else None
                 layers.append((project_dir_resolved, dir_config, profile))
         return layers
 
-    dir_config = v2_config.load_dir_config(project_dir)
+    dir_config = config.load_dir_config(project_dir)
     if dir_config is None:
         return []
 
     profile_name = resolve_profile_name_for_dir(dir_config, project_dir, cfg)
-    profile = v2_config.load_profile(profile_name) if profile_name else None
+    profile = config.load_profile(profile_name) if profile_name else None
     return [(project_dir.resolve(), dir_config, profile)]
 
 
@@ -76,7 +76,7 @@ def build_resolver_dir_chain(
 ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
     """Build resolver `dir_chain` argument for `resolve(...)` calls."""
     if cfg is None:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
 
     layers = build_config_layers_with_profiles(project_dir, cfg=cfg)
     return [(dir_config, profile) for _d, dir_config, profile in layers]

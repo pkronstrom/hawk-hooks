@@ -8,7 +8,7 @@ import types
 
 import pytest
 
-from hawk_hooks import v2_config
+from hawk_hooks import config
 
 
 if "rich" not in sys.modules:
@@ -89,14 +89,14 @@ if "readchar" not in sys.modules:
     readchar.readkey = lambda: "\n"
     sys.modules["readchar"] = readchar
 
-wizard = importlib.import_module("hawk_hooks.v2_interactive.wizard")
+wizard = importlib.import_module("hawk_hooks.interactive.wizard")
 
 
 @pytest.fixture
 def v2_env(tmp_path, monkeypatch):
     config_dir = tmp_path / "hawk-hooks"
     config_dir.mkdir()
-    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+    monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
     return config_dir
 
 

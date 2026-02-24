@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hawk_hooks import v2_config
+from hawk_hooks import config
 
 
 def _patch_config_paths(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
     registry_dir = tmp_path / "registry"
-    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-    monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-    monkeypatch.setattr(v2_config, "get_profiles_dir", lambda: config_dir / "profiles")
-    monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-    monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+    monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+    monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+    monkeypatch.setattr(config, "get_profiles_dir", lambda: config_dir / "profiles")
+    monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+    monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
     return config_dir, registry_dir
 
 
@@ -46,7 +46,7 @@ def test_download_and_install_success_returns_result(monkeypatch, tmp_path):
     assert result.clashes == []
     assert result.package_name == "demo"
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     assert "demo" in packages
     assert packages["demo"]["url"] == "https://github.com/example/demo.git"
     assert len(packages["demo"]["items"]) == 1

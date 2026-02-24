@@ -253,9 +253,9 @@ class CodexAdapter(ToolAdapter):
         result: SyncResult,
     ) -> None:
         """Generate Codex multi-agent role config + launcher skills."""
-        from .. import v2_config
+        from .. import config
 
-        codex_cfg = v2_config.load_global_config().get("tools", {}).get("codex", {})
+        codex_cfg = config.load_global_config().get("tools", {}).get("codex", {})
         consent = codex_cfg.get("multi_agent_consent")
         if consent not in {"ask", "granted", "denied"}:
             # Backward compatibility with boolean gate.

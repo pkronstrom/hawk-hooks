@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from hawk_hooks import v2_config
+from hawk_hooks import config
 from hawk_hooks.registry import Registry
 from hawk_hooks.types import ComponentType, ResolvedSet, Tool
-from hawk_hooks.v2_sync import (
+from hawk_hooks.sync import (
     _cache_key,
     _read_cached_hash,
     _write_cached_hash,
@@ -27,7 +27,7 @@ def v2_env(tmp_path, monkeypatch):
     """Set up a complete v2 test environment."""
     config_dir = tmp_path / "hawk-hooks"
     config_dir.mkdir()
-    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+    monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
     # Set up registry with test components
     registry_path = config_dir / "registry"
@@ -47,11 +47,11 @@ def v2_env(tmp_path, monkeypatch):
     registry.add(ComponentType.COMMAND, "deploy.md", cmd_file)
 
     # Set global config
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     cfg["registry_path"] = str(registry_path)
     cfg["global"]["skills"] = ["tdd"]
     cfg["global"]["commands"] = ["deploy.md"]
-    v2_config.save_global_config(cfg)
+    config.save_global_config(cfg)
 
     return {
         "config_dir": config_dir,
@@ -105,9 +105,9 @@ class TestSyncGlobal:
         mcp_dir.mkdir(parents=True, exist_ok=True)
         (mcp_dir / "dodo.json").write_text('{"command":"dodo","args":["mcp"]}')
 
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         cfg["global"]["mcp"] = ["dodo.json"]
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         sync_global(tools=[Tool.CLAUDE], force=True)
 
@@ -124,8 +124,8 @@ class TestSyncDirectory:
         project.mkdir()
 
         # Register and configure
-        v2_config.register_directory(project)
-        v2_config.save_dir_config(project, {
+        config.register_directory(project)
+        config.save_dir_config(project, {
             "skills": {"enabled": ["tdd"], "disabled": []},
         })
 
@@ -135,7 +135,7 @@ class TestSyncDirectory:
 
     def test_sync_with_profile(self, v2_env, tmp_path, monkeypatch):
         # Create a profile
-        v2_config.save_profile("web", {
+        config.save_profile("web", {
             "name": "web",
             "skills": ["tdd"],
             "hooks": [],
@@ -143,7 +143,7 @@ class TestSyncDirectory:
 
         project = tmp_path / "web-project"
         project.mkdir()
-        v2_config.save_dir_config(project, {"profile": "web"})
+        config.save_dir_config(project, {"profile": "web"})
 
         results = sync_directory(project, tools=[Tool.CLAUDE])
         assert len(results) == 1
@@ -156,9 +156,9 @@ class TestSyncDirectory:
         mcp_dir.mkdir(parents=True, exist_ok=True)
         (mcp_dir / "dodo.json").write_text('{"command":"dodo","args":["mcp"]}')
 
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         cfg["global"]["mcp"] = ["dodo.json"]
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         sync_directory(project, tools=[Tool.CLAUDE], force=True)
 
@@ -187,12 +187,12 @@ class TestSyncDirectoryWithChain:
         child.mkdir(parents=True)
 
         # Root config enables tdd
-        v2_config.save_dir_config(root, {"skills": {"enabled": ["tdd"], "disabled": []}})
-        v2_config.register_directory(root)
+        config.save_dir_config(root, {"skills": {"enabled": ["tdd"], "disabled": []}})
+        config.register_directory(root)
 
         # Child config adds react
-        v2_config.save_dir_config(child, {"skills": {"enabled": ["react"], "disabled": []}})
-        v2_config.register_directory(child)
+        config.save_dir_config(child, {"skills": {"enabled": ["react"], "disabled": []}})
+        config.register_directory(child)
 
         # Add react to registry so it can be linked
         registry_path = v2_env["registry_path"]
@@ -221,12 +221,12 @@ class TestSyncDirectoryWithChain:
         child = root / "packages" / "backend"
         child.mkdir(parents=True)
 
-        v2_config.save_dir_config(root, {"skills": {"enabled": ["tdd", "react"], "disabled": []}})
-        v2_config.register_directory(root)
+        config.save_dir_config(root, {"skills": {"enabled": ["tdd", "react"], "disabled": []}})
+        config.register_directory(root)
 
         # Child disables react
-        v2_config.save_dir_config(child, {"skills": {"enabled": [], "disabled": ["react"]}})
-        v2_config.register_directory(child)
+        config.save_dir_config(child, {"skills": {"enabled": [], "disabled": ["react"]}})
+        config.register_directory(child)
 
         # Add react to registry
         react_dir = tmp_path / "source" / "react"
@@ -370,8 +370,8 @@ class TestUnsyncedCounts:
 
         project = tmp_path / "project"
         project.mkdir()
-        v2_config.register_directory(project)
-        v2_config.save_dir_config(project, {"skills": {"enabled": ["tdd"], "disabled": []}})
+        config.register_directory(project)
+        config.save_dir_config(project, {"skills": {"enabled": ["tdd"], "disabled": []}})
 
         unsynced_before, total_before = count_unsynced_targets(
             project_dir=project,
@@ -501,7 +501,7 @@ class TestUninstall:
         from hawk_hooks.adapters.claude import ClaudeAdapter
 
         # Seed package index
-        v2_config.record_package(
+        config.record_package(
             "starter",
             "",
             "",
@@ -512,17 +512,17 @@ class TestUninstall:
         # Seed directory registration/config
         project = tmp_path / "project"
         project.mkdir()
-        v2_config.save_dir_config(project, {"prompts": {"enabled": ["deploy.md"], "disabled": []}})
-        v2_config.register_directory(project)
+        config.save_dir_config(project, {"prompts": {"enabled": ["deploy.md"], "disabled": []}})
+        config.register_directory(project)
 
         # Seed global enabled entries
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         cfg["global"]["skills"] = ["tdd"]
         cfg["global"]["prompts"] = ["deploy.md"]
         cfg["global"]["commands"] = ["deploy.md"]
         cfg.setdefault("tools", {}).setdefault("codex", {})["multi_agent_consent"] = "granted"
         cfg.setdefault("tools", {}).setdefault("codex", {})["allow_multi_agent"] = True
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         # Seed a stale hawk symlink in tool config to verify purge path is used
         claude_dir = tmp_path / "fake-claude"
@@ -535,14 +535,14 @@ class TestUninstall:
 
         uninstall_all(tools=[Tool.CLAUDE])
 
-        cfg_after = v2_config.load_global_config()
+        cfg_after = config.load_global_config()
         assert cfg_after["global"]["skills"] == []
         assert cfg_after["global"]["prompts"] == []
         assert cfg_after["global"]["commands"] == []
         assert cfg_after["tools"]["codex"]["multi_agent_consent"] == "ask"
         assert cfg_after["tools"]["codex"]["allow_multi_agent"] is False
         assert cfg_after.get("directories", {}) == {}
-        assert v2_config.load_packages() == {}
+        assert config.load_packages() == {}
         assert not v2_env["registry"].list(ComponentType.SKILL)[ComponentType.SKILL]
         assert not (project / ".hawk" / "config.yaml").exists()
         assert not (commands_dir / "old.md").exists()
@@ -550,17 +550,17 @@ class TestUninstall:
     def test_uninstall_all_dry_run_keeps_state(self, v2_env, tmp_path, monkeypatch):
         from hawk_hooks.adapters.claude import ClaudeAdapter
 
-        v2_config.record_package(
+        config.record_package(
             "starter",
             "",
             "",
             [{"type": "skill", "name": "tdd", "hash": "deadbeef"}],
             path=str(tmp_path / "builtins"),
         )
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         cfg["global"]["skills"] = ["tdd"]
         cfg["global"]["commands"] = ["deploy.md"]
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         claude_dir = tmp_path / "fake-claude"
         commands_dir = claude_dir / "commands"
@@ -572,10 +572,10 @@ class TestUninstall:
 
         uninstall_all(tools=[Tool.CLAUDE], dry_run=True)
 
-        cfg_after = v2_config.load_global_config()
+        cfg_after = config.load_global_config()
         assert cfg_after["global"]["skills"] == ["tdd"]
         assert cfg_after["global"]["commands"] == ["deploy.md"]
-        assert "starter" in v2_config.load_packages()
+        assert "starter" in config.load_packages()
         assert (commands_dir / "old.md").is_symlink()
 
     def test_uninstall_all_leaves_no_global_unsynced_targets(
@@ -598,8 +598,8 @@ class TestUninstall:
 
         project = tmp_path / "project"
         project.mkdir()
-        v2_config.save_dir_config(project, {"prompts": {"enabled": ["deploy.md"], "disabled": []}})
-        v2_config.register_directory(project)
+        config.save_dir_config(project, {"prompts": {"enabled": ["deploy.md"], "disabled": []}})
+        config.register_directory(project)
 
         claude_dir = tmp_path / "fake-claude"
         claude_dir.mkdir()
@@ -607,7 +607,7 @@ class TestUninstall:
 
         uninstall_all(tools=[Tool.CLAUDE], remove_project_configs=False)
 
-        cfg_after = v2_config.load_global_config()
+        cfg_after = config.load_global_config()
         assert cfg_after.get("directories", {}) == {}
         assert (project / ".hawk" / "config.yaml").exists()
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import readchar
 
-from ... import v2_config
+from ... import config
 from ...types import ComponentType
 from .. import dashboard as _dashboard
 from ..toggle import _browse_files, _open_in_finder
@@ -41,7 +41,6 @@ def confirm_registry_item_delete(ct: ComponentType, name: str) -> bool:
 from ..toggle import (  # noqa: F401 — re-exported for backward compat
     ROW_ITEM,
     ROW_PACKAGE,
-    ROW_SEPARATOR,
     ROW_TYPE,
     UNGROUPED,
     run_picker,
@@ -62,7 +61,7 @@ def handle_packages(state: dict) -> bool:
         remove_package,
     )
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     registry = state["registry"]
     dirty = False
 
@@ -75,18 +74,18 @@ def handle_packages(state: dict) -> bool:
     collapsed_types: dict[tuple[str, str], bool] = {}
 
     def _reload_state_config() -> None:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         state["cfg"] = cfg
         state["global_cfg"] = cfg.get("global", {})
         project_dir = state.get("project_dir")
         if project_dir:
-            state["local_cfg"] = v2_config.load_dir_config(project_dir) or {}
+            state["local_cfg"] = config.load_dir_config(project_dir) or {}
         else:
             state["local_cfg"] = None
 
     def _refresh_contents() -> None:
         nonlocal packages
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         state["contents"] = registry.list()
 
     def _build_scope_entries() -> list[dict]:
@@ -103,7 +102,7 @@ def handle_packages(state: dict) -> bool:
         })
 
         project_dir = state.get("project_dir") or Path.cwd().resolve()
-        config_chain = v2_config.get_config_chain(project_dir)
+        config_chain = config.get_config_chain(project_dir)
         if config_chain:
             for chain_dir, chain_config in config_chain:
                 enabled: set[tuple[str, str]] = set()
@@ -157,12 +156,12 @@ def handle_packages(state: dict) -> bool:
             state["global_cfg"][field] = current
             cfg = state["cfg"]
             cfg["global"] = state["global_cfg"]
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
             state["cfg"] = cfg
             return
 
         dir_path = Path(scope_key)
-        dir_cfg = v2_config.load_dir_config(dir_path) or {}
+        dir_cfg = config.load_dir_config(dir_path) or {}
         section = dir_cfg.get(field, {})
         if not isinstance(section, dict):
             section = {"enabled": list(section) if isinstance(section, list) else []}
@@ -175,7 +174,7 @@ def handle_packages(state: dict) -> bool:
 
         section["enabled"] = current
         dir_cfg[field] = section
-        v2_config.save_dir_config(dir_path, dir_cfg)
+        config.save_dir_config(dir_path, dir_cfg)
 
         project_dir = state.get("project_dir")
         if project_dir and dir_path.resolve() == Path(project_dir).resolve():

@@ -2,12 +2,12 @@
 
 import pytest
 
-from hawk_hooks import v2_config
+from hawk_hooks import config
 from hawk_hooks.adapters import get_adapter
 from hawk_hooks.registry import Registry
 from hawk_hooks.resolver import resolve
 from hawk_hooks.types import ComponentType, ResolvedSet, Tool
-from hawk_hooks.v2_sync import sync_directory, sync_global
+from hawk_hooks.sync import sync_directory, sync_global
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def full_env(tmp_path, monkeypatch):
     """Set up a complete v2 environment for integration testing."""
     config_dir = tmp_path / "hawk-hooks"
     config_dir.mkdir()
-    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+    monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
     # Set up registry
     registry_path = config_dir / "registry"
@@ -40,12 +40,12 @@ def full_env(tmp_path, monkeypatch):
     registry.add(ComponentType.AGENT, "reviewer.md", agent_source)
 
     # Configure global
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     cfg["registry_path"] = str(registry_path)
     cfg["global"]["skills"] = ["tdd"]
     cfg["global"]["prompts"] = ["deploy.md"]
     cfg["global"]["agents"] = ["reviewer.md"]
-    v2_config.save_global_config(cfg)
+    config.save_global_config(cfg)
 
     # Create a fake claude dir
     claude_global = tmp_path / "fake-claude-global"
@@ -84,9 +84,9 @@ class TestRoundTrip:
         assert (claude_dir / "agents" / "reviewer.md").is_symlink()
 
         # Remove skill from global config
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         cfg["global"]["skills"] = []
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         # Re-sync
         results = sync_global(tools=[Tool.CLAUDE])
@@ -100,7 +100,7 @@ class TestRoundTrip:
 
     def test_directory_with_profile(self, full_env, tmp_path):
         # Create a profile
-        v2_config.save_profile("web", {
+        config.save_profile("web", {
             "name": "web",
             "skills": ["tdd"],
             "prompts": ["deploy.md"],
@@ -110,8 +110,8 @@ class TestRoundTrip:
         project = tmp_path / "my-web-app"
         project.mkdir()
 
-        v2_config.save_dir_config(project, {"profile": "web"})
-        v2_config.register_directory(project, profile="web")
+        config.save_dir_config(project, {"profile": "web"})
+        config.register_directory(project, profile="web")
 
         # Sync
         results = sync_directory(project, tools=[Tool.CLAUDE])
@@ -127,7 +127,7 @@ class TestRoundTrip:
         project.mkdir()
 
         # Dir config disables tdd
-        v2_config.save_dir_config(project, {
+        config.save_dir_config(project, {
             "skills": {"enabled": [], "disabled": ["tdd"]},
         })
 
@@ -139,7 +139,7 @@ class TestRoundTrip:
 
 class TestResolverIntegration:
     def test_full_resolution_chain(self, full_env):
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
 
         # Global only
         resolved = resolve(cfg)
@@ -176,7 +176,7 @@ class TestPackageRemoval:
         registry = full_env["registry"]
 
         # Record a package with items that are in the registry
-        v2_config.save_packages({
+        config.save_packages({
             "test-pkg": {
                 "url": "https://github.com/test/pkg",
                 "installed": "2026-02-18",
@@ -193,20 +193,20 @@ class TestPackageRemoval:
         assert registry.has(ComponentType.PROMPT, "deploy.md")
 
         # Verify global config has them enabled
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         assert "tdd" in cfg["global"]["skills"]
         assert "deploy.md" in cfg["global"]["prompts"]
 
         # Create a directory config that also has them
         project = tmp_path / "project"
         project.mkdir()
-        v2_config.save_dir_config(project, {
+        config.save_dir_config(project, {
             "skills": {"enabled": ["tdd"]},
         })
-        v2_config.register_directory(project)
+        config.register_directory(project)
 
         # Simulate remove-package logic (from cmd_remove_package)
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         pkg_data = packages["test-pkg"]
         items = pkg_data.get("items", [])
 
@@ -216,40 +216,40 @@ class TestPackageRemoval:
             registry.remove(ct, item["name"])
 
         # Remove from global config
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         global_section = cfg.get("global", {})
         for item in items:
             field = ComponentType(item["type"]).registry_dir
             enabled = global_section.get(field, [])
             global_section[field] = [n for n in enabled if n != item["name"]]
         cfg["global"] = global_section
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         # Remove from dir configs
-        dir_cfg = v2_config.load_dir_config(project)
+        dir_cfg = config.load_dir_config(project)
         skills_section = dir_cfg.get("skills", {})
         if isinstance(skills_section, dict):
             skills_section["enabled"] = [
                 n for n in skills_section.get("enabled", []) if n != "tdd"
             ]
             dir_cfg["skills"] = skills_section
-        v2_config.save_dir_config(project, dir_cfg)
+        config.save_dir_config(project, dir_cfg)
 
         # Remove package entry
-        v2_config.remove_package("test-pkg")
+        config.remove_package("test-pkg")
 
         # Verify cleanup
         assert not registry.has(ComponentType.SKILL, "tdd")
         assert not registry.has(ComponentType.PROMPT, "deploy.md")
 
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         assert "tdd" not in cfg["global"]["skills"]
         assert "deploy.md" not in cfg["global"]["prompts"]
 
-        dir_cfg = v2_config.load_dir_config(project)
+        dir_cfg = config.load_dir_config(project)
         assert "tdd" not in dir_cfg["skills"]["enabled"]
 
-        assert v2_config.load_packages() == {}
+        assert config.load_packages() == {}
 
 
 class TestRegistryIntegration:
@@ -263,9 +263,9 @@ class TestRegistryIntegration:
         registry.add(ComponentType.SKILL, "new-skill", new_skill)
 
         # Update config
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         cfg["global"]["skills"].append("new-skill")
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
         # Sync
         results = sync_global(tools=[Tool.CLAUDE])

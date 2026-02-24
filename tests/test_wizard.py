@@ -6,19 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from hawk_hooks import v2_config
+from hawk_hooks import config
 
 pytest.importorskip("rich")
 pytest.importorskip("simple_term_menu")
 
-from hawk_hooks.v2_interactive import wizard
+from hawk_hooks.interactive import wizard
 
 
 @pytest.fixture
 def v2_env(tmp_path, monkeypatch):
     config_dir = tmp_path / "hawk-hooks"
     config_dir.mkdir()
-    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+    monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
     return config_dir
 
 

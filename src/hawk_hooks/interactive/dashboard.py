@@ -1,10 +1,9 @@
-"""Main dashboard and menu for hawk v2 TUI."""
+"""Main dashboard and menu for hawk TUI."""
 
 from __future__ import annotations
 
 import os
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -15,7 +14,7 @@ from rich.live import Live
 from rich.text import Text
 from simple_term_menu import TerminalMenu
 
-from .. import __version__, v2_config
+from .. import __version__, config
 from ..adapters import get_adapter
 from ..registry import Registry
 from ..resolver import resolve
@@ -26,21 +25,16 @@ from .theme import (
     action_style,
     cursor_prefix,
     dim_separator,
-    enabled_count_style,
-    row_style,
-    scoped_header,
     set_project_theme,
     terminal_menu_style_kwargs,
     warning_style,
 )
 from .toggle import (
-    UNGROUPED,
     _open_in_editor,
     build_picker_tree,
     run_picker,
     scopes_from_toggle_scopes,
 )
-from .uninstall_flow import run_uninstall_wizard
 
 console = Console(highlight=False)
 
@@ -71,11 +65,11 @@ def _detect_scope(scope_dir: str | None = None) -> tuple[str, Path | None, str |
         scope is "local" or "global"
     """
     cwd = Path(scope_dir).resolve() if scope_dir else Path.cwd().resolve()
-    dir_config = v2_config.load_dir_config(cwd)
+    dir_config = config.load_dir_config(cwd)
     if dir_config is not None:
         return "local", cwd, cwd.name
 
-    nearest = v2_config.get_nearest_registered_directory(cwd)
+    nearest = config.get_nearest_registered_directory(cwd)
     if nearest is not None:
         return "local", nearest, nearest.name
 
@@ -84,10 +78,10 @@ def _detect_scope(scope_dir: str | None = None) -> tuple[str, Path | None, str |
 
 def _load_state(scope_dir: str | None = None) -> dict:
     """Load all state needed for the dashboard."""
-    from ..v2_sync import count_unsynced_targets
+    from ..sync import count_unsynced_targets
 
-    cfg = v2_config.load_global_config()
-    registry = Registry(v2_config.get_registry_path(cfg))
+    cfg = config.load_global_config()
+    registry = Registry(config.get_registry_path(cfg))
     contents = registry.list()
 
     scope, project_dir, project_name = _detect_scope(scope_dir)
@@ -97,7 +91,7 @@ def _load_state(scope_dir: str | None = None) -> dict:
 
     local_cfg = None
     if project_dir:
-        local_cfg = v2_config.load_dir_config(project_dir) or {}
+        local_cfg = config.load_dir_config(project_dir) or {}
 
     resolved_global = resolve(cfg)
     resolved_active = resolved_global
@@ -193,37 +187,6 @@ def _compute_missing_components(
     return compute_missing_components(resolved_active, contents)
 
 
-def _human_size(size_bytes: int) -> str:
-    """Format bytes into a short human-readable size string."""
-    units = ["B", "KB", "MB", "GB"]
-    size = float(size_bytes)
-    for unit in units:
-        if size < 1024.0 or unit == units[-1]:
-            if unit == "B":
-                return f"{int(size)}{unit}"
-            return f"{size:.1f}{unit}"
-        size /= 1024.0
-    return f"{int(size_bytes)}B"
-
-
-def _path_size(path: Path) -> int:
-    """Compute total bytes for a file or directory."""
-    try:
-        if path.is_file():
-            return path.stat().st_size
-        if path.is_dir():
-            total = 0
-            for child in path.rglob("*"):
-                if child.is_file():
-                    try:
-                        total += child.stat().st_size
-                    except OSError:
-                        continue
-            return total
-    except OSError:
-        return 0
-    return 0
-
 
 def _run_editor_command(path: Path) -> bool:
     """Open a path in $EDITOR (or fallback to default editor flow)."""
@@ -249,12 +212,6 @@ def _confirm_registry_item_delete(ct: ComponentType, name: str) -> bool:
 
     return confirm_registry_item_delete(ct, name)
 
-
-def _handle_registry_browser(state: dict) -> None:
-    """Read-only registry browser with grouped rows and open-in-editor."""
-    from .handlers.registry_browser import handle_registry_browser
-
-    handle_registry_browser(state)
 
 
 def _build_header(state: dict) -> str:
@@ -304,7 +261,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     options.append(("Download       Fetch from git URL", "download"))
 
     # Packages count
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     pkg_count = len(packages)
     if pkg_count > 0:
         options.append((f"Packages       {pkg_count} installed, manage & update", "packages"))
@@ -444,7 +401,7 @@ def _build_toggle_scopes(state: dict, field: str) -> list[ToggleScope]:
 
     # Get config chain for current project dir
     project_dir = state.get("project_dir") or Path.cwd().resolve()
-    config_chain = v2_config.get_config_chain(project_dir)
+    config_chain = config.get_config_chain(project_dir)
 
     if config_chain:
         for chain_dir, chain_config in config_chain:
@@ -528,11 +485,11 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
         return False
 
     # Registry path for open/edit
-    registry_path = v2_config.get_registry_path(state["cfg"])
+    registry_path = config.get_registry_path(state["cfg"])
     registry_dir = ct.registry_dir if ct else ""
 
     # Build TieredMenuItem list from packages + registry
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     menu_items: list[TieredMenuItem] = []
     grouped_names: set[str] = set()
 
@@ -617,16 +574,16 @@ def _handle_component_toggle(state: dict, field: str) -> bool:
                 state["global_cfg"][field] = new_enabled
                 cfg = state["cfg"]
                 cfg["global"] = state["global_cfg"]
-                v2_config.save_global_config(cfg)
+                config.save_global_config(cfg)
             else:
                 dir_path = Path(ts.key)
-                dir_cfg = v2_config.load_dir_config(dir_path) or {}
+                dir_cfg = config.load_dir_config(dir_path) or {}
                 section = dir_cfg.get(field, {})
                 if not isinstance(section, dict):
                     section = {}
                 section["enabled"] = new_enabled
                 dir_cfg[field] = section
-                v2_config.save_dir_config(dir_path, dir_cfg)
+                config.save_dir_config(dir_path, dir_cfg)
 
                 # Update local_cfg in state if this is cwd
                 project_dir = state.get("project_dir")
@@ -641,7 +598,7 @@ def _make_mcp_add_callback(state: dict):
     import yaml
 
     registry = state["registry"]
-    registry_path = v2_config.get_registry_path(state["cfg"])
+    registry_path = config.get_registry_path(state["cfg"])
 
     def _add_mcp_server() -> str | None:
         """Interactive MCP server creation. Returns name or None."""
@@ -856,14 +813,14 @@ def _sync_all_with_preflight(scope_dir: str | None = None, *, force: bool = Fals
     if pre_state.get("codex_multi_agent_required", _is_codex_multi_agent_setup_required(pre_state)):
         _handle_codex_multi_agent_setup(pre_state, from_sync=True)
 
-    from ..v2_sync import sync_all
+    from ..sync import sync_all
 
     return sync_all(force=force)
 
 
 def _handle_sync(state: dict) -> None:
     """Run sync and show results."""
-    from ..v2_sync import format_sync_results
+    from ..sync import format_sync_results
 
     console.print("\n[bold]Syncing...[/bold]")
     all_results = _sync_all_with_preflight(state.get("scope_dir"), force=True)
@@ -878,7 +835,7 @@ def _apply_auto_sync_if_needed(dirty: bool, scope_dir: str | None = None) -> boo
     if not dirty:
         return False
 
-    from ..v2_sync import format_sync_results
+    from ..sync import format_sync_results
 
     all_results = _sync_all_with_preflight(scope_dir, force=False)
     has_errors = any(result.errors for scope in all_results.values() for result in scope)
@@ -899,7 +856,7 @@ def _handle_scan(state: dict) -> bool:
     from ..cli import _interactive_select_items, _build_pkg_items, _merge_package_items
     from ..downloader import add_items_to_registry, check_clashes, scan_directory
     from ..registry import Registry
-    from .. import v2_config as _v2_config
+    from .. import config as _config
 
     cwd = Path.cwd().resolve()
     console.print("\n[bold]Scan local directory[/bold]")
@@ -920,7 +877,7 @@ def _handle_scan(state: dict) -> bool:
         wait_for_continue()
         return False
 
-    registry = Registry(_v2_config.get_registry_path())
+    registry = Registry(_config.get_registry_path())
     registry.ensure_dirs()
 
     pkg = content.package_meta.name if content.package_meta else ""
@@ -961,7 +918,7 @@ def _handle_scan(state: dict) -> bool:
 
     # Record packages
     if content.packages:
-        existing_packages = _v2_config.load_packages()
+        existing_packages = _config.load_packages()
         items_by_pkg: dict[str, list] = {}
         for item in selected_items:
             pkg_name = item.package or pkg
@@ -973,7 +930,7 @@ def _handle_scan(state: dict) -> bool:
             if pkg_items:
                 existing_items = existing_packages.get(pkg_name, {}).get("items", [])
                 merged_items = _merge_package_items(existing_items, pkg_items)
-                _v2_config.record_package(
+                _config.record_package(
                     pkg_name, "", "", merged_items,
                     path=str(scan_path),
                 )
@@ -1037,14 +994,14 @@ def _prompt_sync_on_exit(dirty: bool, scope_dir: str | None = None) -> None:
     if not dirty:
         return
 
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     preference = cfg.get("sync_on_exit", "ask")
 
     if preference == "never":
         return
 
     if preference == "always":
-        from ..v2_sync import format_sync_results
+        from ..sync import format_sync_results
 
         console.print("\n[bold]Syncing...[/bold]")
         all_results = _sync_all_with_preflight(scope_dir)
@@ -1063,7 +1020,7 @@ def _prompt_sync_on_exit(dirty: bool, scope_dir: str | None = None) -> None:
     )
     result = menu.show()
     if result == 0:
-        from ..v2_sync import format_sync_results
+        from ..sync import format_sync_results
 
         console.print("[bold]Syncing...[/bold]")
         all_results = _sync_all_with_preflight(scope_dir)

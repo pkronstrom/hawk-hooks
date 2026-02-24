@@ -30,8 +30,8 @@ def _print(msg: str = "") -> None:
 
 def cmd_init(args):
     """Initialize a directory for hawk management."""
-    from . import v2_config
-    from .v2_sync import format_sync_results, sync_directory
+    from . import config
+    from .sync import format_sync_results, sync_directory
 
     project_dir = Path(args.dir).resolve() if args.dir else Path.cwd().resolve()
 
@@ -39,7 +39,7 @@ def cmd_init(args):
         print(f"Error: Not a directory: {project_dir}")
         sys.exit(1)
 
-    config_path = v2_config.get_dir_config_path(project_dir)
+    config_path = config.get_dir_config_path(project_dir)
     if config_path.exists() and not args.force:
         print(f"Already initialized: {config_path}")
         print("Use --force to reinitialize.")
@@ -48,20 +48,20 @@ def cmd_init(args):
     # Build dir config
     dir_config: dict = {}
     if args.profile:
-        profile = v2_config.load_profile(args.profile)
+        profile = config.load_profile(args.profile)
         if profile is None:
             print(f"Error: Profile not found: {args.profile}")
             sys.exit(1)
         dir_config["profile"] = args.profile
 
     # Save dir config
-    v2_config.save_dir_config(project_dir, dir_config)
+    config.save_dir_config(project_dir, dir_config)
 
     # Register in global index
-    v2_config.register_directory(project_dir, profile=args.profile)
+    config.register_directory(project_dir, profile=args.profile)
 
     # Ensure registry dirs exist
-    v2_config.ensure_v2_dirs()
+    config.ensure_v2_dirs()
 
     # Sync
     results = sync_directory(project_dir)
@@ -100,12 +100,12 @@ def cmd_init(args):
 
 def cmd_sync(args):
     """Sync components to tools."""
-    from . import v2_config
-    from .v2_sync import format_sync_results, sync_all, sync_directory, sync_global
+    from . import config
+    from .sync import format_sync_results, sync_all, sync_directory, sync_global
 
     # Auto-register + prune on each sync
-    v2_config.auto_register_if_needed(Path.cwd())
-    v2_config.prune_stale_directories()
+    config.auto_register_if_needed(Path.cwd())
+    config.prune_stale_directories()
 
     tools = [Tool(args.tool)] if args.tool else None
 
@@ -129,13 +129,13 @@ def cmd_sync(args):
 
 def cmd_status(args):
     """Show current status."""
-    from . import v2_config
+    from . import config
     from .adapters import get_adapter
     from .registry import Registry
     from .resolver import resolve
 
-    cfg = v2_config.load_global_config()
-    registry = Registry(v2_config.get_registry_path(cfg))
+    cfg = config.load_global_config()
+    registry = Registry(config.get_registry_path(cfg))
 
     # Show registry contents
     contents = registry.list()
@@ -150,7 +150,7 @@ def cmd_status(args):
         project_dir = Path(args.dir).resolve()
 
         # Show config chain
-        config_chain = v2_config.get_config_chain(project_dir)
+        config_chain = config.get_config_chain(project_dir)
         if config_chain:
             chain_labels = ["global"] + [str(d) for d, _ in config_chain]
             print(f"\nChain: {' -> '.join(chain_labels)}")
@@ -221,7 +221,7 @@ def cmd_status(args):
         print(f"  {tool}: {', '.join(status_parts)}")
 
     # Show registered directories
-    dirs = v2_config.get_registered_directories()
+    dirs = config.get_registered_directories()
     if dirs:
         print(f"\nDirectories ({len(dirs)}):")
         for dir_path, entry in dirs.items():
@@ -234,9 +234,9 @@ def cmd_status(args):
 
 def cmd_projects(args):
     """List registered project directories."""
-    from . import v2_config
+    from . import config
 
-    dirs = v2_config.get_registered_directories()
+    dirs = config.get_registered_directories()
     if not dirs:
         print("No registered directories.")
         print("Run 'hawk init' in a project to register it.")
@@ -343,7 +343,7 @@ def cmd_add(args):
     import tempfile
 
     from .registry import Registry
-    from . import v2_config
+    from . import config
 
     # --type flag takes priority over positional type
     valid_types = {ct.value for ct in ComponentType}
@@ -355,7 +355,7 @@ def cmd_add(args):
         args.path = args.type
         args.type = None
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     registry.ensure_dirs()
 
     # Determine source: file path or stdin
@@ -439,7 +439,7 @@ def cmd_add(args):
 
     # Enable in global config (only when explicitly requested)
     if getattr(args, "enable", False):
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         global_section = cfg.get("global", {})
         field = component_type.registry_dir
         enabled = global_section.get(field, [])
@@ -447,7 +447,7 @@ def cmd_add(args):
             enabled.append(name)
             global_section[field] = enabled
             cfg["global"] = global_section
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
             _print(f"[green]+[/green] Enabled in global config [dim]({field})[/dim]")
 
     _print(f"\n[dim]Run[/dim] [cyan]hawk enable {component_type.value}/{name}[/cyan] [dim]to activate, then[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
@@ -456,9 +456,9 @@ def cmd_add(args):
 def cmd_remove(args):
     """Remove a component from the registry."""
     from .registry import Registry
-    from . import v2_config
+    from . import config
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     if args.type == "command":
         component_type = ComponentType.PROMPT
     else:
@@ -475,9 +475,9 @@ def cmd_remove(args):
 def cmd_list(args):
     """List registry contents."""
     from .registry import Registry
-    from . import v2_config
+    from . import config
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
 
     if args.type:
         if args.type == "command":
@@ -497,12 +497,12 @@ def cmd_list(args):
 
 def cmd_profile_list(args):
     """List available profiles."""
-    from . import v2_config
+    from . import config
 
-    profiles = v2_config.list_profiles()
+    profiles = config.list_profiles()
     if not profiles:
         print("No profiles found.")
-        print(f"Create one in: {v2_config.get_profiles_dir()}/")
+        print(f"Create one in: {config.get_profiles_dir()}/")
         return
     for name in profiles:
         print(f"  {name}")
@@ -510,11 +510,11 @@ def cmd_profile_list(args):
 
 def cmd_profile_show(args):
     """Show profile details."""
-    from . import v2_config
+    from . import config
 
     import yaml
 
-    profile = v2_config.load_profile(args.name)
+    profile = config.load_profile(args.name)
     if profile is None:
         print(f"Profile not found: {args.name}")
         sys.exit(1)
@@ -524,13 +524,13 @@ def cmd_profile_show(args):
 
 def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[str] | None = None):
     """Build package item list with hashes for selected items present in registry."""
-    from . import v2_config
+    from . import config
 
     pkg_items = []
     added_keys = added_keys or set()
     owner_map: dict[tuple[str, str], str] = {}
     if package_name:
-        for owner_pkg, pkg_data in v2_config.load_packages().items():
+        for owner_pkg, pkg_data in config.load_packages().items():
             for pkg_item in pkg_data.get("items", []):
                 item_type = pkg_item.get("type")
                 item_name = pkg_item.get("name")
@@ -560,12 +560,12 @@ def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[st
                 source_path = item.source_path
                 if source_path is None or not source_path.exists():
                     continue
-                source_hash = v2_config.hash_registry_item(source_path)
-                registry_hash = v2_config.hash_registry_item(item_path)
+                source_hash = config.hash_registry_item(source_path)
+                registry_hash = config.hash_registry_item(item_path)
                 if source_hash != registry_hash:
                     continue
 
-        item_hash = v2_config.hash_registry_item(item_path)
+        item_hash = config.hash_registry_item(item_path)
         pkg_items.append({
             "type": item.component_type.value,
             "name": item.name,
@@ -637,9 +637,9 @@ def cmd_download(args):
 
     # Enable in global config (only when explicitly requested)
     if result.added and getattr(args, "enable", False):
-        from . import v2_config
+        from . import config
 
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         global_section = cfg.get("global", {})
         enabled_count = 0
         for item_key in result.added:
@@ -660,7 +660,7 @@ def cmd_download(args):
                 enabled_count += 1
         if enabled_count:
             cfg["global"] = global_section
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
             print(f"\nEnabled {enabled_count} component(s) in global config.")
 
 
@@ -669,11 +669,10 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
                               packages: list | None = None,
                               collapsed: bool = False, select_all: bool = False):
     """Interactive item picker backed by run_picker."""
-    from .v2_interactive.toggle import (
-        UNGROUPED,
+    from .interactive.toggle import (
         run_picker,
     )
-    from .v2_interactive.handlers.packages import (
+    from .interactive.handlers.packages import (
         _ORDERED_COMPONENT_FIELDS,
     )
 
@@ -744,14 +743,14 @@ def cmd_scan(args):
         add_items_to_registry, check_clashes, scan_directory,
     )
     from .registry import Registry
-    from . import v2_config
+    from . import config
 
     scan_path = Path(args.path).resolve()
     if not scan_path.is_dir():
         print(f"Error: {scan_path} is not a directory.")
         sys.exit(1)
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     registry.ensure_dirs()
 
     # Scan
@@ -825,7 +824,7 @@ def cmd_scan(args):
 
     # Reject package source-type conflicts up front (before mutating registry)
     if content.packages:
-        existing_packages = v2_config.load_packages()
+        existing_packages = config.load_packages()
         selected_pkg_names = {
             item.package or (content.package_meta.name if content.package_meta else "")
             for item in selected_items
@@ -855,7 +854,7 @@ def cmd_scan(args):
 
     # Record packages — group items by their per-item .package tag
     if content.packages:
-        existing_packages = v2_config.load_packages()
+        existing_packages = config.load_packages()
         items_by_pkg: dict[str, list] = {}
         for item in selected_items:
             pkg_name = item.package or (
@@ -869,7 +868,7 @@ def cmd_scan(args):
             if pkg_items:
                 existing_items = existing_packages.get(pkg_name, {}).get("items", [])
                 merged_items = _merge_package_items(existing_items, pkg_items)
-                v2_config.record_package(
+                config.record_package(
                     pkg_name, "", "", merged_items,
                     path=str(scan_path),
                 )
@@ -880,7 +879,7 @@ def cmd_scan(args):
 
     # Enable in global config (only when explicitly requested)
     if added and getattr(args, "enable", False):
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         global_section = cfg.get("global", {})
         for item in items_to_add:
             item_key = f"{item.component_type}/{item.name}"
@@ -891,7 +890,7 @@ def cmd_scan(args):
                     enabled.append(item.name)
                 global_section[field] = enabled
         cfg["global"] = global_section
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         print(f"\nEnabled {len(added)} component(s) in global config.")
 
     # Summary
@@ -910,9 +909,9 @@ def cmd_scan(args):
 
 def cmd_packages(args):
     """List installed packages."""
-    from . import v2_config
+    from . import config
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     if not packages:
         print("No packages installed.")
         print("Run 'hawk download <url>' to install a package.")
@@ -961,10 +960,10 @@ def cmd_update(args):
 
 def cmd_remove_package(args):
     """Remove a package and all its items."""
-    from . import v2_config
+    from . import config
     from .package_service import PackageNotFoundError, remove_package
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     pkg_name = args.name
     pkg_data = packages.get(pkg_name)
 
@@ -996,7 +995,7 @@ def cmd_remove_package(args):
 
 def cmd_clean(args):
     """Remove all hawk-managed symlinks, MCP entries, and cache."""
-    from .v2_sync import clean_all, clean_directory, clean_global, format_sync_results
+    from .sync import clean_all, clean_directory, clean_global, format_sync_results
 
     tools = [Tool(args.tool)] if args.tool else None
 
@@ -1021,7 +1020,7 @@ def cmd_clean(args):
 
 def cmd_prune(args):
     """Aggressively remove hawk-managed and stale hawk-linked artifacts."""
-    from .v2_sync import format_sync_results, purge_all, purge_directory, purge_global
+    from .sync import format_sync_results, purge_all, purge_directory, purge_global
 
     tools = [Tool(args.tool)] if args.tool else None
 
@@ -1047,17 +1046,17 @@ def cmd_prune(args):
 def cmd_config(args):
     """Show or update configuration."""
     if getattr(args, "ui", False):
-        from .v2_interactive.config_editor import run_config_editor
+        from .interactive.config_editor import run_config_editor
         run_config_editor()
         return
 
     import yaml
-    from . import v2_config
+    from . import config
 
     key = getattr(args, "key", None)
     value = getattr(args, "value", None)
 
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
 
     if key is None:
         # No args → print current config
@@ -1102,7 +1101,7 @@ def cmd_config(args):
                 node[part] = {}
             node = node[part]
         node[parts[-1]] = value
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         print(f"{key} = {value}")
 
 
@@ -1149,7 +1148,7 @@ def cmd_migrate_prompts(args):
 
 def cmd_new(args):
     """Create a new component from a template."""
-    from . import v2_config
+    from . import config
     from .events import EVENTS
     from .templates import (
         AGENT_TEMPLATE, COMMAND_PROMPT_TEMPLATE, PROMPT_TEMPLATE,
@@ -1158,7 +1157,7 @@ def cmd_new(args):
 
     from .registry import _validate_name
 
-    registry_path = v2_config.get_registry_path()
+    registry_path = config.get_registry_path()
     comp_type = args.type
     name = args.name
     event = getattr(args, "event", "pre_tool_use")
@@ -1371,10 +1370,10 @@ def cmd_mcp(args):
 def cmd_deps(args):
     """Install dependencies for all hooks in the registry."""
     import subprocess
-    from . import v2_config
+    from . import config
     from .hook_meta import parse_hook_meta
 
-    registry_path = v2_config.get_registry_path()
+    registry_path = config.get_registry_path()
     hooks_dir = registry_path / "hooks"
 
     if not hooks_dir.exists():
@@ -1399,7 +1398,7 @@ def cmd_deps(args):
     print(f"Found {len(all_deps)} dependency(ies): {', '.join(sorted(all_deps))}")
 
     # Create/update venv
-    venv_dir = v2_config.get_config_dir() / ".venv"
+    venv_dir = config.get_config_dir() / ".venv"
     venv_python = venv_dir / "bin" / "python"
 
     if not venv_dir.exists():
@@ -1437,7 +1436,7 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
     3. "package/type" → filter package items by type
     4. Bare name → search registry for matching name across all types
     """
-    from . import v2_config
+    from . import config
     from .registry import Registry
 
     # Map plural registry dir names to ComponentType
@@ -1450,17 +1449,17 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
         type_part, name_part = target.split("/", 1)
         if type_part in dir_to_ct and name_part:
             ct = dir_to_ct[type_part]
-            registry = Registry(v2_config.get_registry_path())
+            registry = Registry(config.get_registry_path())
             if not registry.has(ct, name_part):
                 print(f"Error: {target} not found in registry.")
                 sys.exit(1)
             return [(ct, name_part)]
 
         # 3. Check "package/type" format
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         if type_part in packages and name_part in dir_to_ct:
             ct = dir_to_ct[name_part]
-            pkg_items = v2_config.list_package_items(type_part)
+            pkg_items = config.list_package_items(type_part)
             filtered = [(ComponentType(t), n) for t, n in pkg_items if ComponentType(t) == ct]
             if not filtered:
                 print(f"Error: No {name_part} items in package '{type_part}'.")
@@ -1471,9 +1470,9 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
         # Try singular type values
         for ct in ComponentType:
             if name_part == ct.value:
-                packages = v2_config.load_packages()
+                packages = config.load_packages()
                 if type_part in packages:
-                    pkg_items = v2_config.list_package_items(type_part)
+                    pkg_items = config.list_package_items(type_part)
                     filtered = [(ComponentType(t), n) for t, n in pkg_items if ComponentType(t) == ct]
                     if not filtered:
                         print(f"Error: No {ct.value} items in package '{type_part}'.")
@@ -1484,16 +1483,16 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
         sys.exit(1)
 
     # 2. Check if target is a package name
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     if target in packages:
-        pkg_items = v2_config.list_package_items(target)
+        pkg_items = config.list_package_items(target)
         if not pkg_items:
             print(f"Error: Package '{target}' has no items.")
             sys.exit(1)
         return [(ComponentType(t), n) for t, n in pkg_items]
 
     # 4. Bare name — search registry
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     all_items = registry.list_flat()
     matches = [(ct, n) for ct, n in all_items if n == target]
 
@@ -1549,7 +1548,7 @@ def _disable_items(
 
 def cmd_enable(args):
     """Enable components in config."""
-    from . import v2_config
+    from . import config
     from .registry import Registry
 
     if not args.target and not args.all:
@@ -1560,7 +1559,7 @@ def cmd_enable(args):
 
     if args.all:
         # Enable everything in registry
-        registry = Registry(v2_config.get_registry_path())
+        registry = Registry(config.get_registry_path())
         items = registry.list_flat()
         if not items:
             print("Registry is empty.")
@@ -1570,18 +1569,18 @@ def cmd_enable(args):
 
     if args.dir:
         project_dir = Path(args.dir).resolve()
-        cfg = v2_config.load_dir_config(project_dir) or {}
+        cfg = config.load_dir_config(project_dir) or {}
         # Dir configs use top-level fields (not nested under "global")
         newly_enabled = _enable_items(items, cfg, section_key="global")
         # For dir configs, we store enabled items in a different structure
         # Actually dir configs can have top-level fields or use enabled/disabled
         # Let's use the simple list approach matching global config structure
-        v2_config.save_dir_config(project_dir, cfg)
+        config.save_dir_config(project_dir, cfg)
         scope = str(project_dir)
     else:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         newly_enabled = _enable_items(items, cfg, section_key="global")
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         scope = "global config"
 
     if newly_enabled:
@@ -1596,7 +1595,7 @@ def cmd_enable(args):
 
 def cmd_disable(args):
     """Disable components in config."""
-    from . import v2_config
+    from . import config
     from .registry import Registry
 
     if not args.target and not args.all:
@@ -1606,7 +1605,7 @@ def cmd_disable(args):
         sys.exit(1)
 
     if args.all:
-        registry = Registry(v2_config.get_registry_path())
+        registry = Registry(config.get_registry_path())
         items = registry.list_flat()
         if not items:
             print("Registry is empty.")
@@ -1616,14 +1615,14 @@ def cmd_disable(args):
 
     if args.dir:
         project_dir = Path(args.dir).resolve()
-        cfg = v2_config.load_dir_config(project_dir) or {}
+        cfg = config.load_dir_config(project_dir) or {}
         newly_disabled = _disable_items(items, cfg, section_key="global")
-        v2_config.save_dir_config(project_dir, cfg)
+        config.save_dir_config(project_dir, cfg)
         scope = str(project_dir)
     else:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         newly_disabled = _disable_items(items, cfg, section_key="global")
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         scope = "global config"
 
     if newly_disabled:
@@ -1850,8 +1849,8 @@ def main():
     try:
         if args.command is None:
             try:
-                from hawk_hooks.v2_interactive import v2_interactive_menu
-                v2_interactive_menu(scope_dir=args.main_dir)
+                from hawk_hooks.interactive import interactive_menu
+                interactive_menu(scope_dir=args.main_dir)
             except ImportError as exc:
                 print(f"Interactive TUI unavailable: {exc}")
                 parser.print_help()

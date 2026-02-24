@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from .. import v2_config
+from .. import config
 from .toggle import _get_terminal_height, _calculate_visible_range
 from .theme import action_style, cursor_prefix, dim_separator, get_theme, keybinding_hint
 from .uninstall_flow import run_uninstall_wizard
@@ -61,7 +61,7 @@ def _display_value(key: str, value, setting_type: str, options=None) -> str:
 
 def run_config_editor() -> bool:
     """Run the interactive config editor."""
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     dirty = False
 
     cursor = 0
@@ -127,7 +127,7 @@ def run_config_editor() -> bool:
             else:
                 current = _get_value(cfg, key, default)
             cfg[key] = not current
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
             state = "on" if cfg[key] else "off"
             return f"{label} \u2192 {state}"
 
@@ -140,7 +140,7 @@ def run_config_editor() -> bool:
                 idx_cur = -1
             next_val = options[(idx_cur + 1) % len(options)]
             cfg[key] = next_val
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
             return f"{label} \u2192 {next_val}"
 
         elif setting_type == "text":
@@ -155,7 +155,7 @@ def run_config_editor() -> bool:
         nonlocal cfg
         if not run_uninstall_wizard(console):
             return "Uninstall cancelled"
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         return "Uninstall cleanup completed"
 
     def _handle_text_edit(idx: int) -> str:
@@ -187,12 +187,12 @@ def run_config_editor() -> bool:
                 new_val = open(tmp_path).read().strip()
                 if new_val and new_val != current:
                     cfg[key] = new_val
-                    v2_config.save_global_config(cfg)
+                    config.save_global_config(cfg)
                     return f"{label} \u2192 {new_val}"
                 elif not new_val and current:
                     # Cleared the value — reset to default
                     cfg.pop(key, None)
-                    v2_config.save_global_config(cfg)
+                    config.save_global_config(cfg)
                     return f"{label} \u2192 (default)"
         except (KeyboardInterrupt, EOFError):
             return "Cancelled"
@@ -204,7 +204,7 @@ def run_config_editor() -> bool:
                 return "Cancelled"
             if new_val:
                 cfg[key] = new_val
-                v2_config.save_global_config(cfg)
+                config.save_global_config(cfg)
                 return f"{label} \u2192 {new_val}"
         finally:
             try:

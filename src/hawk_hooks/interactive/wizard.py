@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 from simple_term_menu import TerminalMenu
 
-from .. import __version__, v2_config
+from .. import __version__, config
 from ..adapters import get_adapter
 from ..types import Tool
 from .pause import wait_for_continue
@@ -68,8 +68,8 @@ def run_wizard() -> bool:
         return False
 
     # Create config
-    v2_config.ensure_v2_dirs()
-    cfg = v2_config.load_global_config()
+    config.ensure_v2_dirs()
+    cfg = config.load_global_config()
 
     # Enable found tools, disable missing ones
     tools_cfg = cfg.get("tools", {})
@@ -79,11 +79,11 @@ def run_wizard() -> bool:
             tools_cfg[tool_key] = {}
         tools_cfg[tool_key]["enabled"] = found[tool]
     cfg["tools"] = tools_cfg
-    v2_config.save_global_config(cfg)
+    config.save_global_config(cfg)
 
     accent = theme.accent_rich
     console.print(
-        f"\n[{theme.success_rich}]\u2714[/{theme.success_rich}] Config created at [{accent}]{v2_config.get_global_config_path()}[/{accent}]"
+        f"\n[{theme.success_rich}]\u2714[/{theme.success_rich}] Config created at [{accent}]{config.get_global_config_path()}[/{accent}]"
     )
 
     # Step 3a: Install bundled builtins

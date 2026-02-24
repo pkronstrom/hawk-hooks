@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from . import v2_config
+from . import config
 from .registry import Registry
 from .types import ComponentType, Tool
 
@@ -142,10 +142,10 @@ def _build_context(dir_param: str | None = None) -> dict[str, Any]:
     cwd = os.getcwd()
     ctx: dict[str, Any] = {"cwd": cwd}
 
-    registered = v2_config.get_registered_directories()
+    registered = config.get_registered_directories()
     if cwd in registered:
         ctx["cwd_registered"] = True
-        config_path = v2_config.get_dir_config_path(Path(cwd))
+        config_path = config.get_dir_config_path(Path(cwd))
         ctx["local_config"] = str(config_path)
         if not dir_param:
             ctx["hint"] = (
@@ -190,7 +190,7 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
     for ct in ComponentType:
         dir_to_ct[ct.registry_dir] = ct
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
 
     if "/" in target:
         type_part, name_part = target.split("/", 1)
@@ -200,7 +200,7 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
                 raise ValueError(f"'{target}' not found in registry")
             return [(ct, name_part)]
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         if type_part in packages:
             # package/type format
             target_ct = dir_to_ct.get(name_part)
@@ -210,7 +210,7 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
                         target_ct = ct
                         break
             if target_ct is not None:
-                pkg_items = v2_config.list_package_items(type_part)
+                pkg_items = config.list_package_items(type_part)
                 filtered = [
                     (ComponentType(t), n) for t, n in pkg_items
                     if ComponentType(t) == target_ct
@@ -224,9 +224,9 @@ def _resolve_enable_targets(target: str) -> list[tuple[ComponentType, str]]:
         )
 
     # Package name?
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     if target in packages:
-        pkg_items = v2_config.list_package_items(target)
+        pkg_items = config.list_package_items(target)
         if not pkg_items:
             raise ValueError(f"Package '{target}' has no items")
         return [(ComponentType(t), n) for t, n in pkg_items]
@@ -290,7 +290,7 @@ def _run_sync(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """Run sync and return structured results, nested by scope then tool."""
-    from .v2_sync import sync_all, sync_directory
+    from .sync import sync_all, sync_directory
 
     tools = [Tool(tool_param)] if tool_param else None
 
@@ -381,8 +381,8 @@ def _action_describe(data: dict) -> dict:
 
 
 def _action_list(data: dict) -> dict:
-    registry = Registry(v2_config.get_registry_path())
-    cfg = v2_config.load_global_config()
+    registry = Registry(config.get_registry_path())
+    cfg = config.load_global_config()
     global_section = cfg.get("global", {})
 
     type_filter = data.get("type")
@@ -393,7 +393,7 @@ def _action_list(data: dict) -> dict:
         contents = registry.list()
 
     # Build enriched list with enabled state + package info
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     pkg_owner: dict[tuple[str, str], str] = {}
     for pkg_name, pkg_data in packages.items():
         for item in pkg_data.get("items", []):
@@ -405,7 +405,7 @@ def _action_list(data: dict) -> dict:
     dir_param = data.get("dir")
     dir_enabled: dict[str, list[str]] = {}
     if dir_param:
-        dir_config = v2_config.load_dir_config(Path(dir_param).resolve())
+        dir_config = config.load_dir_config(Path(dir_param).resolve())
         if dir_config:
             dir_section = dir_config.get("global", dir_config)
             for ct in ComponentType:
@@ -436,9 +436,9 @@ def _action_list(data: dict) -> dict:
 def _action_status(data: dict) -> dict:
     from .adapters import get_adapter
     from .resolver import resolve
-    from .v2_sync import count_unsynced_targets
+    from .sync import count_unsynced_targets
 
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     dir_param = data.get("dir")
 
     if dir_param:
@@ -482,7 +482,7 @@ def _action_status(data: dict) -> dict:
 
     # Include profile if applicable
     if dir_param:
-        dir_config = v2_config.load_dir_config(Path(dir_param).resolve())
+        dir_config = config.load_dir_config(Path(dir_param).resolve())
         if dir_config and dir_config.get("profile"):
             result["profile"] = dir_config["profile"]
 
@@ -490,7 +490,7 @@ def _action_status(data: dict) -> dict:
 
 
 def _action_list_packages(data: dict) -> dict:
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     result = []
     for name, pkg_data in sorted(packages.items()):
         entry: dict[str, Any] = {
@@ -529,7 +529,7 @@ def _action_add(data: dict) -> dict:
     if content_param and not name_param:
         raise ValueError("'name' is required when using 'content'")
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     registry.ensure_dirs()
 
     # Resolve source
@@ -571,13 +571,13 @@ def _action_add(data: dict) -> dict:
     if do_enable:
         if dir_param:
             project_dir = Path(dir_param).resolve()
-            cfg = v2_config.load_dir_config(project_dir) or {}
+            cfg = config.load_dir_config(project_dir) or {}
             _enable_items([(ct, name)], cfg, section_key="global")
-            v2_config.save_dir_config(project_dir, cfg)
+            config.save_dir_config(project_dir, cfg)
         else:
-            cfg = v2_config.load_global_config()
+            cfg = config.load_global_config()
             _enable_items([(ct, name)], cfg, section_key="global")
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
         result["enabled"] = True
 
     # Sync
@@ -594,12 +594,12 @@ def _action_remove(data: dict) -> dict:
     name = _require(data, "name")
     do_sync = bool(data.get("sync", False))
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     if not registry.remove(ct, name):
         raise ValueError(f"{ct.value}/{name} not found in registry")
 
     # Remove from global config enabled lists
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     global_section = cfg.get("global", {})
     field = ct.registry_dir
     enabled = global_section.get(field, [])
@@ -607,11 +607,11 @@ def _action_remove(data: dict) -> dict:
         enabled.remove(name)
         global_section[field] = enabled
         cfg["global"] = global_section
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
     # Remove from all registered directory configs
-    for dir_path_str in v2_config.get_registered_directories():
-        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
+    for dir_path_str in config.get_registered_directories():
+        dir_cfg = config.load_dir_config(Path(dir_path_str))
         if dir_cfg is None:
             continue
         dir_section = dir_cfg.get("global", dir_cfg)
@@ -621,7 +621,7 @@ def _action_remove(data: dict) -> dict:
             dir_section[field] = dir_enabled
             if "global" in dir_cfg:
                 dir_cfg["global"] = dir_section
-            v2_config.save_dir_config(Path(dir_path_str), dir_cfg)
+            config.save_dir_config(Path(dir_path_str), dir_cfg)
 
     result: dict[str, Any] = {"removed": f"{ct.value}/{name}"}
 
@@ -641,14 +641,14 @@ def _action_enable(data: dict) -> dict:
 
     if dir_param:
         project_dir = Path(dir_param).resolve()
-        cfg = v2_config.load_dir_config(project_dir) or {}
+        cfg = config.load_dir_config(project_dir) or {}
         newly = _enable_items(items, cfg, section_key="global")
-        v2_config.save_dir_config(project_dir, cfg)
+        config.save_dir_config(project_dir, cfg)
         scope = str(project_dir)
     else:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         newly = _enable_items(items, cfg, section_key="global")
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         scope = "global"
 
     result: dict[str, Any] = {"enabled": newly, "scope": scope}
@@ -669,14 +669,14 @@ def _action_disable(data: dict) -> dict:
 
     if dir_param:
         project_dir = Path(dir_param).resolve()
-        cfg = v2_config.load_dir_config(project_dir) or {}
+        cfg = config.load_dir_config(project_dir) or {}
         newly = _disable_items(items, cfg, section_key="global")
-        v2_config.save_dir_config(project_dir, cfg)
+        config.save_dir_config(project_dir, cfg)
         scope = str(project_dir)
     else:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         newly = _disable_items(items, cfg, section_key="global")
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         scope = "global"
 
     result: dict[str, Any] = {"disabled": newly, "scope": scope}
@@ -742,7 +742,7 @@ def _action_download(data: dict) -> dict:
 
     # Enable added items
     if do_enable and result_obj.added:
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         global_section = cfg.get("global", {})
         enabled_count = 0
         for item_key in result_obj.added:
@@ -762,7 +762,7 @@ def _action_download(data: dict) -> dict:
                 enabled_count += 1
         if enabled_count:
             cfg["global"] = global_section
-            v2_config.save_global_config(cfg)
+            config.save_global_config(cfg)
             result["enabled_count"] = enabled_count
 
     if do_sync:

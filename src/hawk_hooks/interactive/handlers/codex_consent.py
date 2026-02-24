@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ... import v2_config
+from ... import config
 from ...types import Tool
 from .. import dashboard as _dashboard
 
@@ -47,7 +47,7 @@ def is_codex_multi_agent_setup_required(state: dict) -> bool:
 
 def handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> bool:
     """Prompt for codex multi-agent consent and persist the chosen state."""
-    cfg = state.get("cfg") or v2_config.load_global_config()
+    cfg = state.get("cfg") or config.load_global_config()
     tools_cfg = cfg.setdefault("tools", {})
     codex_cfg = tools_cfg.setdefault("codex", {})
     consent = _dashboard._get_codex_multi_agent_consent(cfg)
@@ -99,7 +99,7 @@ def handle_codex_multi_agent_setup(state: dict, *, from_sync: bool = False) -> b
     codex_cfg["allow_multi_agent"] = new_consent == "granted"
     tools_cfg["codex"] = codex_cfg
     cfg["tools"] = tools_cfg
-    v2_config.save_global_config(cfg)
+    config.save_global_config(cfg)
 
     # Update in-memory state for immediate menu refresh.
     state["cfg"] = cfg

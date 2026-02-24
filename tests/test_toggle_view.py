@@ -84,7 +84,7 @@ if "simple_term_menu" not in sys.modules:
     simple_term_menu.TerminalMenu = _TerminalMenuStub
     sys.modules["simple_term_menu"] = simple_term_menu
 
-from hawk_hooks.v2_interactive import toggle
+from hawk_hooks.interactive import toggle
 
 
 def test_get_view_wrap_width_defaults_and_clamps_to_terminal(monkeypatch):

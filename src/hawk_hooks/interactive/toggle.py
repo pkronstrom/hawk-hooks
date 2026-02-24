@@ -14,7 +14,7 @@ import re
 import subprocess
 import sys
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import field
 from pathlib import Path
 from typing import Callable
 
@@ -25,7 +25,7 @@ from rich.live import Live
 from rich.text import Text
 
 from ..hook_meta import parse_hook_meta
-from ..types import TieredMenuItem, ToggleGroup, ToggleScope  # noqa: F401 — re-exported
+from ..types import TieredMenuItem, ToggleScope  # noqa: F401 — re-exported
 from .pause import wait_for_continue
 from .theme import (
     action_style,

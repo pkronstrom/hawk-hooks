@@ -1,21 +1,20 @@
-# hawk-hooks (v2)
+# hawk-hooks
 
-`hawk-hooks` is now a multi-tool component manager with registry-backed sync.
-The primary architecture is the v2 stack (`cli.py`, `v2_config.py`, `v2_sync.py`, adapters, resolver, and `v2_interactive/`).
+`hawk-hooks` is a multi-tool component manager with registry-backed sync.
 
-## Primary Architecture (v2)
+## Primary Architecture
 
 ```
 src/hawk_hooks/
 ├── cli.py                  # Main CLI entry (hawk + hawk-hooks commands)
-├── v2_config.py            # YAML config + directory index + package index
-├── v2_sync.py              # Sync/clean orchestration + cache + result formatting
+├── config.py               # YAML config + directory index + package index
+├── sync.py                 # Sync/clean orchestration + cache + result formatting
 ├── resolver.py             # Global/profile/dir-chain resolution
 ├── registry.py             # Registry add/remove/replace/list operations
 ├── downloader.py           # Git/local package scan + metadata-aware classification
 ├── event_mapping.py        # Canonical hook event contract + per-tool support
 ├── adapters/               # Claude, Gemini, Codex, OpenCode, Cursor, Antigravity
-└── v2_interactive/         # Dashboard, toggles, wizard, settings editor
+└── interactive/            # Dashboard, toggles, wizard, settings editor
 ```
 
 ## Config + Data Locations
@@ -50,7 +49,3 @@ hawk download <url>
 hawk packages
 hawk update
 ```
-
-## Legacy (v1) Note
-
-Legacy v1 modules (`cli.py`, `config.py`, `sync.py`, `interactive/`, etc.) remain for migration and compatibility, but new development should target v2 modules.

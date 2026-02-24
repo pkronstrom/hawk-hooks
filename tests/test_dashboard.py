@@ -86,7 +86,7 @@ if "readchar" not in sys.modules:
     readchar.readkey = lambda: "\n"
     sys.modules["readchar"] = readchar
 
-dashboard = importlib.import_module("hawk_hooks.v2_interactive.dashboard")
+dashboard = importlib.import_module("hawk_hooks.interactive.dashboard")
 
 from hawk_hooks.types import ComponentType, SyncResult, Tool
 
@@ -223,7 +223,7 @@ def test_build_environment_menu_entries_includes_status_context(monkeypatch):
     state["cfg"] = {"sync_on_exit": "always"}
     state["codex_multi_agent_required"] = True
     state["missing_components_required"] = True
-    monkeypatch.setattr("hawk_hooks.v2_config.get_registered_directories", lambda: {"/tmp/p": {}})
+    monkeypatch.setattr("hawk_hooks.config.get_registered_directories", lambda: {"/tmp/p": {}})
 
     entries, title = dashboard._build_environment_menu_entries(state)
 
@@ -253,7 +253,7 @@ def test_handle_tools_toggle_prunes_when_disabling(monkeypatch):
         saved_cfg.update(cfg)
 
     pruned: list[list[Tool]] = []
-    monkeypatch.setattr("hawk_hooks.v2_config.save_global_config", _save)
+    monkeypatch.setattr("hawk_hooks.config.save_global_config", _save)
     monkeypatch.setattr(dashboard, "_prune_disabled_tools", lambda ds: pruned.append(ds))
 
     changed = dashboard._handle_tools_toggle(state)
@@ -277,7 +277,7 @@ def test_handle_tools_toggle_no_prune_when_only_enabling(monkeypatch):
     )
 
     pruned: list[list[Tool]] = []
-    monkeypatch.setattr("hawk_hooks.v2_config.save_global_config", lambda _cfg: None)
+    monkeypatch.setattr("hawk_hooks.config.save_global_config", lambda _cfg: None)
     monkeypatch.setattr(dashboard, "_prune_disabled_tools", lambda ds: pruned.append(ds))
 
     changed = dashboard._handle_tools_toggle(state)
@@ -304,7 +304,7 @@ def test_codex_setup_prompt_sets_granted(monkeypatch):
         saved_cfg.clear()
         saved_cfg.update(cfg)
 
-    monkeypatch.setattr("hawk_hooks.v2_config.save_global_config", _save)
+    monkeypatch.setattr("hawk_hooks.config.save_global_config", _save)
 
     changed = dashboard._handle_codex_multi_agent_setup(state)
     assert changed is True
@@ -326,7 +326,7 @@ def test_auto_sync_after_change_returns_clean_on_success(monkeypatch):
         _fake_sync,
     )
     monkeypatch.setattr(
-        "hawk_hooks.v2_sync.format_sync_results",
+        "hawk_hooks.sync.format_sync_results",
         lambda *_args, **_kwargs: "",
     )
     monkeypatch.setattr(dashboard, "wait_for_continue", lambda *_args, **_kwargs: None)
@@ -349,7 +349,7 @@ def test_auto_sync_after_change_keeps_dirty_on_errors(monkeypatch):
         _fake_sync,
     )
     monkeypatch.setattr(
-        "hawk_hooks.v2_sync.format_sync_results",
+        "hawk_hooks.sync.format_sync_results",
         lambda *_args, **_kwargs: "error summary",
     )
     monkeypatch.setattr(dashboard, "wait_for_continue", lambda *_args, **_kwargs: None)
@@ -367,7 +367,7 @@ def test_handle_sync_uses_force_true(monkeypatch):
         return {"global": [SyncResult(tool="claude")]}
 
     monkeypatch.setattr(dashboard, "_sync_all_with_preflight", _fake_sync)
-    monkeypatch.setattr("hawk_hooks.v2_sync.format_sync_results", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr("hawk_hooks.sync.format_sync_results", lambda *_args, **_kwargs: "")
     monkeypatch.setattr(dashboard, "wait_for_continue", lambda *_args, **_kwargs: None)
 
     dashboard._handle_sync({"scope_dir": "/tmp/demo"})
@@ -422,7 +422,7 @@ def test_delete_project_scope_unregisters_and_keeps_local_hawk(tmp_path, monkeyp
     def _unregister(path: Path):
         calls.append(path)
 
-    monkeypatch.setattr("hawk_hooks.v2_config.unregister_directory", _unregister)
+    monkeypatch.setattr("hawk_hooks.config.unregister_directory", _unregister)
 
     ok, _msg = dashboard._delete_project_scope(project, delete_local_hawk=False)
     assert ok is True
@@ -437,7 +437,7 @@ def test_delete_project_scope_can_remove_local_hawk_dir(tmp_path, monkeypatch):
     hawk_dir.mkdir()
     (hawk_dir / "config.yaml").write_text("skills: {}\n")
 
-    monkeypatch.setattr("hawk_hooks.v2_config.unregister_directory", lambda _path: None)
+    monkeypatch.setattr("hawk_hooks.config.unregister_directory", lambda _path: None)
 
     ok, _msg = dashboard._delete_project_scope(project, delete_local_hawk=True)
     assert ok is True

@@ -54,9 +54,9 @@ class HookRunnerMixin:
         runners_dir.mkdir(parents=True, exist_ok=True)
 
         # Check for venv python
-        from ... import v2_config
+        from ... import config
 
-        venv_python = v2_config.get_config_dir() / ".venv" / "bin" / "python"
+        venv_python = config.get_config_dir() / ".venv" / "bin" / "python"
         python_cmd = shlex.quote(str(venv_python)) if venv_python.is_file() else "python3"
 
         for event, hook_entries in hooks_by_event.items():

@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from ... import v2_config
+from ... import config
 from .. import dashboard as _dashboard
 
 console = _dashboard.console
@@ -43,7 +43,7 @@ def delete_project_scope(project_dir: Path, *, delete_local_hawk: bool) -> tuple
     """Delete a registered project scope, optionally removing local .hawk files."""
     project_dir = project_dir.resolve()
     try:
-        v2_config.unregister_directory(project_dir)
+        config.unregister_directory(project_dir)
     except Exception as e:
         return False, f"Failed to remove scope: {e}"
 
@@ -107,7 +107,7 @@ def prompt_delete_scope(project_dir: Path, *, prefer_delete_local: bool = False)
 def run_projects_tree() -> None:
     """Show interactive tree of all registered directories."""
     while True:
-        dirs = v2_config.get_registered_directories()
+        dirs = config.get_registered_directories()
 
         if not dirs:
             console.print("\n[dim]No directories registered.[/dim]")
@@ -141,7 +141,7 @@ def run_projects_tree() -> None:
             profile = entry.get("profile", "")
 
             # Count enabled items
-            dir_config = v2_config.load_dir_config(p)
+            dir_config = config.load_dir_config(p)
             parts: list[str] = []
             if profile:
                 parts.append(f"profile: {profile}")
@@ -186,7 +186,7 @@ def run_projects_tree() -> None:
             _add_tree(root, 0)
 
         # Add global entry at top
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         global_section = cfg.get("global", {})
         global_parts: list[str] = []
         for field in ["skills", "hooks", "prompts", "agents", "mcp"]:
@@ -240,6 +240,6 @@ def run_projects_tree() -> None:
             run_config_editor()
         else:
             # Open dashboard scoped to that directory
-            from .. import v2_interactive_menu
-            v2_interactive_menu(scope_dir=selected_path)
+            from .. import interactive_menu
+            interactive_menu(scope_dir=selected_path)
             break

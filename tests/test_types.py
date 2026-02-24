@@ -1,47 +1,91 @@
-"""Tests for type definitions."""
+"""Tests for v2 type definitions."""
 
-import pytest
-
-from hawk_hooks.types import PromptInfo, PromptType
+from hawk_hooks.types import ComponentType, ResolvedSet, SyncResult, Tool
 
 
-class TestPromptType:
-    """Test PromptType enum."""
+class TestTool:
+    def test_values(self):
+        assert str(Tool.CLAUDE) == "claude"
+        assert str(Tool.GEMINI) == "gemini"
+        assert str(Tool.CODEX) == "codex"
+        assert str(Tool.OPENCODE) == "opencode"
 
-    def test_command_type(self):
-        assert PromptType.COMMAND.value == "command"
+    def test_all(self):
+        tools = Tool.all()
+        assert len(tools) == 6
+        assert Tool.CLAUDE in tools
+        assert Tool.OPENCODE in tools
+        assert Tool.CURSOR in tools
+        assert Tool.ANTIGRAVITY in tools
 
-    def test_agent_type(self):
-        assert PromptType.AGENT.value == "agent"
-
-    def test_from_string(self):
-        assert PromptType.from_string("command") == PromptType.COMMAND
-        assert PromptType.from_string("agent") == PromptType.AGENT
-
-    def test_from_string_invalid(self):
-        with pytest.raises(ValueError):
-            PromptType.from_string("invalid")
+    def test_str_enum(self):
+        assert Tool.CLAUDE == "claude"
+        assert Tool("gemini") == Tool.GEMINI
 
 
-class TestPromptInfo:
-    """Test PromptInfo dataclass."""
+class TestComponentType:
+    def test_values(self):
+        assert str(ComponentType.SKILL) == "skill"
+        assert str(ComponentType.HOOK) == "hook"
+        assert str(ComponentType.COMMAND) == "command"
+        assert str(ComponentType.AGENT) == "agent"
+        assert str(ComponentType.MCP) == "mcp"
+        assert str(ComponentType.PROMPT) == "prompt"
 
-    def test_create_prompt_info(self):
-        from pathlib import Path
+    def test_registry_dir(self):
+        assert ComponentType.SKILL.registry_dir == "skills"
+        assert ComponentType.HOOK.registry_dir == "hooks"
+        assert ComponentType.MCP.registry_dir == "mcp"
 
-        from hawk_hooks.frontmatter import HookConfig, PromptFrontmatter
+    def test_str_enum(self):
+        assert ComponentType("skill") == ComponentType.SKILL
 
-        fm = PromptFrontmatter(
-            name="test",
-            description="A test",
-            tools=["claude"],
-            hooks=[HookConfig(event="pre_tool", matchers=["Bash"])],
-        )
-        info = PromptInfo(
-            path=Path("/tmp/test.md"),
-            frontmatter=fm,
-            prompt_type=PromptType.COMMAND,
-        )
-        assert info.name == "test"
-        assert info.has_hooks is True
-        assert "claude" in info.tools
+
+class TestResolvedSet:
+    def test_defaults(self):
+        rs = ResolvedSet()
+        assert rs.skills == []
+        assert rs.hooks == []
+        assert rs.commands == []
+        assert rs.agents == []
+        assert rs.mcp == []
+        assert rs.prompts == []
+
+    def test_get(self):
+        rs = ResolvedSet(skills=["tdd"], hooks=["block-secrets"], prompts=["audit.md"])
+        assert rs.get(ComponentType.SKILL) == ["tdd"]
+        assert rs.get(ComponentType.HOOK) == ["block-secrets"]
+        assert rs.get(ComponentType.COMMAND) == []
+        assert rs.get(ComponentType.PROMPT) == ["audit.md"]
+
+    def test_hash_key_includes_prompts(self):
+        rs1 = ResolvedSet(prompts=["a"])
+        rs2 = ResolvedSet(prompts=["b"])
+        assert rs1.hash_key() != rs2.hash_key()
+        rs3 = ResolvedSet(prompts=["a"])
+        assert rs1.hash_key() == rs3.hash_key()
+
+    def test_hash_key_deterministic(self):
+        rs1 = ResolvedSet(skills=["a", "b"], hooks=["c"])
+        rs2 = ResolvedSet(skills=["a", "b"], hooks=["c"])
+        assert rs1.hash_key() == rs2.hash_key()
+
+    def test_hash_key_different(self):
+        rs1 = ResolvedSet(skills=["a"])
+        rs2 = ResolvedSet(skills=["b"])
+        assert rs1.hash_key() != rs2.hash_key()
+
+    def test_hash_key_order_independent(self):
+        rs1 = ResolvedSet(skills=["a", "b"])
+        rs2 = ResolvedSet(skills=["b", "a"])
+        # sorted internally, so same hash
+        assert rs1.hash_key() == rs2.hash_key()
+
+
+class TestSyncResult:
+    def test_defaults(self):
+        sr = SyncResult(tool="claude")
+        assert sr.tool == "claude"
+        assert sr.linked == []
+        assert sr.unlinked == []
+        assert sr.errors == []

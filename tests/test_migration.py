@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from hawk_hooks import migration, v2_config
+from hawk_hooks import migration, config
 
 
 @pytest.fixture
@@ -12,7 +12,7 @@ def v2_env(tmp_path, monkeypatch):
     """Set up a temp config environment."""
     config_dir = tmp_path / "hawk-hooks"
     config_dir.mkdir()
-    monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+    monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
     return config_dir
 
 
@@ -86,7 +86,7 @@ class TestMigrateConfig:
                 if isinstance(value, dict):
                     _assert_default_shape(value, got_obj[key])
 
-        _assert_default_shape(v2_config.DEFAULT_GLOBAL_CONFIG, v2)
+        _assert_default_shape(config.DEFAULT_GLOBAL_CONFIG, v2)
 
 
 class TestDetectV1:
@@ -119,20 +119,20 @@ class TestRunMigration:
         assert "Migrated" in msg
 
         # v2 config should exist
-        v2_path = v2_config.get_global_config_path()
+        v2_path = config.get_global_config_path()
         assert v2_path.exists()
 
         # Backup should exist
         assert v1_path.with_suffix(".json.v1-backup").exists()
 
         # Content should be correct
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         assert "guard" in cfg["global"]["hooks"]
 
     def test_skip_if_v2_exists(self, v2_env):
         # Write both configs
         (v2_env / "config.json").write_text("{}")
-        v2_config.save_global_config({"debug": False})
+        config.save_global_config({"debug": False})
 
         success, msg = migration.run_migration()
         assert success is False
@@ -158,6 +158,6 @@ class TestRunMigration:
 
         assert success is True
         assert "Migrated" in msg
-        cfg = v2_config.load_global_config()
+        cfg = config.load_global_config()
         assert cfg["global"]["hooks"] == []
         assert cfg["directories"] == {}

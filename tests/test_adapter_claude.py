@@ -6,7 +6,7 @@ import pytest
 
 from hawk_hooks.adapters.claude import ClaudeAdapter, HAWK_MCP_MARKER
 from hawk_hooks.types import ResolvedSet, Tool
-from hawk_hooks import v2_config
+from hawk_hooks import config
 
 
 @pytest.fixture
@@ -238,7 +238,7 @@ class TestClaudeSync:
         target.mkdir()
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         resolved = ResolvedSet(hooks=[
             "file-guard.py",
@@ -254,7 +254,7 @@ class TestClaudeSync:
         target.mkdir()
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         resolved = ResolvedSet(hooks=["nonexistent-hook"])
         result = adapter.sync(resolved, target, setup_registry)
@@ -269,7 +269,7 @@ class TestClaudeHookWiring:
         """Set up env for hook wiring tests."""
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"
@@ -560,7 +560,7 @@ class TestClaudeHookWiring:
         """Each project should get its own runners directory, not a shared global one."""
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"
@@ -596,7 +596,7 @@ class TestClaudePromptHooks:
     def prompt_hook_env(self, tmp_path, monkeypatch):
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"
@@ -732,7 +732,7 @@ class TestClaudeTimeoutPropagation:
     def timeout_env(self, tmp_path, monkeypatch):
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"
@@ -817,7 +817,7 @@ class TestClaudeHookMigration:
         """Settings with old array-format hooks are migrated to record."""
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"
@@ -868,7 +868,7 @@ class TestClaudeHookMigration:
         """Settings with objects containing event keys inside an array are migrated."""
         config_dir = tmp_path / "hawk-config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         registry = tmp_path / "registry"
         hooks_dir = registry / "hooks"

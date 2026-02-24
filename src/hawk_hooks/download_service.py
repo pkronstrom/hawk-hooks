@@ -6,7 +6,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import Callable
 
-from . import v2_config
+from . import config
 from .downloader import ClassifiedContent, add_items_to_registry, check_clashes, classify, get_head_commit, shallow_clone
 from .registry import Registry
 
@@ -52,7 +52,7 @@ def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[st
     added_keys = added_keys or set()
 
     owner_map: dict[tuple[str, str], str] = {}
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     for pkg_name, pkg_data in packages.items():
         pkg_items = pkg_data.get("items", []) if isinstance(pkg_data, dict) else []
         if not isinstance(pkg_items, list):
@@ -84,12 +84,12 @@ def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[st
                 source_path = item.source_path
                 if source_path is None or not source_path.exists():
                     continue
-                source_hash = v2_config.hash_registry_item(source_path)
-                registry_hash = v2_config.hash_registry_item(item_path)
+                source_hash = config.hash_registry_item(source_path)
+                registry_hash = config.hash_registry_item(item_path)
                 if source_hash != registry_hash:
                     continue
 
-        item_hash = v2_config.hash_registry_item(item_path)
+        item_hash = config.hash_registry_item(item_path)
         pkg_items.append(
             {
                 "type": item.component_type.value,
@@ -116,7 +116,7 @@ def download_and_install(
     """
     logf = log or _noop
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     registry.ensure_dirs()
 
     logf(f"Cloning {url}...")
@@ -207,11 +207,11 @@ def download_and_install(
             package_name = (
                 name
                 or (content.package_meta.name if content.package_meta else None)
-                or v2_config.package_name_from_url(url)
+                or config.package_name_from_url(url)
             )
             pkg_items = _build_pkg_items(selected_items, registry, package_name, set(added))
             if pkg_items:
-                v2_config.record_package(package_name, url, commit_hash, pkg_items)
+                config.record_package(package_name, url, commit_hash, pkg_items)
                 logf(f"\nRecorded package: {package_name} ({len(pkg_items)} items)")
 
         if added:

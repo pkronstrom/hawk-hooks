@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from . import v2_config
+from . import config
 
 
 def _merge_unique(existing: list[str], incoming: list[str]) -> list[str]:
@@ -87,7 +87,7 @@ def _migrate_config_dict(cfg: dict[str, Any], changes: list[str]) -> bool:
 
 
 def _migrate_dir_config(path: Path, changes: list[str], backup: bool) -> bool:
-    dir_cfg = v2_config.load_dir_config(path)
+    dir_cfg = config.load_dir_config(path)
     if not dir_cfg:
         return False
 
@@ -122,8 +122,8 @@ def _migrate_dir_config(path: Path, changes: list[str], backup: bool) -> bool:
 
     if changed:
         if backup:
-            _backup_file(v2_config.get_dir_config_path(path))
-        v2_config.save_dir_config(path, dir_cfg)
+            _backup_file(config.get_dir_config_path(path))
+        config.save_dir_config(path, dir_cfg)
         changes.append(f"migrated {path}/.hawk/config.yaml commands -> prompts")
 
     return changed
@@ -132,7 +132,7 @@ def _migrate_dir_config(path: Path, changes: list[str], backup: bool) -> bool:
 def _migrate_registry(cfg: dict[str, Any], changes: list[str]) -> bool:
     changed = False
 
-    registry_path = v2_config.get_registry_path(cfg)
+    registry_path = config.get_registry_path(cfg)
     commands_dir = registry_path / "commands"
     prompts_dir = registry_path / "prompts"
 
@@ -178,7 +178,7 @@ def _migrate_registry(cfg: dict[str, Any], changes: list[str]) -> bool:
 
 
 def _migrate_packages(changes: list[str], backup: bool) -> bool:
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     changed = False
 
     for pkg_data in packages.values():
@@ -190,15 +190,15 @@ def _migrate_packages(changes: list[str], backup: bool) -> bool:
 
     if changed:
         if backup:
-            _backup_file(v2_config.get_packages_path())
-        v2_config.save_packages(packages)
+            _backup_file(config.get_packages_path())
+        config.save_packages(packages)
         changes.append("rewrote packages item type command -> prompt")
 
     return changed
 
 
 def _clear_resolved_cache(changes: list[str]) -> bool:
-    cache_dir = v2_config.get_config_dir() / "cache" / "resolved"
+    cache_dir = config.get_config_dir() / "cache" / "resolved"
     if not cache_dir.exists():
         return False
 
@@ -225,13 +225,13 @@ def _collect_check_messages(cfg: dict[str, Any]) -> list[str]:
             messages.append(f"tools.{tool_name}.commands needs migration")
 
     for dir_path_str in cfg.get("directories", {}):
-        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
+        dir_cfg = config.load_dir_config(Path(dir_path_str))
         if not dir_cfg:
             continue
         if "commands" in dir_cfg:
             messages.append(f"{dir_path_str}/.hawk/config.yaml commands needs migration")
 
-    registry_path = v2_config.get_registry_path(cfg)
+    registry_path = config.get_registry_path(cfg)
     commands_dir = registry_path / "commands"
     try:
         if commands_dir.exists() and any(commands_dir.iterdir()):
@@ -239,7 +239,7 @@ def _collect_check_messages(cfg: dict[str, Any]) -> list[str]:
     except OSError:
         messages.append(f"registry/commands is not accessible: {commands_dir}")
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     for pkg_name, pkg_data in packages.items():
         for item in pkg_data.get("items", []):
             if item.get("type") == "command":
@@ -255,7 +255,7 @@ def run_migrate_prompts(*, check_only: bool, backup: bool = True) -> tuple[bool,
     Returns:
         tuple of (changed_or_needed, summary)
     """
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
 
     if check_only:
         messages = _collect_check_messages(cfg)
@@ -266,14 +266,14 @@ def run_migrate_prompts(*, check_only: bool, backup: bool = True) -> tuple[bool,
     changes: list[str] = []
     changed = False
 
-    config_path = v2_config.get_global_config_path()
+    config_path = config.get_global_config_path()
     if backup:
         _backup_file(config_path)
 
     cfg_to_save = copy.deepcopy(cfg)
     if _migrate_config_dict(cfg_to_save, changes):
         changed = True
-        v2_config.save_global_config(cfg_to_save)
+        config.save_global_config(cfg_to_save)
 
     for dir_path_str in cfg_to_save.get("directories", {}):
         if _migrate_dir_config(Path(dir_path_str), changes, backup=backup):

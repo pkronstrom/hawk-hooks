@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hawk_hooks.v2_interactive import theme
+from hawk_hooks.interactive import theme
 
 
 def test_set_project_theme_selects_known_project_palette():

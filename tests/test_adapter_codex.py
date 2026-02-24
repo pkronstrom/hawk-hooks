@@ -172,7 +172,7 @@ class TestCodexAgents:
         target.mkdir()
 
         monkeypatch.setattr(
-            "hawk_hooks.v2_config.load_global_config",
+            "hawk_hooks.config.load_global_config",
             lambda: {"tools": {"codex": {"allow_multi_agent": False, "agent_trigger_mode": "skills"}}},
         )
 
@@ -198,7 +198,7 @@ class TestCodexAgents:
         target.mkdir()
 
         monkeypatch.setattr(
-            "hawk_hooks.v2_config.load_global_config",
+            "hawk_hooks.config.load_global_config",
             lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
         )
 
@@ -235,7 +235,7 @@ class TestCodexAgents:
         (target / "config.toml").write_text("[features]\nfoo = true\n")
 
         monkeypatch.setattr(
-            "hawk_hooks.v2_config.load_global_config",
+            "hawk_hooks.config.load_global_config",
             lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
         )
 
@@ -251,7 +251,7 @@ class TestCodexAgents:
         target.mkdir()
 
         monkeypatch.setattr(
-            "hawk_hooks.v2_config.load_global_config",
+            "hawk_hooks.config.load_global_config",
             lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
         )
 
@@ -281,7 +281,7 @@ class TestCodexAgents:
         target.mkdir()
 
         monkeypatch.setattr(
-            "hawk_hooks.v2_config.load_global_config",
+            "hawk_hooks.config.load_global_config",
             lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
         )
 

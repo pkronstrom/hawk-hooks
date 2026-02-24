@@ -1,13 +1,12 @@
-"""v2 sync engine - orchestrates syncing resolved sets to tools."""
+"""Sync engine - orchestrates syncing resolved sets to tools."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 from pathlib import Path
-from typing import Any
 
-from . import v2_config
+from . import config
 from .adapters import get_adapter
 from .registry import Registry
 from .resolver import resolve
@@ -17,7 +16,7 @@ from .types import ResolvedSet, SyncResult, Tool
 
 def _get_cache_dir() -> Path:
     """Get the resolved-set cache directory."""
-    return v2_config.get_config_dir() / "cache" / "resolved"
+    return config.get_config_dir() / "cache" / "resolved"
 
 
 def _cache_key(scope: str, tool: Tool) -> str:
@@ -63,9 +62,9 @@ def count_unsynced_targets(
     Returns:
         (unsynced_count, total_targets_checked)
     """
-    cfg = v2_config.load_global_config()
-    registry = Registry(v2_config.get_registry_path(cfg))
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+    cfg = config.load_global_config()
+    registry = Registry(config.get_registry_path(cfg))
+    enabled_tools = tools or config.get_enabled_tools(cfg)
 
     selected_tools: list[Tool] = []
     for tool in enabled_tools:
@@ -123,14 +122,14 @@ def sync_directory(
     Returns:
         List of SyncResult, one per tool.
     """
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
 
     # Build dir_chain from shared config+profile resolution helper.
     dir_chain = build_resolver_dir_chain(project_dir, cfg=cfg)
 
     # Determine which tools to sync
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
-    registry = Registry(v2_config.get_registry_path(cfg))
+    enabled_tools = tools or config.get_enabled_tools(cfg)
+    registry = Registry(config.get_registry_path(cfg))
     results: list[SyncResult] = []
 
     scope_key = str(project_dir.resolve())
@@ -182,9 +181,9 @@ def sync_global(
     Returns:
         List of SyncResult, one per tool.
     """
-    cfg = v2_config.load_global_config()
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
-    registry = Registry(v2_config.get_registry_path(cfg))
+    cfg = config.load_global_config()
+    enabled_tools = tools or config.get_enabled_tools(cfg)
+    registry = Registry(config.get_registry_path(cfg))
     results: list[SyncResult] = []
 
     for tool in enabled_tools:
@@ -231,7 +230,7 @@ def sync_all(
     all_results["global"] = sync_global(tools=tools, dry_run=dry_run, force=force)
 
     # Sync each registered directory
-    directories = v2_config.get_registered_directories()
+    directories = config.get_registered_directories()
     for dir_path_str in directories:
         dir_path = Path(dir_path_str)
         if dir_path.exists():
@@ -252,9 +251,9 @@ def clean_directory(
     Syncs with an empty resolved set, which causes all hawk-managed
     symlinks to be unlinked.
     """
-    cfg = v2_config.load_global_config()
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
-    registry = Registry(v2_config.get_registry_path(cfg))
+    cfg = config.load_global_config()
+    enabled_tools = tools or config.get_enabled_tools(cfg)
+    registry = Registry(config.get_registry_path(cfg))
     empty = ResolvedSet()
     results: list[SyncResult] = []
     scope_key = str(project_dir.resolve())
@@ -285,9 +284,9 @@ def clean_global(
     dry_run: bool = False,
 ) -> list[SyncResult]:
     """Remove all hawk-managed items from global tool configs."""
-    cfg = v2_config.load_global_config()
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
-    registry = Registry(v2_config.get_registry_path(cfg))
+    cfg = config.load_global_config()
+    enabled_tools = tools or config.get_enabled_tools(cfg)
+    registry = Registry(config.get_registry_path(cfg))
     empty = ResolvedSet()
     results: list[SyncResult] = []
 
@@ -321,7 +320,7 @@ def clean_all(
 
     all_results["global"] = clean_global(tools=tools, dry_run=dry_run)
 
-    directories = v2_config.get_registered_directories()
+    directories = config.get_registered_directories()
     for dir_path_str in directories:
         dir_path = Path(dir_path_str)
         if dir_path.exists():
@@ -368,7 +367,7 @@ def purge_all(
         "global": purge_global(tools=tools, dry_run=dry_run)
     }
 
-    for dir_path_str in v2_config.get_registered_directories():
+    for dir_path_str in config.get_registered_directories():
         dir_path = Path(dir_path_str)
         if dir_path.exists():
             results[dir_path_str] = purge_directory(
@@ -399,13 +398,13 @@ def uninstall_all(
     if dry_run:
         return purge_results
 
-    cfg = v2_config.load_global_config()
-    registered_dirs = list(v2_config.get_registered_directories().keys())
+    cfg = config.load_global_config()
+    registered_dirs = list(config.get_registered_directories().keys())
 
     # Remove per-project hawk config files for registered directories.
     if remove_project_configs:
         for dir_path_str in registered_dirs:
-            cfg_path = v2_config.get_dir_config_path(Path(dir_path_str))
+            cfg_path = config.get_dir_config_path(Path(dir_path_str))
             try:
                 if cfg_path.exists():
                     cfg_path.unlink()
@@ -430,13 +429,13 @@ def uninstall_all(
     tools_cfg["codex"] = codex_cfg
     cfg["tools"] = tools_cfg
 
-    v2_config.save_global_config(cfg)
+    config.save_global_config(cfg)
 
     # Clear package index.
-    v2_config.save_packages({})
+    config.save_packages({})
 
     # Remove all registry items.
-    registry = Registry(v2_config.get_registry_path(cfg))
+    registry = Registry(config.get_registry_path(cfg))
     for ct, names in registry.list().items():
         for name in list(names):
             try:
@@ -456,7 +455,7 @@ def uninstall_all(
 
     # Seed global cache to represent the empty post-uninstall state.
     # This prevents a false "unsynced" signal immediately after uninstall.
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
+    enabled_tools = tools or config.get_enabled_tools(cfg)
     empty_hash = resolve(cfg).hash_key(registry_path=registry.path)
     for tool in enabled_tools:
         adapter = get_adapter(tool)
@@ -522,10 +521,10 @@ def _prune_scope(
     is_global: bool,
 ) -> list[SyncResult]:
     """Prune stale hawk-linked symlinks for one scope."""
-    cfg = v2_config.load_global_config()
-    enabled_tools = tools or v2_config.get_enabled_tools(cfg)
-    registry = Registry(v2_config.get_registry_path(cfg))
-    hawk_roots = [v2_config.get_config_dir().resolve(), registry.path.resolve()]
+    cfg = config.load_global_config()
+    enabled_tools = tools or config.get_enabled_tools(cfg)
+    registry = Registry(config.get_registry_path(cfg))
+    hawk_roots = [config.get_config_dir().resolve(), registry.path.resolve()]
 
     results: list[SyncResult] = []
     for tool in enabled_tools:

@@ -209,8 +209,8 @@ class TestGenerateRunnersWithMeta:
 
     @pytest.fixture(autouse=True)
     def _patch_config_dir(self, tmp_path, monkeypatch):
-        from hawk_hooks import v2_config
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+        from hawk_hooks import config
+        monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path / "config")
 
     def test_groups_by_metadata_events(self, tmp_path):
         """Hook with hawk-hook header groups by declared events."""
@@ -326,8 +326,8 @@ class TestGenerateRunnersWithMeta:
 
     def test_env_vars_exported_in_runner(self, tmp_path, monkeypatch):
         """Env vars with values should be exported before hook calls."""
-        from hawk_hooks import v2_config
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+        from hawk_hooks import config
+        monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path / "config")
 
         adapter = get_adapter(Tool.CLAUDE)
         registry = tmp_path / "registry"
@@ -353,8 +353,8 @@ class TestGenerateRunnersWithMeta:
 
     def test_env_var_shell_injection_prevented(self, tmp_path, monkeypatch):
         """Env var values with shell metacharacters should be safely quoted."""
-        from hawk_hooks import v2_config
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+        from hawk_hooks import config
+        monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path / "config")
 
         adapter = get_adapter(Tool.CLAUDE)
         registry = tmp_path / "registry"
@@ -379,8 +379,8 @@ class TestGenerateRunnersWithMeta:
 
     def test_invalid_env_var_name_rejected(self, tmp_path, monkeypatch, caplog):
         """Env var keys with shell metacharacters should be rejected."""
-        from hawk_hooks import v2_config
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+        from hawk_hooks import config
+        monkeypatch.setattr(config, "get_config_dir", lambda: tmp_path / "config")
 
         adapter = get_adapter(Tool.CLAUDE)
         registry = tmp_path / "registry"
@@ -407,9 +407,9 @@ class TestGenerateRunnersWithMeta:
 
     def test_venv_python_used_when_available(self, tmp_path, monkeypatch):
         """When venv exists, runners should use venv python path."""
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         config_dir = tmp_path / "config"
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         # Create fake venv python
         venv_bin = config_dir / ".venv" / "bin"
@@ -433,9 +433,9 @@ class TestGenerateRunnersWithMeta:
 
     def test_system_python_when_no_venv(self, tmp_path, monkeypatch):
         """When no venv exists, runners should use system python3."""
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         config_dir = tmp_path / "config"
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
 
         adapter = get_adapter(Tool.CLAUDE)
         registry = tmp_path / "registry"

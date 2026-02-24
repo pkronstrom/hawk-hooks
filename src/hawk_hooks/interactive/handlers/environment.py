@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ... import v2_config
+from ... import config
 from ...types import Tool
 from .. import dashboard as _dashboard
 
@@ -81,7 +81,7 @@ def _handle_tools_toggle(state: dict) -> bool:
 
     if changed:
         cfg["tools"] = tools_cfg
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
         if disabled_tools:
             _dashboard._prune_disabled_tools(disabled_tools)
 
@@ -93,7 +93,7 @@ def _prune_disabled_tools(disabled_tools: list[Tool]) -> None:
     if not disabled_tools:
         return
 
-    from ...v2_sync import format_sync_results, purge_all
+    from ...sync import format_sync_results, purge_all
 
     tool_labels = ", ".join(str(tool) for tool in disabled_tools)
     console.print(f"\n[bold]Cleaning disabled tool integrations:[/bold] {tool_labels}")
@@ -117,7 +117,7 @@ def _build_environment_menu_entries(state: dict) -> tuple[list[str], str]:
         for tool_state in state.get("tools_status", {}).values()
         if tool_state.get("enabled", True)
     )
-    scopes_count = len(v2_config.get_registered_directories())
+    scopes_count = len(config.get_registered_directories())
     sync_pref = str((state.get("cfg") or {}).get("sync_on_exit", "ask"))
 
     entries = [

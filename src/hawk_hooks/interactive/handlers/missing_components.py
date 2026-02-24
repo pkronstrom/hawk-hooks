@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ... import v2_config
+from ... import config
 from ...types import ComponentType
 from .. import dashboard as _dashboard
 
@@ -85,7 +85,7 @@ def find_package_lock_path(state: dict) -> Path | None:
             project_dir / ".hawk" / "packages.lock.yml",
         ])
 
-    config_dir = v2_config.get_config_dir()
+    config_dir = config.get_config_dir()
     candidates.extend([
         config_dir / "packages.lock.yaml",
         config_dir / "packages.lock.yml",
@@ -197,7 +197,7 @@ def remove_missing_references(state: dict) -> tuple[bool, int]:
     total_removed = 0
     changed_any = False
 
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     global_section = cfg.get("global", {})
 
     # Global layer
@@ -219,13 +219,13 @@ def remove_missing_references(state: dict) -> tuple[bool, int]:
     project_dir = state.get("project_dir")
     chain_dirs: list[Path] = []
     if project_dir is not None:
-        chain_dirs = [chain_dir for chain_dir, _ in v2_config.get_config_chain(project_dir)]
+        chain_dirs = [chain_dir for chain_dir, _ in config.get_config_chain(project_dir)]
         if not chain_dirs and state.get("local_cfg") is not None:
             chain_dirs = [project_dir.resolve()]
 
     profile_names: set[str] = set()
     for chain_dir in chain_dirs:
-        dir_cfg = v2_config.load_dir_config(chain_dir)
+        dir_cfg = config.load_dir_config(chain_dir)
         if not isinstance(dir_cfg, dict):
             continue
 
@@ -249,7 +249,7 @@ def remove_missing_references(state: dict) -> tuple[bool, int]:
                     changed_any = True
 
         if dir_changed:
-            v2_config.save_dir_config(chain_dir, dir_cfg)
+            config.save_dir_config(chain_dir, dir_cfg)
 
         profile_name = dir_cfg.get("profile")
         if not profile_name:
@@ -260,7 +260,7 @@ def remove_missing_references(state: dict) -> tuple[bool, int]:
 
     # Profile layers referenced by current chain
     for profile_name in profile_names:
-        profile_cfg = v2_config.load_profile(profile_name)
+        profile_cfg = config.load_profile(profile_name)
         if not isinstance(profile_cfg, dict):
             continue
 
@@ -281,10 +281,10 @@ def remove_missing_references(state: dict) -> tuple[bool, int]:
                     changed_any = True
 
         if profile_changed:
-            v2_config.save_profile(profile_name, profile_cfg)
+            config.save_profile(profile_name, profile_cfg)
 
     if changed_any:
-        v2_config.save_global_config(cfg)
+        config.save_global_config(cfg)
 
     return changed_any, total_removed
 

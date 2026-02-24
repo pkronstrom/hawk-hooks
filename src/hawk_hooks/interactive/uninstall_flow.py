@@ -5,8 +5,8 @@ from __future__ import annotations
 from rich.console import Console
 from simple_term_menu import TerminalMenu
 
-from .. import v2_config
-from ..v2_sync import format_sync_results, purge_all, uninstall_all
+from .. import config
+from ..sync import format_sync_results, purge_all, uninstall_all
 from .pause import wait_for_continue
 from .theme import get_theme, terminal_menu_style_kwargs
 from .uninstall_hint import detect_uninstall_command
@@ -38,7 +38,7 @@ def run_uninstall_wizard(console: Console) -> bool:
 
     full_uninstall = choice1 == 1
     remove_project_configs = False
-    registered_count = len(v2_config.get_registered_directories())
+    registered_count = len(config.get_registered_directories())
 
     if full_uninstall:
         step2 = TerminalMenu(

@@ -337,11 +337,11 @@ class TestCmdNew:
 
     def test_new_hook_creates_file(self, tmp_path, monkeypatch):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             type="hook", name="my-guard", event="pre_tool_use",
@@ -357,11 +357,11 @@ class TestCmdNew:
 
     def test_new_hook_sh(self, tmp_path, monkeypatch):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             type="hook", name="guard", event="stop", lang=".sh", force=False,
@@ -375,11 +375,11 @@ class TestCmdNew:
 
     def test_new_command_creates_file(self, tmp_path, monkeypatch):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             type="command", name="deploy", event="pre_tool_use",
@@ -394,11 +394,11 @@ class TestCmdNew:
 
     def test_new_agent_creates_file(self, tmp_path, monkeypatch):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             type="agent", name="reviewer", event="pre_tool_use",
@@ -414,11 +414,11 @@ class TestCmdNew:
     def test_new_prompt_hook_creates_file(self, tmp_path, monkeypatch):
         import argparse
         import json
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             type="prompt-hook", name="safety-check", event="pre_tool_use",
@@ -434,13 +434,13 @@ class TestCmdNew:
 
     def test_new_hook_no_overwrite_without_force(self, tmp_path, monkeypatch):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_new
 
         registry_dir = tmp_path / "registry"
         (registry_dir / "hooks").mkdir(parents=True)
         (registry_dir / "hooks" / "guard.py").write_text("existing")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             type="hook", name="guard", event="pre_tool_use",
@@ -492,11 +492,11 @@ class TestCmdDeps:
 
     def test_deps_no_hooks(self, tmp_path, monkeypatch, capsys):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_deps
 
         registry_dir = tmp_path / "registry"
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace()
         cmd_deps(args)
@@ -506,14 +506,14 @@ class TestCmdDeps:
 
     def test_deps_no_deps_found(self, tmp_path, monkeypatch, capsys):
         import argparse
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_deps
 
         registry_dir = tmp_path / "registry"
         hooks_dir = registry_dir / "hooks"
         hooks_dir.mkdir(parents=True)
         (hooks_dir / "guard.py").write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\nimport sys\n")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace()
         cmd_deps(args)
@@ -529,7 +529,7 @@ class TestCmdScanPackageRecording:
         """hawk scan --all with a manifest records the package in packages.yaml."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         # Set up a scannable directory with manifest
@@ -546,10 +546,10 @@ class TestCmdScanPackageRecording:
         config_dir.mkdir()
         registry_dir = tmp_path / "registry"
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         # Build args
         args = argparse.Namespace(
@@ -563,7 +563,7 @@ class TestCmdScanPackageRecording:
         cmd_scan(args)
 
         # Verify package was recorded
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert "test-pkg" in packages
         pkg = packages["test-pkg"]
         assert pkg["path"] == str(scan_dir)
@@ -575,7 +575,7 @@ class TestCmdScanPackageRecording:
         """hawk scan --all without a manifest does not record a package."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "loose-files"
@@ -587,10 +587,10 @@ class TestCmdScanPackageRecording:
         config_dir.mkdir()
         registry_dir = tmp_path / "registry"
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             path=str(scan_dir),
@@ -602,14 +602,14 @@ class TestCmdScanPackageRecording:
 
         cmd_scan(args)
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert len(packages) == 0
 
     def test_scan_records_existing_clashing_items_in_package(self, tmp_path, monkeypatch):
         """Package record includes selected clashes already present in registry."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
@@ -630,10 +630,10 @@ class TestCmdScanPackageRecording:
         (registry_dir / "mcp" / "figma.json").write_text("{}\n")
         (registry_dir / "mcp" / "linear.json").write_text("{}\n")
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             path=str(scan_dir),
@@ -645,7 +645,7 @@ class TestCmdScanPackageRecording:
 
         cmd_scan(args)
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert "test-pkg" in packages
         item_names = {
             item["name"] for item in packages["test-pkg"]["items"]
@@ -657,7 +657,7 @@ class TestCmdScanPackageRecording:
         """Scan can re-associate an existing package even with zero additions."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
@@ -674,10 +674,10 @@ class TestCmdScanPackageRecording:
         (registry_dir / "mcp" / "figma.json").write_text("{}\n")
         (registry_dir / "mcp" / "linear.json").write_text("{}\n")
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             path=str(scan_dir),
@@ -689,7 +689,7 @@ class TestCmdScanPackageRecording:
 
         cmd_scan(args)
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert "test-pkg" in packages
         item_names = {
             item["name"] for item in packages["test-pkg"]["items"]
@@ -701,7 +701,7 @@ class TestCmdScanPackageRecording:
         """Partial re-scan should merge package ownership instead of replacing existing items."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
@@ -717,12 +717,12 @@ class TestCmdScanPackageRecording:
         (registry_dir / "prompts").mkdir(parents=True)
         (registry_dir / "prompts" / "old.md").write_text("# Old")
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
-        v2_config.save_packages({
+        config.save_packages({
             "test-pkg": {
                 "url": "",
                 "path": str(scan_dir),
@@ -751,7 +751,7 @@ class TestCmdScanPackageRecording:
 
         cmd_scan(args)
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert "test-pkg" in packages
         item_names = {
             item["name"] for item in packages["test-pkg"]["items"]
@@ -763,7 +763,7 @@ class TestCmdScanPackageRecording:
         """Source-type conflict check covers selected package clashes too."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "scan-root"
@@ -788,12 +788,12 @@ class TestCmdScanPackageRecording:
         # Seed clash for git-pkg item.
         (registry_dir / "mcp" / "figma.json").write_text("{}\n")
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
-        v2_config.save_packages({
+        config.save_packages({
             "git-pkg": {
                 "url": "https://github.com/acme/git-pkg.git",
                 "installed": "2026-02-21",
@@ -819,7 +819,7 @@ class TestCmdScanPackageRecording:
         """Clashing items owned by another package stay with their owner."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
@@ -835,12 +835,12 @@ class TestCmdScanPackageRecording:
         (registry_dir / "mcp").mkdir(parents=True)
         (registry_dir / "mcp" / "figma.json").write_text("{}\n")
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
-        v2_config.save_packages({
+        config.save_packages({
             "old-pkg": {
                 "url": "https://github.com/acme/old-pkg.git",
                 "installed": "2026-02-21",
@@ -859,7 +859,7 @@ class TestCmdScanPackageRecording:
 
         cmd_scan(args)
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert "old-pkg" in packages
         assert "new-pkg" in packages
 
@@ -878,7 +878,7 @@ class TestCmdScanPackageRecording:
         """Unowned clashing items are only claimed when contents match."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
@@ -895,10 +895,10 @@ class TestCmdScanPackageRecording:
         # Same name, different content than scanned file.
         (registry_dir / "mcp" / "figma.json").write_text('{"registry":"value"}\n')
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
         args = argparse.Namespace(
             path=str(scan_dir),
@@ -910,7 +910,7 @@ class TestCmdScanPackageRecording:
 
         cmd_scan(args)
 
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert "new-pkg" in packages
         new_names = {
             item["name"] for item in packages["new-pkg"]["items"]
@@ -922,7 +922,7 @@ class TestCmdScanPackageRecording:
         """hawk scan refuses package source-type replacement (git -> local)."""
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_scan
 
         scan_dir = tmp_path / "my-collection"
@@ -937,12 +937,12 @@ class TestCmdScanPackageRecording:
         config_dir.mkdir()
         registry_dir = tmp_path / "registry"
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
 
-        v2_config.save_packages({
+        config.save_packages({
             "test-pkg": {
                 "url": "https://github.com/acme/test-pkg.git",
                 "installed": "2026-02-21",
@@ -973,16 +973,16 @@ class TestCmdPackagesSources:
     def test_packages_show_source_markers(self, tmp_path, monkeypatch, capsys):
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_packages
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
 
-        v2_config.save_packages({
+        config.save_packages({
             "git-pkg": {
                 "url": "https://example.com/a.git",
                 "path": "/tmp/local-a",
@@ -1015,28 +1015,28 @@ class TestCmdPackagesSources:
 
 class TestCmdUpdateLocalPackages:
     def _patch_config_paths(self, monkeypatch, tmp_path):
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
         registry_dir = tmp_path / "registry"
 
-        monkeypatch.setattr(v2_config, "get_config_dir", lambda: config_dir)
-        monkeypatch.setattr(v2_config, "get_global_config_path", lambda: config_dir / "config.yaml")
-        monkeypatch.setattr(v2_config, "get_packages_path", lambda: config_dir / "packages.yaml")
-        monkeypatch.setattr(v2_config, "get_registry_path", lambda cfg=None: registry_dir)
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
         return config_dir, registry_dir
 
     def test_update_local_missing_path_fails_nonzero(self, tmp_path, monkeypatch, capsys):
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_update
 
         self._patch_config_paths(monkeypatch, tmp_path)
 
         missing_path = tmp_path / "does-not-exist"
-        v2_config.save_packages({
+        config.save_packages({
             "local-pkg": {
                 "url": "",
                 "path": str(missing_path),
@@ -1059,7 +1059,7 @@ class TestCmdUpdateLocalPackages:
     def test_update_local_path_rescans_and_records_items(self, tmp_path, monkeypatch):
         import argparse
 
-        from hawk_hooks import v2_config
+        from hawk_hooks import config
         from hawk_hooks.cli import cmd_update
 
         _, registry_dir = self._patch_config_paths(monkeypatch, tmp_path)
@@ -1069,7 +1069,7 @@ class TestCmdUpdateLocalPackages:
         (local_dir / "commands").mkdir()
         (local_dir / "commands" / "hello.md").write_text("# Hello")
 
-        v2_config.save_packages({
+        config.save_packages({
             "local-pkg": {
                 "url": "",
                 "path": str(local_dir.resolve()),
@@ -1079,13 +1079,13 @@ class TestCmdUpdateLocalPackages:
             }
         })
 
-        monkeypatch.setattr("hawk_hooks.v2_sync.sync_all", lambda force=False: {})
+        monkeypatch.setattr("hawk_hooks.sync.sync_all", lambda force=False: {})
 
         args = argparse.Namespace(package=None, check=False, force=False, prune=False)
         cmd_update(args)
 
         assert (registry_dir / "prompts" / "hello.md").exists()
-        packages = v2_config.load_packages()
+        packages = config.load_packages()
         assert packages["local-pkg"]["path"] == str(local_dir.resolve())
         assert len(packages["local-pkg"]["items"]) == 1
         assert packages["local-pkg"]["items"][0]["type"] == "prompt"

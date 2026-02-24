@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 
 from .types import ComponentType
-from . import v2_config
+from . import config
 
 
 def _validate_name(name: str) -> None:
@@ -43,7 +43,7 @@ class Registry:
         """Get the registry root path."""
         if self._registry_path is not None:
             return self._registry_path
-        return v2_config.get_registry_path()
+        return config.get_registry_path()
 
     def _type_dir(self, component_type: ComponentType) -> Path:
         """Get the directory for a component type."""

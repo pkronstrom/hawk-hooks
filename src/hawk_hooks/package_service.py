@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import v2_config
+from . import config
 from .downloader import classify, get_head_commit, scan_directory, shallow_clone
 from .registry import Registry
 from .types import ComponentType
@@ -118,12 +118,12 @@ def update_packages(
     logf = log or _noop
     report = PackageUpdateReport(check_only=check)
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     if not packages:
         logf("No packages installed.")
         return report
 
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
     registry.ensure_dirs()
 
     if package:
@@ -147,7 +147,7 @@ def update_packages(
                 package_name=pkg_name,
             )
         }
-        registry_path = v2_config.get_registry_path()
+        registry_path = config.get_registry_path()
 
         if source_type == "manual":
             logf(f"{pkg_name}: local-only package, cannot update")
@@ -200,7 +200,7 @@ def update_packages(
                         continue
 
                     item_path = registry_path / item.component_type.registry_dir / item.name
-                    new_hash = v2_config.hash_registry_item(item_path)
+                    new_hash = config.hash_registry_item(item_path)
 
                     new_pkg_items.append({
                         "type": item.component_type.value,
@@ -234,7 +234,7 @@ def update_packages(
                     else:
                         logf(f"  ? {n} (removed upstream, kept locally)")
 
-                v2_config.record_package(
+                config.record_package(
                     pkg_name, url, new_commit, new_pkg_items, path=str(pkg_data.get("path", ""))
                 )
 
@@ -279,7 +279,7 @@ def update_packages(
             item_key = (item.component_type.value, item.name)
 
             if check:
-                new_hash = v2_config.hash_registry_item(item.source_path)
+                new_hash = config.hash_registry_item(item.source_path)
             else:
                 try:
                     if registry.detect_clash(item.component_type, item.name):
@@ -291,7 +291,7 @@ def update_packages(
                     continue
 
                 item_path = registry_path / item.component_type.registry_dir / item.name
-                new_hash = v2_config.hash_registry_item(item_path)
+                new_hash = config.hash_registry_item(item_path)
 
             new_pkg_items.append({
                 "type": item.component_type.value,
@@ -343,7 +343,7 @@ def update_packages(
                 logf("  Up to date (local)")
             continue
 
-        v2_config.record_package(
+        config.record_package(
             pkg_name, "", "", new_pkg_items, path=str(local_path.resolve())
         )
 
@@ -363,7 +363,7 @@ def update_packages(
         logf(f"\nAll packages up to date: {', '.join(up_to_date)}")
 
     if any_changes and not check and sync_on_change:
-        from .v2_sync import sync_all
+        from .sync import sync_all
 
         logf("\nSyncing...")
         sync_all(force=True)
@@ -391,14 +391,14 @@ def remove_package(
     """Remove a package and all its items from registry + config."""
     logf = log or _noop
 
-    packages = v2_config.load_packages()
+    packages = config.load_packages()
     if package_name not in packages:
         raise PackageNotFoundError(package_name, sorted(packages.keys()))
 
     pkg_data = packages[package_name]
     items = pkg_data.get("items", [])
     valid_items = _iter_valid_package_items(items, log=logf, package_name=package_name)
-    registry = Registry(v2_config.get_registry_path())
+    registry = Registry(config.get_registry_path())
 
     removed = 0
     for item_type, item_name, _ in valid_items:
@@ -421,12 +421,12 @@ def remove_package(
         item_names_by_field.setdefault(field, set()).add(item_name)
     _remove_names_from_global_and_dir_enabled_lists(item_names_by_field)
 
-    v2_config.remove_package(package_name)
+    config.remove_package(package_name)
 
     logf(f"\nRemoved package '{package_name}' ({removed} items)")
 
     if sync_after:
-        from .v2_sync import sync_all
+        from .sync import sync_all
 
         logf("Syncing...")
         sync_all(force=True)
@@ -439,7 +439,7 @@ def _remove_names_from_global_and_dir_enabled_lists(
     item_names_by_field: dict[str, set[str]],
 ) -> None:
     """Remove names from global and directory enabled lists by component field."""
-    cfg = v2_config.load_global_config()
+    cfg = config.load_global_config()
     global_section = cfg.get("global", {})
 
     for field, names in item_names_by_field.items():
@@ -450,10 +450,10 @@ def _remove_names_from_global_and_dir_enabled_lists(
                 global_section[field] = new_enabled
 
     cfg["global"] = global_section
-    v2_config.save_global_config(cfg)
+    config.save_global_config(cfg)
 
-    for dir_path_str in v2_config.get_registered_directories():
-        dir_cfg = v2_config.load_dir_config(Path(dir_path_str))
+    for dir_path_str in config.get_registered_directories():
+        dir_cfg = config.load_dir_config(Path(dir_path_str))
         if not dir_cfg:
             continue
         dir_changed = False
@@ -468,7 +468,7 @@ def _remove_names_from_global_and_dir_enabled_lists(
                 dir_cfg[field] = section
                 dir_changed = True
         if dir_changed:
-            v2_config.save_dir_config(Path(dir_path_str), dir_cfg)
+            config.save_dir_config(Path(dir_path_str), dir_cfg)
 
 
 def remove_ungrouped_items(
@@ -478,8 +478,8 @@ def remove_ungrouped_items(
 ) -> UngroupedRemoveReport:
     """Remove all package-menu ungrouped items from registry and enabled config lists."""
     logf = log or _noop
-    packages = v2_config.load_packages()
-    registry = Registry(v2_config.get_registry_path())
+    packages = config.load_packages()
+    registry = Registry(config.get_registry_path())
 
     managed_types = [
         ComponentType.SKILL,
@@ -530,7 +530,7 @@ def remove_ungrouped_items(
     logf(f"\nRemoved {removed_total} ungrouped item(s)")
 
     if sync_after:
-        from .v2_sync import sync_all
+        from .sync import sync_all
 
         logf("Syncing...")
         sync_all(force=True)
