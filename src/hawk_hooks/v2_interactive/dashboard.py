@@ -292,6 +292,7 @@ def _build_menu_options(state: dict) -> list[tuple[str, str | None]]:
     else:
         options.append(("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500", None))
 
+    options.append(("Scan           Import from local path", "scan"))
     options.append(("Download       Fetch from git URL", "download"))
 
     # Packages count
@@ -406,6 +407,10 @@ def _run_main_menu(
                 cursor = _move_main_menu_cursor(options, cursor, direction=-1)
             elif key in (readchar.key.DOWN, "j"):
                 cursor = _move_main_menu_cursor(options, cursor, direction=1)
+            elif key == readchar.key.LEFT:
+                cursor = _normalize_main_menu_cursor(options, 0)
+            elif key == readchar.key.RIGHT:
+                cursor = _normalize_main_menu_cursor(options, len(options) - 1)
             elif key in (" ", "\r", "\n", readchar.key.ENTER):
                 if options[cursor][1] is not None:
                     return cursor
@@ -866,6 +871,100 @@ def _apply_auto_sync_if_needed(dirty: bool, scope_dir: str | None = None) -> boo
     return False
 
 
+def _handle_scan(state: dict) -> bool:
+    """Scan a local directory for components and import selected ones."""
+    from pathlib import Path
+    from ..cli import _interactive_select_items, _build_pkg_items, _merge_package_items
+    from ..downloader import add_items_to_registry, check_clashes, scan_directory
+    from ..registry import Registry
+    from .. import v2_config as _v2_config
+
+    cwd = Path.cwd().resolve()
+    console.print("\n[bold]Scan local directory[/bold]")
+    try:
+        path_str = console.input(f"[cyan]Path[/cyan] [dim]({cwd}):[/dim] ")
+    except KeyboardInterrupt:
+        return False
+
+    scan_path = Path(path_str.strip()).expanduser().resolve() if path_str.strip() else cwd
+    if not scan_path.is_dir():
+        console.print(f"[red]Not a directory:[/red] {scan_path}")
+        wait_for_continue()
+        return False
+
+    content = scan_directory(scan_path, max_depth=5)
+    if not content.items:
+        console.print("[dim]No components found.[/dim]")
+        wait_for_continue()
+        return False
+
+    registry = Registry(_v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    pkg = content.package_meta.name if content.package_meta else ""
+    selected_items, action = _interactive_select_items(
+        content.items, registry, package_name=pkg,
+        packages=content.packages,
+        collapsed=True, select_all=True,
+    )
+    if not selected_items or action == "cancel":
+        console.print("[dim]No components selected.[/dim]")
+        wait_for_continue()
+        return False
+
+    clashes = check_clashes(selected_items, registry)
+    replace = False
+    if clashes:
+        console.print(f"\n[yellow]Clashes with existing registry entries:[/yellow]")
+        for item in clashes:
+            console.print(f"  {item.component_type.value}/{item.name}")
+        console.print("[dim]Overwrite? (y/N)[/dim] ", end="")
+        confirm = readchar.readkey()
+        console.print()
+        replace = confirm.lower() == "y"
+
+    if clashes and not replace:
+        clash_keys = {(c.component_type, c.name) for c in clashes}
+        items_to_add = [i for i in selected_items if (i.component_type, i.name) not in clash_keys]
+    else:
+        items_to_add = selected_items
+
+    if not items_to_add:
+        console.print("[dim]Nothing to add.[/dim]")
+        wait_for_continue()
+        return False
+
+    added, _skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+    console.print(f"\n[green]Added {len(added)} component(s) to registry.[/green]")
+
+    # Record packages
+    if content.packages:
+        existing_packages = _v2_config.load_packages()
+        items_by_pkg: dict[str, list] = {}
+        for item in selected_items:
+            pkg_name = item.package or pkg
+            if pkg_name:
+                items_by_pkg.setdefault(pkg_name, []).append(item)
+        pkg_meta_by_name = {p.name: p for p in content.packages}
+        for pkg_name, pkg_item_list in items_by_pkg.items():
+            pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
+            if pkg_items:
+                existing_items = existing_packages.get(pkg_name, {}).get("items", [])
+                merged_items = _merge_package_items(existing_items, pkg_items)
+                _v2_config.record_package(
+                    pkg_name, "", "", merged_items,
+                    path=str(scan_path),
+                )
+                meta = pkg_meta_by_name.get(pkg_name)
+                console.print(f"\n[green]Package:[/green] {pkg_name}")
+                if meta and meta.description:
+                    console.print(f"  {meta.description}")
+
+    state["contents"] = registry.list()
+    wait_for_continue()
+    return True
+
+
 def _handle_download() -> None:
     """Run download flow."""
     console.print("\n[bold]Download components from git[/bold]")
@@ -1017,6 +1116,11 @@ def run_dashboard(scope_dir: str | None = None) -> None:
 
         elif action == "environment":
             if _handle_environment(state):
+                dirty = True
+                dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
+
+        elif action == "scan":
+            if _handle_scan(state):
                 dirty = True
                 dirty = _apply_auto_sync_if_needed(dirty, scope_dir=state.get("scope_dir"))
 

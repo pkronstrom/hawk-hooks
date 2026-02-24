@@ -395,7 +395,7 @@ def test_run_dashboard_dispatches_sync_now(monkeypatch):
     def _fake_handle_sync(state):
         calls.append(state)
 
-    selections = [8, None]  # Sync now row index for default menu layout
+    selections = [9, None]  # Sync now row index for default menu layout
 
     monkeypatch.setattr(dashboard, "_load_state", _fake_load)
     monkeypatch.setattr(dashboard, "_handle_sync", _fake_handle_sync)
@@ -415,7 +415,7 @@ def test_run_dashboard_dispatches_registry_browser(monkeypatch):
     calls: list[dict] = []
 
     monkeypatch.setattr(dashboard, "_load_state", lambda _scope_dir=None: state)
-    monkeypatch.setattr(dashboard, "_run_main_menu", lambda *_args, **_kwargs: 8)
+    monkeypatch.setattr(dashboard, "_run_main_menu", lambda *_args, **_kwargs: 9)
     monkeypatch.setattr(dashboard, "set_project_theme", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(dashboard, "_prompt_sync_on_exit", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(dashboard.console, "clear", lambda: None)
