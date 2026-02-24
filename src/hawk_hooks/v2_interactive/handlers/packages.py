@@ -372,13 +372,13 @@ def handle_packages(state: dict) -> bool:
 
     def _extra_hints(current_kind):
         if current_kind == ROW_PACKAGE:
-            return "space/\u21b5 expand · t toggle all · u update pkg · d/x remove pkg · U update all"
+            return "\u21b5 expand · t toggle · u update · d/x remove · U upd all"
         elif current_kind == ROW_TYPE:
-            return "space/\u21b5 expand · t toggle all"
+            return "\u21b5 expand · t toggle all"
         elif current_kind == ROW_ITEM:
-            return "space/\u21b5 toggle · t toggle group · v view · e edit · o open · d remove · U update all"
+            return "\u21b5 toggle · t group · v view · e edit · o open · d del · U upd all"
         else:
-            return "space/\u21b5 select · U update all"
+            return "\u21b5 select · U upd all"
 
     # ── Setup and run ──
 

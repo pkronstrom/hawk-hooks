@@ -1055,21 +1055,40 @@ def run_picker(
             hints = extra_hints(current_kind)
         else:
             if current_kind == ROW_PACKAGE:
-                hints = "space/\u21b5 expand · t toggle all"
+                hints = "\u21b5 expand · t toggle all"
             elif current_kind == ROW_TYPE:
-                hints = "space/\u21b5 expand · t toggle all"
+                hints = "\u21b5 expand · t toggle all"
             elif current_kind == ROW_ITEM:
-                hints = "space/\u21b5 toggle · t toggle group"
+                hints = "\u21b5 toggle · t group"
             else:
-                hints = "space/\u21b5 select"
+                hints = "\u21b5 select"
         if len(scopes_) > 1:
             hints += " · tab scope"
         if registry_path and registry_dir:
             hints += " · v view · e edit · o open"
         if on_delete:
-            hints += " · d delete"
-        hints += " · \u2191\u2193/jk nav · q/esc back"
-        lines.append(f"[dim]{hints}[/dim]")
+            hints += " · d del"
+        hints += " · jk nav · q back"
+
+        # Wrap long hint lines to terminal width
+        cols = _term_cols()
+        if len(hints) > cols - 2:
+            parts = hints.split(" \u00b7 ")
+            hint_lines: list[str] = []
+            current_line = ""
+            for part in parts:
+                candidate = f"{current_line} \u00b7 {part}" if current_line else part
+                if len(candidate) > cols - 2 and current_line:
+                    hint_lines.append(current_line)
+                    current_line = part
+                else:
+                    current_line = candidate
+            if current_line:
+                hint_lines.append(current_line)
+            for hl in hint_lines:
+                lines.append(f"[dim]{hl}[/dim]")
+        else:
+            lines.append(f"[dim]{hints}[/dim]")
         return "\n".join(lines)
 
     def _do_toggle(scope: dict, fld: str, name: str, enable: bool) -> None:
