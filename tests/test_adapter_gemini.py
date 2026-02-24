@@ -227,12 +227,14 @@ class TestGeminiHooks:
         assert registered == ["guard.py"]
 
         settings = json.loads((target / "settings.json").read_text())
-        hawk_hooks = [
-            h for h in settings.get("hooks", [])
+        hooks_obj = settings.get("hooks", {})
+        assert isinstance(hooks_obj, dict)
+        assert "BeforeTool" in hooks_obj
+        hawk_entries = [
+            h for h in hooks_obj["BeforeTool"]
             if any(isinstance(hh, dict) and hh.get("__hawk_managed") for hh in h.get("hooks", []))
         ]
-        assert len(hawk_hooks) == 1
-        assert hawk_hooks[0]["matcher"] == "BeforeTool"
+        assert len(hawk_entries) == 1
         assert (target / "runners" / "pre_tool_use.sh").exists()
 
     def test_sync_bridges_prompt_hooks_as_additional_context(self, adapter, tmp_path):
@@ -251,13 +253,15 @@ class TestGeminiHooks:
         assert "hook:guard.prompt.json" in result.linked
 
         settings = json.loads((target / "settings.json").read_text())
-        hawk_hooks = [
-            h for h in settings.get("hooks", [])
+        hooks_obj = settings.get("hooks", {})
+        assert isinstance(hooks_obj, dict)
+        assert "BeforeTool" in hooks_obj
+        hawk_entries = [
+            h for h in hooks_obj["BeforeTool"]
             if any(isinstance(hh, dict) and hh.get("__hawk_managed") for hh in h.get("hooks", []))
         ]
-        assert len(hawk_hooks) == 1
-        assert hawk_hooks[0]["matcher"] == "BeforeTool"
-        bridge_cmd = hawk_hooks[0]["hooks"][0]["command"]
+        assert len(hawk_entries) == 1
+        bridge_cmd = hawk_entries[0]["hooks"][0]["command"]
         assert "prompt-guard.prompt-pre_tool_use.sh" in bridge_cmd
         bridge_runner = Path(bridge_cmd)
         assert bridge_runner.exists()

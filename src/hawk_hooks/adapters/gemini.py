@@ -225,12 +225,20 @@ class GeminiAdapter(ToolAdapter):
 
         settings_path = target_dir / "settings.json"
         settings = self._load_json(settings_path)
-        existing_hooks = settings.get("hooks", [])
-        if not isinstance(existing_hooks, list):
-            existing_hooks = [existing_hooks] if existing_hooks else []
-        user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
+        existing_hooks = settings.get("hooks", {})
+        if not isinstance(existing_hooks, dict):
+            existing_hooks = {}
+        # Strip hawk-managed entries from each event, keeping user hooks
+        user_hooks: dict[str, list] = {}
+        for evt, entries in existing_hooks.items():
+            if not isinstance(entries, list):
+                continue
+            kept = [e for e in entries if not self._is_hawk_hook(e)]
+            if kept:
+                user_hooks[evt] = kept
 
-        hawk_entries: list[dict] = []
+        # Collect hawk entries keyed by gemini event name
+        hawk_by_event: dict[str, list[dict]] = {}
         registered_events: set[str] = set()
 
         for event_name, runner_path in sorted(runners.items()):
@@ -249,11 +257,8 @@ class GeminiAdapter(ToolAdapter):
             if event_name in event_timeouts:
                 hook_def["timeout"] = event_timeouts[event_name]
 
-            hawk_entries.append(
-                {
-                    "matcher": matcher,
-                    "hooks": [hook_def],
-                }
+            hawk_by_event.setdefault(matcher, []).append(
+                {"hooks": [hook_def]}
             )
             registered_events.add(event_name)
 
@@ -304,15 +309,16 @@ class GeminiAdapter(ToolAdapter):
                 if timeout > 0:
                     hook_def["timeout"] = timeout
 
-                hawk_entries.append(
-                    {
-                        "matcher": matcher,
-                        "hooks": [hook_def],
-                    }
+                hawk_by_event.setdefault(matcher, []).append(
+                    {"hooks": [hook_def]}
                 )
                 registered_prompt_hooks.add(name)
 
-        settings["hooks"] = user_hooks + hawk_entries
+        # Merge: user hooks + hawk hooks per event
+        merged: dict[str, list] = dict(user_hooks)
+        for evt, entries in hawk_by_event.items():
+            merged.setdefault(evt, []).extend(entries)
+        settings["hooks"] = merged
         self._save_json(settings_path, settings)
 
         registered: list[str] = []
@@ -345,12 +351,21 @@ class GeminiAdapter(ToolAdapter):
     def _remove_hawk_hooks(self, target_dir: Path) -> None:
         settings_path = target_dir / "settings.json"
         settings = self._load_json(settings_path)
-        existing_hooks = settings.get("hooks", [])
-        if not isinstance(existing_hooks, list):
-            existing_hooks = [existing_hooks] if existing_hooks else []
-        user_hooks = [h for h in existing_hooks if not self._is_hawk_hook(h)]
-        if len(user_hooks) != len(existing_hooks):
-            settings["hooks"] = user_hooks
+        existing_hooks = settings.get("hooks", {})
+        if not isinstance(existing_hooks, dict):
+            existing_hooks = {}
+        cleaned: dict[str, list] = {}
+        changed = False
+        for evt, entries in existing_hooks.items():
+            if not isinstance(entries, list):
+                continue
+            kept = [e for e in entries if not self._is_hawk_hook(e)]
+            if len(kept) != len(entries):
+                changed = True
+            if kept:
+                cleaned[evt] = kept
+        if changed or len(cleaned) != len(existing_hooks):
+            settings["hooks"] = cleaned
             self._save_json(settings_path, settings)
 
     @staticmethod
