@@ -142,3 +142,22 @@ class TestRunMigration:
         success, msg = migration.run_migration()
         assert success is False
         assert "No v1" in msg
+
+    def test_handles_malformed_v1_shapes_gracefully(self, v2_env):
+        v1_path = v2_env / "config.json"
+        v1_path.write_text(json.dumps({
+            "enabled": "not-a-dict",
+            "projects": "not-a-list",
+            "destinations": ["bad"],
+            "prompts": ["bad"],
+            "agents": "bad",
+            "env": ["bad"],
+        }))
+
+        success, msg = migration.run_migration()
+
+        assert success is True
+        assert "Migrated" in msg
+        cfg = v2_config.load_global_config()
+        assert cfg["global"]["hooks"] == []
+        assert cfg["directories"] == {}

@@ -133,3 +133,25 @@ class TestOpenCodeHooks:
 
         result = adapter.sync(ResolvedSet(hooks=["perm.py"]), target, registry)
         assert any("permission_request is unsupported by opencode" in e for e in result.skipped)
+
+    def test_generated_plugin_avoids_unconsumed_stdout_pipe(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "guard.py").write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "import sys\n"
+        )
+        target = tmp_path / "opencode"
+        target.mkdir(parents=True)
+
+        adapter.sync(ResolvedSet(hooks=["guard.py"]), target, registry)
+        plugin = (target / "plugins" / "hawk-hooks.ts").read_text()
+
+        assert 'stdout: "pipe"' not in plugin
+        assert (
+            ('stdout: "ignore"' in plugin)
+            or ('stdout: "null"' in plugin)
+            or ("new Response(proc.stdout)" in plugin)
+        )

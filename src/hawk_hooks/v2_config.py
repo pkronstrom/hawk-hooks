@@ -343,7 +343,10 @@ def load_packages() -> dict[str, Any]:
         with open(path) as f:
             data = yaml.safe_load(f)
         if isinstance(data, dict):
-            return data.get("packages", {})
+            packages = data.get("packages", {})
+            if isinstance(packages, dict):
+                return packages
+            return {}
         return {}
     except (FileNotFoundError, yaml.YAMLError, OSError):
         return {}

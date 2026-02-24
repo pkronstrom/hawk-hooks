@@ -49,3 +49,41 @@ def test_apply_ops(tmp_path: Path):
     )
     assert "one" in result.applied
     assert not result.errors
+
+
+def test_toml_block_upsert_replace_remove_with_crlf(tmp_path: Path):
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "# >>> hawk-hooks managed: unit-a >>>\r\n"
+        'foo = "old"\r\n'
+        "# <<< hawk-hooks managed: unit-a <<<\r\n"
+        "\r\n"
+        "[manual]\r\n"
+        "x = true\r\n"
+    )
+
+    TomlBlockDriver.upsert(path, "unit-a", 'foo = "new"')
+    text = path.read_text()
+    assert text.count("hawk-hooks managed: unit-a") == 2
+    assert 'foo = "new"' in text
+    assert 'foo = "old"' not in text
+
+    changed = TomlBlockDriver.remove(path, "unit-a")
+    assert changed is True
+    removed = path.read_text()
+    assert "hawk-hooks managed: unit-a" not in removed
+    assert "[manual]" in removed
+
+
+def test_strip_all_handles_crlf_line_endings():
+    text = (
+        "# >>> hawk-hooks managed: one >>>\r\n"
+        "a = 1\r\n"
+        "# <<< hawk-hooks managed: one <<<\r\n"
+        "\r\n"
+        "[manual]\r\n"
+        "x = true\r\n"
+    )
+    stripped = TomlBlockDriver.strip_all(text)
+    assert "hawk-hooks managed" not in stripped
+    assert "[manual]" in stripped

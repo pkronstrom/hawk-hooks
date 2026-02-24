@@ -50,14 +50,20 @@ class TomlBlockDriver:
         end = re.escape(cls._end(unit_id))
         return re.compile(rf"(?ms)^{begin}\n.*?^{end}\n?")
 
+    @staticmethod
+    def _normalize_newlines(text: str) -> str:
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
     @classmethod
     def strip_unit(cls, text: str, unit_id: str) -> str:
         """Remove one managed unit block from TOML text."""
+        text = cls._normalize_newlines(text)
         return cls._unit_re(unit_id).sub("", text).rstrip()
 
     @classmethod
     def strip_all(cls, text: str) -> str:
         """Remove all hawk-managed TOML blocks from text."""
+        text = cls._normalize_newlines(text)
         return re.sub(
             r"(?ms)^# >>> hawk-hooks managed: [A-Za-z0-9_.-]+ >>>\n.*?^# <<< hawk-hooks managed: [A-Za-z0-9_.-]+ <<<\n?",
             "",
@@ -87,7 +93,7 @@ class TomlBlockDriver:
         """Remove a managed block. Returns True when content changed."""
         if not path.exists():
             return False
-        old = path.read_text()
+        old = cls._normalize_newlines(path.read_text())
         new = cls.strip_unit(old, unit_id)
         if new == old.rstrip():
             return False

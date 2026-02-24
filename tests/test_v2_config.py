@@ -337,6 +337,12 @@ class TestPackages:
         path.write_text(":::bad:::")
         assert v2_config.load_packages() == {}
 
+    def test_load_handles_non_dict_packages_section(self, v2_env):
+        path = v2_config.get_packages_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("packages:\n  - bad\n  - shape\n")
+        assert v2_config.load_packages() == {}
+
     def test_get_package_for_item_found(self, v2_env):
         v2_config.save_packages({
             "pkg-a": {

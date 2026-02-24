@@ -216,3 +216,43 @@ def test_update_packages_prune_only_removal_triggers_sync(monkeypatch, tmp_path)
     assert report.any_changes is True
     assert sync_calls == [True]
     assert registry.get_path(ComponentType.SKILL, "old") is None
+
+
+def test_update_packages_skips_malformed_package_item(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    local_source = tmp_path / "local-pkg"
+    local_source.mkdir()
+    src_tdd = tmp_path / "src" / "tdd"
+    src_tdd.mkdir(parents=True)
+    (src_tdd / "SKILL.md").write_text("# TDD")
+
+    v2_config.save_packages({
+        "local-pkg": {
+            "url": "",
+            "path": str(local_source),
+            "installed": "2026-02-24",
+            "commit": "",
+            "items": [{"name": "missing-type", "hash": "deadbeef"}],
+        }
+    })
+
+    monkeypatch.setattr(
+        "hawk_hooks.package_service.scan_directory",
+        lambda _path: ClassifiedContent(
+            items=[
+                ClassifiedItem(
+                    component_type=ComponentType.SKILL,
+                    name="tdd",
+                    source_path=src_tdd,
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr("hawk_hooks.v2_config.hash_registry_item", lambda _path: "hash1234")
+
+    lines: list[str] = []
+    report = update_packages(check=True, log=lines.append)
+
+    assert report.any_changes is True
+    assert any("malformed package item" in line for line in lines)

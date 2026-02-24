@@ -78,6 +78,33 @@ def _package_source_type(pkg_data: dict) -> str:
     return "manual"
 
 
+def _iter_valid_package_items(
+    items: object,
+    *,
+    log: LogFn,
+    package_name: str,
+) -> list[tuple[str, str, str]]:
+    """Return valid (type, name, hash) tuples from package metadata items."""
+    valid: list[tuple[str, str, str]] = []
+    if not isinstance(items, list):
+        log(f"{package_name}: malformed package items list; skipping")
+        return valid
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            log(f"{package_name}: malformed package item at index {idx}; skipping")
+            continue
+        item_type = item.get("type")
+        item_name = item.get("name")
+        if not isinstance(item_type, str) or not isinstance(item_name, str):
+            log(
+                f"{package_name}: malformed package item at index {idx} (missing type/name); skipping"
+            )
+            continue
+        item_hash = item.get("hash", "")
+        valid.append((item_type, item_name, item_hash if isinstance(item_hash, str) else ""))
+    return valid
+
+
 def update_packages(
     package: str | None = None,
     *,
@@ -112,7 +139,14 @@ def update_packages(
 
     for pkg_name, pkg_data in sorted(to_update.items()):
         source_type = _package_source_type(pkg_data)
-        old_items = {(i["type"], i["name"]): i.get("hash", "") for i in pkg_data.get("items", [])}
+        old_items = {
+            (item_type, item_name): item_hash
+            for item_type, item_name, item_hash in _iter_valid_package_items(
+                pkg_data.get("items", []),
+                log=logf,
+                package_name=pkg_name,
+            )
+        }
         registry_path = v2_config.get_registry_path()
 
         if source_type == "manual":
@@ -189,7 +223,11 @@ def update_packages(
                     if (t, n) in new_keys:
                         continue
                     if prune:
-                        ct = ComponentType(t)
+                        try:
+                            ct = ComponentType(t)
+                        except ValueError:
+                            logf(f"  ! malformed package item type '{t}' for {n}; skipping prune")
+                            continue
                         if registry.remove(ct, n):
                             any_changes = True
                         logf(f"  - {n} (pruned)")
@@ -278,7 +316,11 @@ def update_packages(
             if check:
                 continue
             if prune:
-                ct = ComponentType(t)
+                try:
+                    ct = ComponentType(t)
+                except ValueError:
+                    logf(f"  ! malformed package item type '{t}' for {n}; skipping prune")
+                    continue
                 if registry.remove(ct, n):
                     any_changes = True
                 logf(f"  - {n} (pruned)")
@@ -355,22 +397,28 @@ def remove_package(
 
     pkg_data = packages[package_name]
     items = pkg_data.get("items", [])
+    valid_items = _iter_valid_package_items(items, log=logf, package_name=package_name)
     registry = Registry(v2_config.get_registry_path())
 
     removed = 0
-    for item in items:
+    for item_type, item_name, _ in valid_items:
         try:
-            ct = ComponentType(item["type"])
-            if registry.remove(ct, item["name"]):
+            ct = ComponentType(item_type)
+            if registry.remove(ct, item_name):
                 removed += 1
-                logf(f"  Removed {item['type']}/{item['name']}")
-        except (ValueError, KeyError):
+                logf(f"  Removed {item_type}/{item_name}")
+        except ValueError:
+            logf(f"{package_name}: malformed package item type '{item_type}' for {item_name}; skipping")
             continue
 
     item_names_by_field: dict[str, set[str]] = {}
-    for item in items:
-        field = ComponentType(item["type"]).registry_dir
-        item_names_by_field.setdefault(field, set()).add(item["name"])
+    for item_type, item_name, _ in valid_items:
+        try:
+            field = ComponentType(item_type).registry_dir
+        except ValueError:
+            logf(f"{package_name}: malformed package item type '{item_type}' for {item_name}; skipping")
+            continue
+        item_names_by_field.setdefault(field, set()).add(item_name)
     _remove_names_from_global_and_dir_enabled_lists(item_names_by_field)
 
     v2_config.remove_package(package_name)

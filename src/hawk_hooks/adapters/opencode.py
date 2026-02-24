@@ -185,7 +185,7 @@ class OpenCodeAdapter(ToolAdapter):
             "  const input = JSON.stringify(payload ?? {});\n"
             "  const proc = Bun.spawn([command], {\n"
             "    stdin: \"pipe\",\n"
-            "    stdout: \"pipe\",\n"
+            "    stdout: \"ignore\",\n"
             "    stderr: \"pipe\",\n"
             "  });\n"
             "  const writer = proc.stdin.getWriter();\n"
