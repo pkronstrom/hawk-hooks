@@ -98,7 +98,7 @@ def handle_packages(state: dict) -> bool:
                 global_enabled.add((field, name))
         scopes.append({
             "key": "global",
-            "label": "Global (default)",
+            "label": "Global",
             "enabled": global_enabled,
         })
 
