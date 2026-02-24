@@ -486,11 +486,11 @@ def handle_packages(state: dict) -> bool:
         current_kind = rows[cursor]["kind"] if rows else ROW_ACTION
         lines.append("")
         if current_kind == ROW_PACKAGE:
-            hints = "space/\u21b5 expand · u update pkg · d/x remove pkg · U update all"
+            hints = "space/\u21b5 expand · t toggle all · u update pkg · d/x remove pkg · U update all"
         elif current_kind == ROW_TYPE:
-            hints = "space/\u21b5 expand"
+            hints = "space/\u21b5 expand · t toggle all"
         elif current_kind == ROW_ITEM:
-            hints = "space/\u21b5 toggle · e open · d remove item · U update all"
+            hints = "space/\u21b5 toggle · t toggle group · e open · d remove item · U update all"
         else:
             hints = "space/\u21b5 select · U update all"
         if len(scopes) > 1:
@@ -650,6 +650,49 @@ def handle_packages(state: dict) -> bool:
                 key_id = (pkg_name, field)
                 collapsed_types[key_id] = not collapsed_types.get(key_id, True)
                 continue
+
+            # Toggle all items in a package or type group
+            if key == "t":
+                if kind == ROW_PACKAGE:
+                    pkg_name = row["package"]
+                    pkg_items = package_tree.get(pkg_name, {})
+                    all_pairs = [(f, n) for f, names in pkg_items.items() for n in names]
+                    if all_pairs:
+                        all_enabled = all((f, n) in scope["enabled"] for f, n in all_pairs)
+                        for f, n in all_pairs:
+                            _set_item_enabled(scope["key"], f, n, not all_enabled)
+                        dirty = True
+                        action = "Disabled" if all_enabled else "Enabled"
+                        label = "ungrouped" if row["is_ungrouped"] else pkg_name
+                        status_msg = f"{action} all in {label}"
+                    _reload_state_config()
+                    continue
+                if kind == ROW_TYPE:
+                    pkg_name = row["package"]
+                    field = row["field"]
+                    names = package_tree.get(pkg_name, {}).get(field, [])
+                    if names:
+                        all_enabled = all((field, n) in scope["enabled"] for n in names)
+                        for n in names:
+                            _set_item_enabled(scope["key"], field, n, not all_enabled)
+                        dirty = True
+                        action = "Disabled" if all_enabled else "Enabled"
+                        status_msg = f"{action} all {row['label']} in {pkg_name}"
+                    _reload_state_config()
+                    continue
+                if kind == ROW_ITEM:
+                    pkg_name = row["package"]
+                    field = row["field"]
+                    names = package_tree.get(pkg_name, {}).get(field, [])
+                    if names:
+                        all_enabled = all((field, n) in scope["enabled"] for n in names)
+                        for n in names:
+                            _set_item_enabled(scope["key"], field, n, not all_enabled)
+                        dirty = True
+                        action = "Disabled" if all_enabled else "Enabled"
+                        status_msg = f"{action} all {field} in {pkg_name}"
+                    _reload_state_config()
+                    continue
 
             if kind == ROW_ITEM:
                 field = row["field"]
