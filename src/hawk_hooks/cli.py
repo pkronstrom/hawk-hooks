@@ -741,6 +741,7 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
         scopes=[scope],
         start_scope_index=0,
         groups=groups if groups else None,
+        subtitle="Select components to add to registry (not enabled yet)",
     )
 
     if not changed:

@@ -514,6 +514,8 @@ def run_toggle_list(
     footer_hint: str | None = None,
     # Delete callback — called with item name, returns True if deleted
     on_delete: Callable[[str], bool] | None = None,
+    # Optional subtitle shown below the header
+    subtitle: str | None = None,
 ) -> tuple[list[list[str]], bool]:
     """Run an interactive toggle list for a component type.
 
@@ -718,6 +720,8 @@ def run_toggle_list(
             tab_hint = ""
 
         lines.append(scoped_header(component_type, scope_label, tab_hint))
+        if subtitle:
+            lines.append(f"[dim]{subtitle}[/dim]")
         lines.append(dim_separator())
 
         def _description_panel_lines() -> list[str]:
@@ -752,6 +756,8 @@ def run_toggle_list(
         description_lines = _description_panel_lines()
         total = len(row_list)
         reserved_lines = 2  # header + separator
+        if subtitle:
+            reserved_lines += 1
         reserved_lines += 2  # footer spacer + key hints
         reserved_lines += 2  # potential up/down scroll indicators
         if status_msg:
