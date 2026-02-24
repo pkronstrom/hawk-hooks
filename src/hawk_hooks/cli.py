@@ -712,18 +712,28 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
     groups: list[ToggleGroup] = []
     for pkg in pkg_names:
         pkg_items = [item for item in items if (getattr(item, "package", "") or "") == pkg]
+        # Collect items ordered by type
+        ordered_names: list[str] = []
         for ct in TYPE_ORDER:
             ct_items = [item for item in pkg_items if item.component_type == ct]
-            if not ct_items:
-                continue
-            label_prefix = f"📦 {pkg or package_name or 'Components'} — " if multi_pkg else ""
-            group = ToggleGroup(
-                key=f"{pkg or '__default__'}__{ct.value}",
-                label=f"{label_prefix}{ct.value}s",
-                items=[item.name for item in ct_items],
-                collapsed=collapsed,
-            )
-            groups.append(group)
+            ordered_names.extend(item.name for item in ct_items)
+        if not ordered_names:
+            continue
+        # Build a summary like "3 hooks, 2 prompts"
+        type_counts = []
+        for ct in TYPE_ORDER:
+            ct_items = [item for item in pkg_items if item.component_type == ct]
+            if ct_items:
+                type_counts.append(f"{len(ct_items)} {ct.value}{'s' if len(ct_items) != 1 else ''}")
+        summary = ", ".join(type_counts)
+        label = pkg or package_name or "Components"
+        group = ToggleGroup(
+            key=pkg or "__default__",
+            label=f"{label} ({summary})",
+            items=ordered_names,
+            collapsed=collapsed,
+        )
+        groups.append(group)
 
     scope = ToggleScope(key="select", label="Select components", enabled=enabled)
 
