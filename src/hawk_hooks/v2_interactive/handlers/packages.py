@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Callable
 
 import readchar
 from rich.live import Live
@@ -75,195 +76,86 @@ def confirm_registry_item_delete(ct: ComponentType, name: str) -> bool:
     console.print()
     return confirm.lower() == "y"
 
-def handle_packages(state: dict) -> bool:
-    """Unified package-first registry view with package/type/item accordions."""
-    from ...package_service import (
-        PackageNotFoundError,
-        PackageServiceError,
-        remove_ungrouped_items,
-        update_packages,
-        remove_package,
-    )
 
-    packages = v2_config.load_packages()
-    registry = state["registry"]
-    dirty = False
+# ---------------------------------------------------------------------------
+# Row kind constants shared by run_three_tier_picker and handle_packages
+# ---------------------------------------------------------------------------
+ROW_PACKAGE = "package"
+ROW_TYPE = "type"
+ROW_ITEM = "item"
+ROW_SEPARATOR = "separator"
+ROW_ACTION = "action"
+ACTION_DONE = "__done__"
+UNGROUPED = "__ungrouped__"
 
-    # Row kinds
-    ROW_PACKAGE = "package"
-    ROW_TYPE = "type"
-    ROW_ITEM = "item"
-    ROW_SEPARATOR = "separator"
-    ROW_ACTION = "action"
-    ACTION_DONE = "__done__"
-    UNGROUPED = "__ungrouped__"
 
-    # Component ordering in this view
-    ordered_types: list[tuple[str, str, ComponentType]] = list(_ORDERED_COMPONENT_FIELDS)
-    fields = [f for f, _, _ in ordered_types]
-    field_to_ct = {f: ct for f, _, ct in ordered_types}
-    ct_to_field = {ct.value: f for f, _, ct in ordered_types}
+# ---------------------------------------------------------------------------
+# Reusable three-tier picker
+# ---------------------------------------------------------------------------
 
-    collapsed_packages: dict[str, bool] = {}
-    collapsed_types: dict[tuple[str, str], bool] = {}
+def run_three_tier_picker(
+    title: str,
+    package_tree: dict[str, dict[str, list[str]]],
+    package_order: list[str],
+    field_labels: dict[str, str],
+    scopes: list[dict],
+    *,
+    start_scope_index: int = 0,
+    packages_meta: dict | None = None,
+    collapsed_packages: dict[str, bool] | None = None,
+    collapsed_types: dict[tuple[str, str], bool] | None = None,
+    on_toggle: Callable | None = None,
+    on_rebuild: Callable | None = None,
+    extra_key_handler: Callable | None = None,
+    extra_hints: Callable | None = None,
+    action_label: str = "Done",
+    scope_hint: str | None = None,
+) -> tuple[list[dict], bool]:
+    """Three-tier picker: packages -> types -> items.
+
+    Args:
+        title: Header title (e.g. "Packages", "Components").
+        package_tree: {pkg_name: {field: [item_names]}}.
+        package_order: Display order of package names.
+        field_labels: {field: "Human Label"} for type rows.
+        scopes: [{key, label, enabled: set[(field, name)]}].
+        start_scope_index: Which scope to start on.
+        packages_meta: Package index data for URL display.
+        collapsed_packages: Mutable dict of pkg->collapsed state (created if None).
+        collapsed_types: Mutable dict of (pkg,field)->collapsed state (created if None).
+        on_toggle: (scope_key, field, name, enabled) -> None. Called on item toggle.
+        on_rebuild: () -> (package_order, package_tree, scopes). Called to refresh data.
+        extra_key_handler: (key, row, scope, live) -> (handled, status_msg).
+        extra_hints: (row_kind) -> str | None. Extra hint text per row kind.
+        action_label: Label for the Done/Save action button.
+        scope_hint: Shown when only 1 scope and no scope_hint provided.
+
+    Returns:
+        (final_scopes, changed) — the scopes list with updated enabled sets, and
+        whether any toggle happened.
+    """
+    if collapsed_packages is None:
+        collapsed_packages = {}
+    if collapsed_types is None:
+        collapsed_types = {}
+    if packages_meta is None:
+        packages_meta = {}
+
+    # Ordered fields from field_labels (preserve insertion order)
+    ordered_fields = list(field_labels.keys())
+
     cursor = 0
     scroll_offset = 0
-    scope_index = 0
+    scope_index = start_scope_index
     status_msg = ""
+    changed = False
 
-    def _reload_state_config() -> None:
-        """Reload config slices that can be changed by package actions."""
-        cfg = v2_config.load_global_config()
-        state["cfg"] = cfg
-        state["global_cfg"] = cfg.get("global", {})
-
-        project_dir = state.get("project_dir")
-        if project_dir:
-            state["local_cfg"] = v2_config.load_dir_config(project_dir) or {}
-        else:
-            state["local_cfg"] = None
-
-    def _build_scope_entries() -> list[dict]:
-        """Build scope layers with enabled (field,name) pairs."""
-        scopes: list[dict] = []
-
-        global_enabled: set[tuple[str, str]] = set()
-        for field in fields:
-            for name in state["global_cfg"].get(field, []):
-                global_enabled.add((field, name))
-        scopes.append({
-            "key": "global",
-            "label": "\U0001f310 Global (default)",
-            "enabled": global_enabled,
-        })
-
-        project_dir = state.get("project_dir") or Path.cwd().resolve()
-        config_chain = v2_config.get_config_chain(project_dir)
-        if config_chain:
-            for chain_dir, chain_config in config_chain:
-                enabled: set[tuple[str, str]] = set()
-                for field in fields:
-                    section = chain_config.get(field, {})
-                    if isinstance(section, dict):
-                        names = section.get("enabled", [])
-                    elif isinstance(section, list):
-                        names = section
-                    else:
-                        names = []
-                    for name in names:
-                        enabled.add((field, name))
-
-                if chain_dir == project_dir.resolve():
-                    label = f"\U0001f4cd This project: {chain_dir.name}"
-                else:
-                    label = f"\U0001f4c1 {chain_dir.name}"
-                scopes.append({"key": str(chain_dir), "label": label, "enabled": enabled})
-        else:
-            local_cfg = state.get("local_cfg")
-            if local_cfg is not None:
-                enabled: set[tuple[str, str]] = set()
-                for field in fields:
-                    section = local_cfg.get(field, {})
-                    if isinstance(section, dict):
-                        names = section.get("enabled", [])
-                    elif isinstance(section, list):
-                        names = section
-                    else:
-                        names = []
-                    for name in names:
-                        enabled.add((field, name))
-
-                project_name = state.get("project_name") or project_dir.name
-                scopes.append({
-                    "key": str(project_dir),
-                    "label": f"\U0001f4cd This project: {project_name}",
-                    "enabled": enabled,
-                })
-
-        return scopes
-
-    def _set_item_enabled(scope_key: str, field: str, name: str, enabled: bool) -> None:
-        """Set one component enabled/disabled in a specific scope."""
-        if scope_key == "global":
-            current = list(state["global_cfg"].get(field, []))
-            if enabled and name not in current:
-                current.append(name)
-            elif not enabled:
-                current = [n for n in current if n != name]
-            state["global_cfg"][field] = current
-            cfg = state["cfg"]
-            cfg["global"] = state["global_cfg"]
-            v2_config.save_global_config(cfg)
-            state["cfg"] = cfg
-            return
-
-        dir_path = Path(scope_key)
-        dir_cfg = v2_config.load_dir_config(dir_path) or {}
-        section = dir_cfg.get(field, {})
-        if not isinstance(section, dict):
-            section = {"enabled": list(section) if isinstance(section, list) else []}
-
-        current = list(section.get("enabled", []))
-        if enabled and name not in current:
-            current.append(name)
-        elif not enabled:
-            current = [n for n in current if n != name]
-
-        section["enabled"] = current
-        dir_cfg[field] = section
-        v2_config.save_dir_config(dir_path, dir_cfg)
-
-        project_dir = state.get("project_dir")
-        if project_dir and dir_path.resolve() == Path(project_dir).resolve():
-            state["local_cfg"] = dir_cfg
-
-    def _refresh_contents() -> None:
-        nonlocal packages
-        packages = v2_config.load_packages()
-        state["contents"] = registry.list()
-
-    def _build_package_tree() -> tuple[list[str], dict[str, dict[str, list[str]]]]:
-        """Return (package_order, package -> field -> names) from registry + package index."""
-        package_tree: dict[str, dict[str, list[str]]] = {
-            pkg_name: {field: [] for field in fields}
-            for pkg_name in sorted(packages.keys())
-        }
-
-        ownership: dict[tuple[str, str], str] = {}
-        for pkg_name, pkg_data in packages.items():
-            for item in pkg_data.get("items", []):
-                comp_type = item.get("type")
-                item_name = item.get("name")
-                if not isinstance(comp_type, str) or not isinstance(item_name, str):
-                    continue
-                field = ct_to_field.get(comp_type)
-                if field:
-                    ownership[(field, item_name)] = pkg_name
-
-        ungrouped_has_items = False
-        for field, _, ct in ordered_types:
-            for name in sorted(state["contents"].get(ct, [])):
-                pkg_name = ownership.get((field, name), UNGROUPED)
-                if pkg_name not in package_tree:
-                    package_tree[pkg_name] = {f: [] for f in fields}
-                package_tree[pkg_name][field].append(name)
-                if pkg_name == UNGROUPED:
-                    ungrouped_has_items = True
-
-        package_order = [p for p in sorted(package_tree.keys()) if p != UNGROUPED]
-        if UNGROUPED in package_tree and (ungrouped_has_items or any(package_tree[UNGROUPED].values())):
-            package_order.append(UNGROUPED)
-
-        return package_order, package_tree
-
-    def _build_rows(
-        package_order: list[str], package_tree: dict[str, dict[str, list[str]]]
-    ) -> list[dict]:
+    def _build_rows() -> list[dict]:
         rows: list[dict] = []
         for pkg_name in package_order:
             collapsed_packages.setdefault(pkg_name, True)
-            field_map = package_tree.get(pkg_name, {f: [] for f in fields})
-            item_count = sum(len(names) for names in field_map.values())
+            field_map = package_tree.get(pkg_name, {})
+            item_count = sum(len(names) for f, names in field_map.items())
             rows.append({
                 "kind": ROW_PACKAGE,
                 "package": pkg_name,
@@ -274,10 +166,11 @@ def handle_packages(state: dict) -> bool:
             if collapsed_packages.get(pkg_name, False):
                 continue
 
-            for field, label, _ct in ordered_types:
+            for field in ordered_fields:
                 names = field_map.get(field, [])
                 if not names:
                     continue
+                label = field_labels.get(field, field.title())
                 rows.append({
                     "kind": ROW_TYPE,
                     "package": pkg_name,
@@ -298,7 +191,7 @@ def handle_packages(state: dict) -> bool:
                     })
 
         rows.append({"kind": ROW_SEPARATOR})
-        rows.append({"kind": ROW_ACTION, "action": ACTION_DONE, "label": "Done"})
+        rows.append({"kind": ROW_ACTION, "action": ACTION_DONE, "label": action_label})
         return rows
 
     def _is_selectable(row: dict) -> bool:
@@ -342,7 +235,7 @@ def handle_packages(state: dict) -> bool:
         max_offset = max(0, total - max_visible)
         return max(0, min(offset, max_offset))
 
-    def _build_display(rows: list[dict], package_tree: dict[str, dict[str, list[str]]], scopes: list[dict]) -> str:
+    def _build_display(rows: list[dict], scopes_: list[dict]) -> str:
         nonlocal scroll_offset
 
         def _term_cols() -> int:
@@ -358,18 +251,17 @@ def handle_packages(state: dict) -> bool:
                 return text
             return text[: max_len - 1] + "\u2026"
 
-        scope = scopes[scope_index]
+        scope = scopes_[scope_index]
         checked = scope["enabled"]
-        next_scope = scopes[(scope_index + 1) % len(scopes)]["label"] if len(scopes) > 1 else ""
-        show_scope_hint = len(scopes) == 1 and state.get("local_cfg") is None
-        package_count = len([p for p in package_tree.keys() if p != UNGROUPED])
+        next_scope = scopes_[(scope_index + 1) % len(scopes_)]["label"] if len(scopes_) > 1 else ""
+        package_count = len([p for p in package_order if p != UNGROUPED])
         ungrouped_count = sum(len(names) for names in package_tree.get(UNGROUPED, {}).values())
 
-        lines: list[str] = [scoped_header("Packages", scope["label"])]
-        if len(scopes) > 1:
+        lines: list[str] = [scoped_header(title, scope["label"])]
+        if len(scopes_) > 1:
             lines[0] += f"    [dim]\\[Tab: {next_scope}][/dim]"
-        elif show_scope_hint:
-            lines[0] += " [dim]\u2014 run 'hawk init' for local scope[/dim]"
+        elif scope_hint:
+            lines[0] += f" [dim]\u2014 {scope_hint}[/dim]"
         if ungrouped_count > 0:
             lines.append(f"[dim]Packages: {package_count}  |  Ungrouped items: {ungrouped_count}[/dim]")
         else:
@@ -424,7 +316,7 @@ def handle_packages(state: dict) -> bool:
                 )
 
                 if not is_ungrouped and not collapsed:
-                    url = str(packages.get(pkg_name, {}).get("url", "")).strip()
+                    url = str(packages_meta.get(pkg_name, {}).get("url", "")).strip()
                     if url:
                         lines.append(f"      [dim]{url}[/dim]")
 
@@ -485,41 +377,56 @@ def handle_packages(state: dict) -> bool:
 
         current_kind = rows[cursor]["kind"] if rows else ROW_ACTION
         lines.append("")
-        if current_kind == ROW_PACKAGE:
-            hints = "space/\u21b5 expand · t toggle all · u update pkg · d/x remove pkg · U update all"
-        elif current_kind == ROW_TYPE:
-            hints = "space/\u21b5 expand · t toggle all"
-        elif current_kind == ROW_ITEM:
-            hints = "space/\u21b5 toggle · t toggle group · e open · d remove item · U update all"
+        if extra_hints:
+            hints = extra_hints(current_kind)
         else:
-            hints = "space/\u21b5 select · U update all"
-        if len(scopes) > 1:
+            if current_kind == ROW_PACKAGE:
+                hints = "space/\u21b5 expand · t toggle all"
+            elif current_kind == ROW_TYPE:
+                hints = "space/\u21b5 expand · t toggle all"
+            elif current_kind == ROW_ITEM:
+                hints = "space/\u21b5 toggle · t toggle group"
+            else:
+                hints = "space/\u21b5 select"
+        if len(scopes_) > 1:
             hints += " · tab scope"
         hints += " · \u2191\u2193/jk nav · q/esc/^C back"
         lines.append(f"[dim]{hints}[/dim]")
         return "\n".join(lines)
 
-    _reload_state_config()
-    _refresh_contents()
-    package_order, package_tree = _build_package_tree()
-    has_registry_items = any(
-        state["contents"].get(ct, [])
-        for _field, _label, ct in ordered_types
-    )
-    if not packages and not has_registry_items:
-        console.print("\n[dim]No packages or ungrouped registry items found.[/dim]")
-        console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
-        wait_for_continue()
-        return False
+    def _do_toggle(scope: dict, field: str, name: str, enable: bool) -> None:
+        nonlocal changed
+        if enable:
+            scope["enabled"].add((field, name))
+        else:
+            scope["enabled"].discard((field, name))
+        changed = True
+        if on_toggle:
+            on_toggle(scope["key"], field, name, enable)
+
+    def _toggle_group_items(scope: dict, pairs: list[tuple[str, str]]) -> str:
+        """Toggle a list of (field, name) pairs. Returns status message."""
+        if not pairs:
+            return ""
+        all_enabled = all((f, n) in scope["enabled"] for f, n in pairs)
+        for f, n in pairs:
+            _do_toggle(scope, f, n, not all_enabled)
+        return "Disabled" if all_enabled else "Enabled"
 
     with Live("", console=console, refresh_per_second=15, screen=True) as live:
         while True:
-            scopes = _build_scope_entries()
+            # Allow caller to rebuild data (e.g. after external mutations)
+            if on_rebuild:
+                new_order, new_tree, new_scopes = on_rebuild()
+                package_order[:] = new_order
+                package_tree.clear()
+                package_tree.update(new_tree)
+                scopes[:] = new_scopes
+
             scope_index = max(0, min(scope_index, len(scopes) - 1))
-            package_order, package_tree = _build_package_tree()
-            rows = _build_rows(package_order, package_tree)
+            rows = _build_rows()
             cursor = _normalize_cursor(rows, cursor)
-            live.update(Text.from_markup(_build_display(rows, package_tree, scopes)))
+            live.update(Text.from_markup(_build_display(rows, scopes)))
 
             try:
                 key = readchar.readkey()
@@ -531,6 +438,7 @@ def handle_packages(state: dict) -> bool:
             kind = row["kind"]
             scope = scopes[scope_index]
 
+            # Navigation
             if key in (readchar.key.UP, "k"):
                 cursor = _move_cursor(rows, cursor, -1)
                 continue
@@ -555,28 +463,14 @@ def handle_packages(state: dict) -> bool:
             if key in ("q", "\x1b", getattr(readchar.key, "CTRL_C", "\x03"), "\x03"):
                 break
 
-            if key == "U":
-                live.stop()
-                console.print("\n[bold]Updating all packages...[/bold]")
-                try:
-                    update_packages(
-                        package=None,
-                        check=False,
-                        force=False,
-                        prune=False,
-                        sync_on_change=True,
-                        log=console.print,
-                    )
-                except PackageServiceError:
-                    # Service already prints a detailed summary.
-                    pass
-                console.print()
-                console.print("[dim]Press any key to continue...[/dim]")
-                readchar.readkey()
-                _reload_state_config()
-                _refresh_contents()
-                live.start()
-                continue
+            # Let caller handle extra keys first
+            if extra_key_handler:
+                handled, extra_status = extra_key_handler(key, row, scope, live)
+                if handled:
+                    if extra_status:
+                        status_msg = extra_status
+                    changed = True
+                    continue
 
             primary = key in (readchar.key.ENTER, "\r", "\n", " ")
 
@@ -585,75 +479,8 @@ def handle_packages(state: dict) -> bool:
 
             if kind == ROW_PACKAGE:
                 pkg_name = row["package"]
-                is_ungrouped = row["is_ungrouped"]
-
                 if primary:
                     collapsed_packages[pkg_name] = not collapsed_packages.get(pkg_name, False)
-                    continue
-
-                if key == "u":
-                    if is_ungrouped:
-                        status_msg = "Ungrouped has no package source to update."
-                        continue
-
-                    live.stop()
-                    console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
-
-                    try:
-                        update_packages(
-                            package=pkg_name,
-                            check=False,
-                            force=False,
-                            prune=False,
-                            sync_on_change=True,
-                            log=console.print,
-                        )
-                    except PackageNotFoundError:
-                        console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
-                    except PackageServiceError:
-                        # Service already prints a detailed summary.
-                        pass
-                    console.print()
-                    console.print("[dim]Press any key to continue...[/dim]")
-                    readchar.readkey()
-                    _reload_state_config()
-                    _refresh_contents()
-                    live.start()
-                    continue
-
-                if key in ("x", "d"):
-                    live.stop()
-                    if is_ungrouped:
-                        console.print(
-                            "\n[yellow]Remove all ungrouped items?[/yellow] [dim](y/N)[/dim] ",
-                            end="",
-                        )
-                    else:
-                        console.print(
-                            f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ",
-                            end="",
-                        )
-                    confirm = readchar.readkey()
-                    console.print()
-                    if confirm.lower() == "y":
-                        if is_ungrouped:
-                            try:
-                                remove_ungrouped_items(sync_after=True, log=console.print)
-                            except PackageServiceError:
-                                pass
-                        else:
-                            try:
-                                remove_package(pkg_name, sync_after=True, log=console.print)
-                            except PackageNotFoundError:
-                                console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
-                            except PackageServiceError:
-                                pass
-                        console.print()
-                        console.print("[dim]Press any key to continue...[/dim]")
-                        readchar.readkey()
-                    _reload_state_config()
-                    _refresh_contents()
-                    live.start()
                     continue
 
             if kind == ROW_TYPE and primary:
@@ -669,82 +496,394 @@ def handle_packages(state: dict) -> bool:
                     pkg_name = row["package"]
                     pkg_items = package_tree.get(pkg_name, {})
                     all_pairs = [(f, n) for f, names in pkg_items.items() for n in names]
-                    if all_pairs:
-                        all_enabled = all((f, n) in scope["enabled"] for f, n in all_pairs)
-                        for f, n in all_pairs:
-                            _set_item_enabled(scope["key"], f, n, not all_enabled)
-                        dirty = True
-                        action = "Disabled" if all_enabled else "Enabled"
+                    action = _toggle_group_items(scope, all_pairs)
+                    if action:
                         label = "ungrouped" if row["is_ungrouped"] else pkg_name
                         status_msg = f"{action} all in {label}"
-                    _reload_state_config()
                     continue
                 if kind == ROW_TYPE:
                     pkg_name = row["package"]
                     field = row["field"]
                     names = package_tree.get(pkg_name, {}).get(field, [])
-                    if names:
-                        all_enabled = all((field, n) in scope["enabled"] for n in names)
-                        for n in names:
-                            _set_item_enabled(scope["key"], field, n, not all_enabled)
-                        dirty = True
-                        action = "Disabled" if all_enabled else "Enabled"
+                    pairs = [(field, n) for n in names]
+                    action = _toggle_group_items(scope, pairs)
+                    if action:
                         status_msg = f"{action} all {row['label']} in {pkg_name}"
-                    _reload_state_config()
                     continue
                 if kind == ROW_ITEM:
                     pkg_name = row["package"]
                     field = row["field"]
                     names = package_tree.get(pkg_name, {}).get(field, [])
-                    if names:
-                        all_enabled = all((field, n) in scope["enabled"] for n in names)
-                        for n in names:
-                            _set_item_enabled(scope["key"], field, n, not all_enabled)
-                        dirty = True
-                        action = "Disabled" if all_enabled else "Enabled"
+                    pairs = [(field, n) for n in names]
+                    action = _toggle_group_items(scope, pairs)
+                    if action:
                         status_msg = f"{action} all {field} in {pkg_name}"
-                    _reload_state_config()
                     continue
 
-            if kind == ROW_ITEM:
+            if kind == ROW_ITEM and primary:
                 field = row["field"]
                 name = row["name"]
-                ct = field_to_ct[field]
+                enabled_now = (field, name) in scope["enabled"]
+                _do_toggle(scope, field, name, not enabled_now)
+                status_msg = (
+                    f"{'Enabled' if not enabled_now else 'Disabled'} {name} in {scope['label']}"
+                )
+                continue
 
-                if primary:
-                    enabled_now = (field, name) in scope["enabled"]
-                    _set_item_enabled(scope["key"], field, name, not enabled_now)
-                    dirty = True
-                    status_msg = (
-                        f"{'Enabled' if not enabled_now else 'Disabled'} {name} in {scope['label']}"
-                    )
-                    continue
+    return scopes, changed
 
-                if key == "e":
-                    item_path = registry.get_path(ct, name)
-                    if item_path is not None:
-                        live.stop()
-                        if not _run_editor_command(item_path):
-                            console.print(f"\n[red]Could not open {item_path} in $EDITOR[/red]")
-                            wait_for_continue()
-                        live.start()
-                    continue
 
-                if key == "d":
-                    live.stop()
-                    if not _confirm_registry_item_delete(ct, name):
-                        status_msg = f"Delete cancelled for {ct.registry_dir}/{name}."
-                        live.start()
-                        continue
+# ---------------------------------------------------------------------------
+# Dashboard packages handler
+# ---------------------------------------------------------------------------
 
-                    removed = registry.remove(ct, name)
-                    if removed:
-                        dirty = True
-                        state["contents"] = registry.list()
-                        status_msg = f"Removed {ct.registry_dir}/{name} from registry."
+def handle_packages(state: dict) -> bool:
+    """Unified package-first registry view with package/type/item accordions."""
+    from ...package_service import (
+        PackageNotFoundError,
+        PackageServiceError,
+        remove_ungrouped_items,
+        update_packages,
+        remove_package,
+    )
+
+    packages = v2_config.load_packages()
+    registry = state["registry"]
+    dirty = False
+
+    ordered_types: list[tuple[str, str, ComponentType]] = list(_ORDERED_COMPONENT_FIELDS)
+    fields = [f for f, _, _ in ordered_types]
+    field_to_ct = {f: ct for f, _, ct in ordered_types}
+    ct_to_field = {ct.value: f for f, _, ct in ordered_types}
+
+    collapsed_packages: dict[str, bool] = {}
+    collapsed_types: dict[tuple[str, str], bool] = {}
+
+    def _reload_state_config() -> None:
+        cfg = v2_config.load_global_config()
+        state["cfg"] = cfg
+        state["global_cfg"] = cfg.get("global", {})
+        project_dir = state.get("project_dir")
+        if project_dir:
+            state["local_cfg"] = v2_config.load_dir_config(project_dir) or {}
+        else:
+            state["local_cfg"] = None
+
+    def _refresh_contents() -> None:
+        nonlocal packages
+        packages = v2_config.load_packages()
+        state["contents"] = registry.list()
+
+    def _build_scope_entries() -> list[dict]:
+        scopes: list[dict] = []
+
+        global_enabled: set[tuple[str, str]] = set()
+        for field in fields:
+            for name in state["global_cfg"].get(field, []):
+                global_enabled.add((field, name))
+        scopes.append({
+            "key": "global",
+            "label": "\U0001f310 Global (default)",
+            "enabled": global_enabled,
+        })
+
+        project_dir = state.get("project_dir") or Path.cwd().resolve()
+        config_chain = v2_config.get_config_chain(project_dir)
+        if config_chain:
+            for chain_dir, chain_config in config_chain:
+                enabled: set[tuple[str, str]] = set()
+                for field in fields:
+                    section = chain_config.get(field, {})
+                    if isinstance(section, dict):
+                        names = section.get("enabled", [])
+                    elif isinstance(section, list):
+                        names = section
                     else:
-                        status_msg = f"Could not remove {ct.registry_dir}/{name}."
-                    live.start()
+                        names = []
+                    for name in names:
+                        enabled.add((field, name))
+
+                if chain_dir == project_dir.resolve():
+                    label = f"\U0001f4cd This project: {chain_dir.name}"
+                else:
+                    label = f"\U0001f4c1 {chain_dir.name}"
+                scopes.append({"key": str(chain_dir), "label": label, "enabled": enabled})
+        else:
+            local_cfg = state.get("local_cfg")
+            if local_cfg is not None:
+                enabled: set[tuple[str, str]] = set()
+                for field in fields:
+                    section = local_cfg.get(field, {})
+                    if isinstance(section, dict):
+                        names = section.get("enabled", [])
+                    elif isinstance(section, list):
+                        names = section
+                    else:
+                        names = []
+                    for name in names:
+                        enabled.add((field, name))
+
+                project_name = state.get("project_name") or project_dir.name
+                scopes.append({
+                    "key": str(project_dir),
+                    "label": f"\U0001f4cd This project: {project_name}",
+                    "enabled": enabled,
+                })
+
+        return scopes
+
+    def _set_item_enabled(scope_key: str, field: str, name: str, enabled: bool) -> None:
+        if scope_key == "global":
+            current = list(state["global_cfg"].get(field, []))
+            if enabled and name not in current:
+                current.append(name)
+            elif not enabled:
+                current = [n for n in current if n != name]
+            state["global_cfg"][field] = current
+            cfg = state["cfg"]
+            cfg["global"] = state["global_cfg"]
+            v2_config.save_global_config(cfg)
+            state["cfg"] = cfg
+            return
+
+        dir_path = Path(scope_key)
+        dir_cfg = v2_config.load_dir_config(dir_path) or {}
+        section = dir_cfg.get(field, {})
+        if not isinstance(section, dict):
+            section = {"enabled": list(section) if isinstance(section, list) else []}
+
+        current = list(section.get("enabled", []))
+        if enabled and name not in current:
+            current.append(name)
+        elif not enabled:
+            current = [n for n in current if n != name]
+
+        section["enabled"] = current
+        dir_cfg[field] = section
+        v2_config.save_dir_config(dir_path, dir_cfg)
+
+        project_dir = state.get("project_dir")
+        if project_dir and dir_path.resolve() == Path(project_dir).resolve():
+            state["local_cfg"] = dir_cfg
+
+    def _build_package_tree() -> tuple[list[str], dict[str, dict[str, list[str]]]]:
+        package_tree: dict[str, dict[str, list[str]]] = {
+            pkg_name: {field: [] for field in fields}
+            for pkg_name in sorted(packages.keys())
+        }
+
+        ownership: dict[tuple[str, str], str] = {}
+        for pkg_name, pkg_data in packages.items():
+            for item in pkg_data.get("items", []):
+                comp_type = item.get("type")
+                item_name = item.get("name")
+                if not isinstance(comp_type, str) or not isinstance(item_name, str):
                     continue
+                field = ct_to_field.get(comp_type)
+                if field:
+                    ownership[(field, item_name)] = pkg_name
+
+        ungrouped_has_items = False
+        for field, _, ct in ordered_types:
+            for name in sorted(state["contents"].get(ct, [])):
+                pkg_name = ownership.get((field, name), UNGROUPED)
+                if pkg_name not in package_tree:
+                    package_tree[pkg_name] = {f: [] for f in fields}
+                package_tree[pkg_name][field].append(name)
+                if pkg_name == UNGROUPED:
+                    ungrouped_has_items = True
+
+        package_order = [p for p in sorted(package_tree.keys()) if p != UNGROUPED]
+        if UNGROUPED in package_tree and (ungrouped_has_items or any(package_tree[UNGROUPED].values())):
+            package_order.append(UNGROUPED)
+
+        return package_order, package_tree
+
+    # ── Callbacks for run_three_tier_picker ──
+
+    def _on_toggle(scope_key: str, field: str, name: str, enabled: bool) -> None:
+        nonlocal dirty
+        _set_item_enabled(scope_key, field, name, enabled)
+        dirty = True
+        _reload_state_config()
+
+    def _on_rebuild():
+        _refresh_contents()
+        package_order, package_tree = _build_package_tree()
+        scopes = _build_scope_entries()
+        return package_order, package_tree, scopes
+
+    def _extra_key_handler(key, row, scope, live):
+        nonlocal dirty
+        kind = row["kind"]
+
+        if key == "U":
+            live.stop()
+            console.print("\n[bold]Updating all packages...[/bold]")
+            try:
+                update_packages(
+                    package=None,
+                    check=False,
+                    force=False,
+                    prune=False,
+                    sync_on_change=True,
+                    log=console.print,
+                )
+            except PackageServiceError:
+                pass
+            console.print()
+            console.print("[dim]Press any key to continue...[/dim]")
+            readchar.readkey()
+            _reload_state_config()
+            _refresh_contents()
+            live.start()
+            return True, ""
+
+        if kind == ROW_PACKAGE:
+            pkg_name = row["package"]
+            is_ungrouped = row["is_ungrouped"]
+
+            if key == "u":
+                if is_ungrouped:
+                    return True, "Ungrouped has no package source to update."
+
+                live.stop()
+                console.print(f"\n[bold]Updating {pkg_name}...[/bold]")
+                try:
+                    update_packages(
+                        package=pkg_name,
+                        check=False,
+                        force=False,
+                        prune=False,
+                        sync_on_change=True,
+                        log=console.print,
+                    )
+                except PackageNotFoundError:
+                    console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
+                except PackageServiceError:
+                    pass
+                console.print()
+                console.print("[dim]Press any key to continue...[/dim]")
+                readchar.readkey()
+                _reload_state_config()
+                _refresh_contents()
+                live.start()
+                return True, ""
+
+            if key in ("x", "d"):
+                live.stop()
+                if is_ungrouped:
+                    console.print(
+                        "\n[yellow]Remove all ungrouped items?[/yellow] [dim](y/N)[/dim] ",
+                        end="",
+                    )
+                else:
+                    console.print(
+                        f"\n[yellow]Remove package '{pkg_name}'?[/yellow] [dim](y/N)[/dim] ",
+                        end="",
+                    )
+                confirm = readchar.readkey()
+                console.print()
+                if confirm.lower() == "y":
+                    if is_ungrouped:
+                        try:
+                            remove_ungrouped_items(sync_after=True, log=console.print)
+                        except PackageServiceError:
+                            pass
+                    else:
+                        try:
+                            remove_package(pkg_name, sync_after=True, log=console.print)
+                        except PackageNotFoundError:
+                            console.print(f"[yellow]Package not found:[/yellow] {pkg_name}")
+                        except PackageServiceError:
+                            pass
+                    console.print()
+                    console.print("[dim]Press any key to continue...[/dim]")
+                    readchar.readkey()
+                _reload_state_config()
+                _refresh_contents()
+                live.start()
+                return True, ""
+
+        if kind == ROW_ITEM:
+            field = row["field"]
+            name = row["name"]
+            ct = field_to_ct[field]
+
+            if key == "e":
+                item_path = registry.get_path(ct, name)
+                if item_path is not None:
+                    live.stop()
+                    if not _run_editor_command(item_path):
+                        console.print(f"\n[red]Could not open {item_path} in $EDITOR[/red]")
+                        wait_for_continue()
+                    live.start()
+                return True, ""
+
+            if key == "d":
+                live.stop()
+                if not _confirm_registry_item_delete(ct, name):
+                    live.start()
+                    return True, f"Delete cancelled for {ct.registry_dir}/{name}."
+
+                removed = registry.remove(ct, name)
+                if removed:
+                    dirty = True
+                    state["contents"] = registry.list()
+                    live.start()
+                    return True, f"Removed {ct.registry_dir}/{name} from registry."
+                else:
+                    live.start()
+                    return True, f"Could not remove {ct.registry_dir}/{name}."
+
+        return False, ""
+
+    def _extra_hints(current_kind):
+        if current_kind == ROW_PACKAGE:
+            return "space/\u21b5 expand · t toggle all · u update pkg · d/x remove pkg · U update all"
+        elif current_kind == ROW_TYPE:
+            return "space/\u21b5 expand · t toggle all"
+        elif current_kind == ROW_ITEM:
+            return "space/\u21b5 toggle · t toggle group · e open · d remove item · U update all"
+        else:
+            return "space/\u21b5 select · U update all"
+
+    # ── Setup and run ──
+
+    _reload_state_config()
+    _refresh_contents()
+    package_order, package_tree = _build_package_tree()
+    has_registry_items = any(
+        state["contents"].get(ct, [])
+        for _field, _label, ct in ordered_types
+    )
+    if not packages and not has_registry_items:
+        console.print("\n[dim]No packages or ungrouped registry items found.[/dim]")
+        console.print("[dim]Run [cyan]hawk download <url>[/cyan] to install a package.[/dim]\n")
+        wait_for_continue()
+        return False
+
+    field_labels = {f: label for f, label, _ in ordered_types}
+    scopes = _build_scope_entries()
+
+    show_scope_hint = len(scopes) == 1 and state.get("local_cfg") is None
+
+    run_three_tier_picker(
+        "Packages",
+        package_tree,
+        package_order,
+        field_labels,
+        scopes,
+        start_scope_index=0,
+        packages_meta=packages,
+        collapsed_packages=collapsed_packages,
+        collapsed_types=collapsed_types,
+        on_toggle=_on_toggle,
+        on_rebuild=_on_rebuild,
+        extra_key_handler=_extra_key_handler,
+        extra_hints=_extra_hints,
+        action_label="Done",
+        scope_hint="run 'hawk init' for local scope" if show_scope_hint else None,
+    )
 
     return dirty

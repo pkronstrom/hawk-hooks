@@ -668,79 +668,70 @@ def cmd_download(args):
 def _interactive_select_items(items, registry=None, package_name: str = "",
                               packages: list | None = None,
                               collapsed: bool = False, select_all: bool = False):
-    """Interactive item picker backed by run_toggle_list."""
-    from .types import ComponentType, ToggleGroup, ToggleScope
-    from .v2_interactive.toggle import run_toggle_list
+    """Interactive item picker backed by run_three_tier_picker."""
+    from .v2_interactive.handlers.packages import (
+        UNGROUPED,
+        run_three_tier_picker,
+        _ORDERED_COMPONENT_FIELDS,
+    )
 
     if not items:
         return [], "cancel"
 
-    # Build name->item index for mapping back
-    name_to_item: dict[str, list] = {}
+    # Build package_tree: {pkg: {field: [names]}}
+    package_tree: dict[str, dict[str, list[str]]] = {}
     for item in items:
-        name_to_item.setdefault(item.name, []).append(item)
+        pkg = getattr(item, "package", "") or package_name or "Components"
+        field = item.component_type.registry_dir
+        package_tree.setdefault(pkg, {}).setdefault(field, []).append(item.name)
 
-    # Dedupe names while preserving order
-    seen: set[str] = set()
-    unique_names: list[str] = []
-    for item in items:
-        if item.name not in seen:
-            seen.add(item.name)
-            unique_names.append(item.name)
+    # Dedupe names within each field bucket (preserve order)
+    for pkg_fields in package_tree.values():
+        for field in pkg_fields:
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for name in pkg_fields[field]:
+                if name not in seen:
+                    seen.add(name)
+                    deduped.append(name)
+            pkg_fields[field] = deduped
+
+    package_order = sorted(package_tree.keys())
+
+    field_labels = {f: label for f, label, _ in _ORDERED_COMPONENT_FIELDS}
 
     # Pre-select: all if requested, otherwise only items not already registered
     if select_all:
-        enabled = list(unique_names)
+        enabled: set[tuple[str, str]] = {
+            (item.component_type.registry_dir, item.name)
+            for item in items
+        }
     else:
-        enabled = list({item.name for item in items
-                        if not (registry and registry.has(item.component_type, item.name))})
+        enabled = {
+            (item.component_type.registry_dir, item.name)
+            for item in items
+            if not (registry and registry.has(item.component_type, item.name))
+        }
 
-    # Build groups: one per package, items sorted by type
-    TYPE_ORDER = [ComponentType.SKILL, ComponentType.HOOK, ComponentType.PROMPT,
-                  ComponentType.AGENT, ComponentType.MCP]
-    type_rank = {ct: i for i, ct in enumerate(TYPE_ORDER)}
+    scopes = [{"key": "select", "label": "Select components", "enabled": enabled}]
 
-    pkg_names: list[str] = []
-    seen_pkgs: set[str] = set()
-    for item in items:
-        pkg = getattr(item, "package", "") or ""
-        if pkg not in seen_pkgs:
-            seen_pkgs.add(pkg)
-            pkg_names.append(pkg)
-
-    groups: list[ToggleGroup] = []
-    for pkg in pkg_names:
-        pkg_items = sorted(
-            [item for item in items if (getattr(item, "package", "") or "") == pkg],
-            key=lambda it: (type_rank.get(it.component_type, 99), it.name),
-        )
-        if not pkg_items:
-            continue
-        label = f"\U0001f4e6 {pkg or package_name or 'Components'}"
-        group = ToggleGroup(
-            key=pkg or "__default__",
-            label=label,
-            items=[item.name for item in pkg_items],
-            collapsed=collapsed,
-        )
-        groups.append(group)
-
-    scope = ToggleScope(key="select", label="Select components", enabled=enabled)
-
-    enabled_lists, changed = run_toggle_list(
+    final_scopes, changed = run_three_tier_picker(
         package_name or "Components",
-        unique_names,
-        scopes=[scope],
-        start_scope_index=0,
-        groups=groups if groups else None,
+        package_tree,
+        package_order,
+        field_labels,
+        scopes=scopes,
+        action_label="Save",
     )
 
     if not changed:
         return [], "cancel"
 
-    # Map enabled names back to item objects
-    selected_names = set(enabled_lists[0])
-    selected_items = [item for item in items if item.name in selected_names]
+    selected = final_scopes[0]["enabled"]
+    selected_items = [
+        item for item in items
+        if (item.component_type.registry_dir, item.name) in selected
+    ]
     return selected_items, "save"
 
 
