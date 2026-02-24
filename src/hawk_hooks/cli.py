@@ -695,9 +695,10 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
         enabled = list({item.name for item in items
                         if not (registry and registry.has(item.component_type, item.name))})
 
-    # Build groups: package -> type -> items
+    # Build groups: one per package, items sorted by type
     TYPE_ORDER = [ComponentType.SKILL, ComponentType.HOOK, ComponentType.PROMPT,
                   ComponentType.AGENT, ComponentType.MCP]
+    type_rank = {ct: i for i, ct in enumerate(TYPE_ORDER)}
 
     pkg_names: list[str] = []
     seen_pkgs: set[str] = set()
@@ -707,31 +708,22 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
             seen_pkgs.add(pkg)
             pkg_names.append(pkg)
 
-    multi_pkg = len(pkg_names) > 1 or (len(pkg_names) == 1 and pkg_names[0])
-
     groups: list[ToggleGroup] = []
     for pkg in pkg_names:
-        pkg_items = [item for item in items if (getattr(item, "package", "") or "") == pkg]
-        first_in_pkg = True
-        for ct in TYPE_ORDER:
-            ct_items = [item for item in pkg_items if item.component_type == ct]
-            if not ct_items:
-                continue
-            pkg_label = pkg or package_name or "Components"
-            if multi_pkg and first_in_pkg:
-                label = f"{pkg_label} — {ct.value}s"
-                first_in_pkg = False
-            elif multi_pkg:
-                label = f"  {ct.value}s"
-            else:
-                label = f"{ct.value}s"
-            group = ToggleGroup(
-                key=f"{pkg or '__default__'}__{ct.value}",
-                label=label,
-                items=[item.name for item in ct_items],
-                collapsed=collapsed,
-            )
-            groups.append(group)
+        pkg_items = sorted(
+            [item for item in items if (getattr(item, "package", "") or "") == pkg],
+            key=lambda it: (type_rank.get(it.component_type, 99), it.name),
+        )
+        if not pkg_items:
+            continue
+        label = f"\U0001f4e6 {pkg or package_name or 'Components'}"
+        group = ToggleGroup(
+            key=pkg or "__default__",
+            label=label,
+            items=[item.name for item in pkg_items],
+            collapsed=collapsed,
+        )
+        groups.append(group)
 
     scope = ToggleScope(key="select", label="Select components", enabled=enabled)
 
@@ -741,7 +733,6 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
         scopes=[scope],
         start_scope_index=0,
         groups=groups if groups else None,
-        subtitle="Select components to add to registry (not enabled yet)",
     )
 
     if not changed:

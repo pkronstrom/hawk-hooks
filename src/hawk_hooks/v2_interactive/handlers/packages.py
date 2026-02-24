@@ -461,14 +461,14 @@ def handle_packages(state: dict) -> bool:
                     mark = "[dim]\u25cb[/dim]"
                 if is_cur:
                     if enabled:
-                        lines.append(f"{prefix}    {mark} [bold white]{name}[/bold white]")
+                        lines.append(f"{prefix}      {mark} [bold white]{name}[/bold white]")
                     else:
-                        lines.append(f"{prefix}    {mark} [bold dim]{name}[/bold dim]")
+                        lines.append(f"{prefix}      {mark} [bold dim]{name}[/bold dim]")
                 else:
                     if enabled:
-                        lines.append(f"{prefix}    {mark} [white]{name}[/white]")
+                        lines.append(f"{prefix}      {mark} [white]{name}[/white]")
                     else:
-                        lines.append(f"{prefix}    {mark} [dim]{name}[/dim]")
+                        lines.append(f"{prefix}      {mark} [dim]{name}[/dim]")
 
             elif kind == ROW_SEPARATOR:
                 lines.append(f"  {dim_separator(9)}")
