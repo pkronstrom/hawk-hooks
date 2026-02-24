@@ -1449,6 +1449,21 @@ def cmd_new(args):
     _print(f"\n[dim]Run[/dim] [cyan]hawk add {add_type} {dest}[/cyan] [dim]to register, or edit the file first.[/dim]")
 
 
+def cmd_mcp(args):
+    """Start the MCP server (requires hawk-hooks[mcp])."""
+    try:
+        from .mcp_server import mcp
+    except ImportError as exc:
+        if "fastmcp" in str(exc).lower() or "fastmcp" in getattr(exc, "name", ""):
+            print("hawk mcp requires FastMCP. Install with:")
+            print("  uv pip install hawk-hooks[mcp]")
+            print("  # or: pip install hawk-hooks[mcp]")
+            sys.exit(1)
+        raise  # Re-raise unexpected import errors
+
+    mcp.run()
+
+
 def cmd_deps(args):
     """Install dependencies for all hooks in the registry."""
     import subprocess
@@ -1864,6 +1879,10 @@ def build_parser() -> argparse.ArgumentParser:
     new_p.add_argument("--lang", default=".py", help="Language extension (for hooks, default: .py)")
     new_p.add_argument("--force", action="store_true", help="Overwrite existing file")
     new_p.set_defaults(func=cmd_new)
+
+    # mcp
+    mcp_p = subparsers.add_parser("mcp", help="Start MCP server (requires hawk-hooks[mcp])")
+    mcp_p.set_defaults(func=cmd_mcp)
 
     # deps
     deps_p = subparsers.add_parser("deps", help="Install dependencies for hooks")
