@@ -617,12 +617,18 @@ def cmd_download(args):
         select_names = {s.strip() for s in args.select.split(",") if s.strip()}
 
     use_ui = getattr(args, "ui", False)
+    if use_ui:
+        from functools import partial
+        select_fn = partial(_interactive_select_items, collapsed=True, select_all=True)
+    else:
+        select_fn = None
+
     result = download_and_install(
         args.url,
         select_all=not use_ui,
         replace=getattr(args, "replace", False),
         name=getattr(args, "name", None),
-        select_fn=_interactive_select_items if use_ui else None,
+        select_fn=select_fn,
         select_names=select_names,
         log=print,
     )
@@ -694,7 +700,8 @@ def _view_source_in_terminal(path: Path) -> None:
 
 
 def _interactive_select_items(items, registry=None, package_name: str = "",
-                              packages: list | None = None):
+                              packages: list | None = None,
+                              collapsed: bool = False, select_all: bool = False):
     """Show interactive multi-select for download/scan items.
 
     Uses Rich Live + readchar for a scrollable list that works in small panes.
@@ -747,28 +754,31 @@ def _interactive_select_items(items, registry=None, package_name: str = "",
         for ct in TYPE_ORDER:
             ct_items = [(i, item) for i, item in pkg_items if item.component_type == ct]
             if ct_items:
-                type_groups.append({"type": ct, "collapsed": False, "items": ct_items})
+                type_groups.append({"type": ct, "collapsed": collapsed, "items": ct_items})
         # Catch types not in TYPE_ORDER
         seen_ct = set(TYPE_ORDER)
         for ct in sorted(set(item.component_type for _, item in pkg_items) - seen_ct,
                          key=lambda x: x.value):
             ct_items = [(i, item) for i, item in pkg_items if item.component_type == ct]
             if ct_items:
-                type_groups.append({"type": ct, "collapsed": False, "items": ct_items})
+                type_groups.append({"type": ct, "collapsed": collapsed, "items": ct_items})
 
         display_name = pkg if pkg else (package_name or "Components")
         pkg_sections.append({
             "name": display_name,
-            "collapsed": False,
+            "collapsed": collapsed,
             "type_groups": type_groups,
         })
 
-    # Pre-select items not already registered
+    # Pre-select items
     selected: set[int] = set()
-    for i, item in enumerate(items):
-        exists = registry and registry.has(item.component_type, item.name)
-        if not exists:
-            selected.add(i)
+    if select_all:
+        selected = set(range(len(items)))
+    else:
+        for i, item in enumerate(items):
+            exists = registry and registry.has(item.component_type, item.name)
+            if not exists:
+                selected.add(i)
 
     def _build_rows():
         """Build flat row list: (row_type, section_idx, group_idx, orig_idx)."""
@@ -1031,6 +1041,7 @@ def cmd_scan(args):
         selected_items, action = _interactive_select_items(
             content.items, registry, package_name=pkg,
             packages=content.packages,
+            collapsed=True, select_all=True,
         )
         if not selected_items or action == "cancel":
             print("\nNo components selected.")
