@@ -2,258 +2,110 @@
 
 ![hawk banner](docs/hawk_banner.png)
 
-A modular Claude Code hooks manager with auto-discovery, multi-language support, and fast bash runners.
+One registry for all your AI coding tools — skills, hooks, agents, and prompts synced everywhere.
 
-Part of [**Nest-Driven Development**](https://github.com/pkronstrom/nest-driven-development) — the minimum vibable workflow.
+<!-- TODO: asciinema recording of `hawk` TUI dashboard -->
 
-## Breaking Changes
+Configure your AI tools once. hawk-hooks manages a single registry of components — hooks, skills, agents, prompts, and MCP servers — and syncs them into Claude Code, Gemini CLI, Codex CLI, and more.
 
-- **v3 prompts-canonical schema**: slash-style items now use `prompts` as the canonical concept instead of `commands`.
-- Migration instructions: `docs/MIGRATION-v3-prompts.md`
-- Release notes: `docs/CHANGELOG.md`
+No more copying files between `~/.claude`, `~/.gemini`, and `~/.codex`. No more forgetting which project has which hooks enabled.
 
 ## Features
 
-- **Auto-discovery**: Drop scripts in `~/.config/hawk-hooks/hooks/{event}/` and they appear automatically
-- **Multi-language**: Python, JavaScript, Shell, TypeScript (via bun)
-- **Fast execution**: Generated bash runners (~5ms overhead vs ~50ms for Python dispatcher)
-- **Context injection**: `.stdout.md` files output content directly to Claude's context
-- **Native prompt hooks**: `.prompt.json` files for LLM-evaluated decisions (Haiku)
-- **Project overrides**: Per-project hook configurations that override global settings
-
-## Installation
-
-```bash
-# Using uv (recommended)
-uv tool install git+https://github.com/pkronstrom/hawk-hooks.git
-
-# Or using pipx
-pipx install git+https://github.com/pkronstrom/hawk-hooks.git
-```
-
-For development (editable install):
-```bash
-git clone https://github.com/pkronstrom/hawk-hooks.git
-cd hawk-hooks
-
-# Using uv (recommended)
-uv tool install --editable .
-
-# Or using pip
-pip install -e .
-```
-
-### Installing uv
-
-If you don't have uv installed, it's the modern Python package manager (10-100x faster than pip):
-
-```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Or with Homebrew
-brew install uv
-```
-
-hawk-hooks will automatically use uv for installing hook dependencies if available, falling back to pip otherwise.
+- **One registry, many tools** — Write a hook or skill once, sync it to Claude Code, Gemini CLI, Codex CLI, OpenCode, Cursor, and more
+- **Hierarchical config** — Global defaults, monorepo overrides, per-project tweaks — all resolved automatically
+- **Git-based packages** — `hawk download <url>` to install community components, `hawk update` to stay current
+- **Interactive TUI** — Full dashboard for toggling components, browsing the registry, and managing packages
+- **Canonical hook events** — One hook script auto-translates to each tool's native event format and wiring
+- **Batteries included** — Starter kit with safety hooks, code review agents, and cross-tool delegation prompts
 
 ## Quick Start
 
 ```bash
-hawk  # First-time wizard (or `hawk-hooks`)
+# Install (uv recommended)
+uv tool install git+https://github.com/pkronstrom/hawk-hooks.git
+
+# Or with pipx
+pipx install git+https://github.com/pkronstrom/hawk-hooks.git
 ```
-
-The wizard will:
-1. Register hawk-hooks runners in Claude's settings
-2. Let you enable/disable hooks
-3. Install Python dependencies for enabled hooks
-
-After setup, add hooks to `~/.config/hawk-hooks/hooks/{event}/` and run `hawk toggle` to enable them.
-
-## Creating Hooks
-
-Place hooks in event directories:
-```
-~/.config/hawk-hooks/hooks/
-├── pre_tool_use/       # Before tool execution (can block)
-├── post_tool_use/      # After tool execution
-├── stop/               # When Claude stops
-├── subagent_stop/      # When a subagent completes
-├── notification/       # On notifications
-├── user_prompt_submit/ # Before user prompt is sent
-├── session_start/      # At session start/resume
-├── session_end/        # When session ends
-├── pre_compact/        # Before context compaction
-└── permission_request/ # When permission is requested
-```
-
-### Hook Types
-
-| Pattern | Type | Description |
-|---------|------|-------------|
-| `name.py` | Command | Python script, receives JSON stdin |
-| `name.sh` | Command | Shell script, receives JSON stdin |
-| `name.js` | Command | Node.js script, receives JSON stdin |
-| `name.ts` | Command | TypeScript (bun), receives JSON stdin |
-| `name.stdout.md` | Stdout | Content output directly to Claude's context |
-| `name.stdout.txt` | Stdout | Content output directly to Claude's context |
-| `name.prompt.json` | Native Prompt | LLM-evaluated hook (Haiku decides) |
-
-### Command Hooks
-
-Scripts receive JSON on stdin and can output JSON responses:
-
-```python
-#!/usr/bin/env python3
-# Description: Lint Python files with ruff
-# Deps: ruff
-
-import json
-import sys
-
-data = json.load(sys.stdin)
-# Process and optionally output response
-```
-
-### Stdout Hooks (Context Injection)
-
-Files named `*.stdout.md` or `*.stdout.txt` have their content output directly to Claude:
-
-```markdown
-<!-- reminder.stdout.md -->
-# Description: Remind about documentation
-
-Remember to update README.md if you change CLI commands.
-```
-
-### Native Prompt Hooks (LLM-Evaluated)
-
-Files named `*.prompt.json` are registered as Claude's native `type: "prompt"` hooks. Haiku evaluates them and decides whether to approve/block:
-
-```json
-{
-  "prompt": "Evaluate if Claude should stop: $ARGUMENTS. Check if all tasks are complete and tests pass.",
-  "timeout": 30
-}
-```
-
-Supported events for prompt hooks: Stop, SubagentStop, UserPromptSubmit, PreToolUse.
-
-## Configuration
-
-Global config: `~/.config/hawk-hooks/config.json`
-
-```json
-{
-  "enabled": {
-    "pre_tool_use": ["file-guard", "dangerous-cmd"],
-    "post_tool_use": ["python-lint"],
-    "stop": ["notify"]
-  }
-}
-```
-
-### Project Overrides
 
 ```bash
-hawk toggle  # Choose "This project" scope
+# Launch the TUI — auto-detects your AI tools on first run
+hawk
 ```
 
-Choose "Personal" (added to `.git/info/exclude`) or "Shared" (committable).
+The interactive dashboard lets you browse, toggle, and sync components without memorizing CLI commands. Everything below can also be done from the TUI.
 
-## Examples
+### Global vs Project Scope
 
-Copy examples to your hooks directory:
+By default, hawk manages components globally — one set of skills, hooks, and agents across all your projects. This is the recommended starting point.
+
+For per-project overrides, run `hawk init` in a project directory. This creates a `.hawk/config.yaml` where you can enable or disable specific components while still inheriting your global config.
+
+### Packages
+
+Import components from any git repo — Claude Code skills, hook collections, agent definitions, or MCP configs:
 
 ```bash
-cp -r examples/hooks/* ~/.config/hawk-hooks/hooks/
-hawk toggle  # Enable the ones you want
+hawk download https://github.com/someone/claude-skills
+hawk sync
+hawk update    # Pull latest when available
 ```
 
-### Example Hooks
+hawk auto-classifies files by type and lets you pick what to install.
 
-**pre_tool_use/**
-- `file-guard.py` - Block sensitive file modifications
-- `dangerous-cmd.sh` - Block dangerous commands
-- `shell-lint.sh` - Shellcheck linting
-- `git-commit-guide.sh` - Git commit best practices
-- `loop-detector-cli.py` - Detect repetitive tool calls
-- `scope-creep-detector-cli.py` - Detect scope creep
-- `confidence-checker-cli.py` - Check confidence levels
+## What hawk manages
 
-**post_tool_use/**
-- `python-lint.py` - Ruff linting
-- `python-format.py` - Ruff auto-formatting
+| Type | What it is | Example |
+|------|-----------|---------|
+| **Skills** | Instruction files that shape how your AI tool behaves | `code-style.md` |
+| **Hooks** | Event-triggered scripts (pre-tool, post-tool, stop, etc.) | `file-guard.py` |
+| **Prompts** | Slash commands / reusable prompt templates | `commit.md` |
+| **Agents** | Autonomous agent definitions for task delegation | `code-reviewer.md` |
+| **MCP** | Model Context Protocol server configs | `github.yaml` |
 
-**stop/**
-- `notify.py` - Desktop + ntfy.sh notifications
-- `docs-update.sh` - Remind to update documentation
-- `completion-check.stdout.md` - Completion checklist context
-- `completion-validator-cli.py` - Validate task completion
+All components live in a single registry (`~/.config/hawk-hooks/registry/`) and get synced into each tool's native config format.
 
-**notification/**
-- `notify.py` - Desktop + ntfy.sh notifications
+## Supported Tools
 
-**user_prompt_submit/**
-- `context-primer.stdout.md` - Prime context on prompt submit
+| Tool | Skills | Hooks | Prompts | Agents | MCP |
+|------|--------|-------|---------|--------|-----|
+| Claude Code | yes | yes | yes | yes | yes |
+| Gemini CLI | yes | yes | yes | yes | yes |
+| Codex CLI | yes | partial | yes | yes | yes |
+| OpenCode | yes | partial | yes | yes | yes |
+| Cursor | yes | — | yes | — | yes |
 
-### Example Prompts (Skills)
+Hook support varies by tool — Claude and Gemini have native hook APIs, while Codex and OpenCode use generated bridge wrappers for supported events.
 
-The `examples/prompts/` directory contains skill definitions for Claude Code:
-- `commit.md` - Generate commit messages
-- `prime-context.md` - Prime session with project context
-- `code-audit.md` - Comprehensive code audits
-- `gemini.md` / `codex.md` - Delegate to other AI tools
-- And more...
-
-### Example Agents
-
-The `examples/agents/` directory contains Task tool agent definitions:
-- `code-reviewer.md` - Code review agent
-- `test-generator.md` - Test generation agent
-- `security-auditor.md` - Security audit agent
-- `refactor-assistant.md` - Refactoring suggestions
-- `docs-writer.md` - Documentation writer
+More tools coming.
 
 ## CLI Reference
 
+The TUI (`hawk`) is the recommended way to use hawk, but all operations are also available as commands:
+
 ```bash
-hawk                    # Interactive menu (wizard on first run)
-hawk status             # Show installation status
-hawk toggle             # Enable/disable hooks (interactive)
-hawk enable <hook>      # Enable hooks by name
-hawk disable <hook>     # Disable hooks by name
-hawk list [--enabled]   # List hooks (scriptable)
-hawk install            # Install to Claude settings
-hawk uninstall          # Remove from Claude settings
-hawk install-deps       # Install Python dependencies
+hawk                          # Interactive TUI dashboard
+hawk init [dir]               # Register a project directory
+hawk status                   # Show registry and sync state
+hawk sync                     # Sync components to all tools
+hawk add <type> <path>        # Add a component to the registry
+hawk remove <type> <name>     # Remove a component
+hawk download <url>           # Import components from a git repo
+hawk scan <path>              # Import from a local directory
+hawk packages                 # List installed packages
+hawk update [package]         # Update packages from git
+hawk new <type> <name>        # Scaffold a new component
+hawk clean                    # Remove all hawk-managed symlinks
 ```
 
-Hook names can be short (`file-guard`) or explicit (`pre_tool_use/file-guard`).
+## Development
 
-## Events
-
-| Event | When | Can Block |
-|-------|------|-----------|
-| `pre_tool_use` | Before tool runs | Yes |
-| `post_tool_use` | After tool completes | No |
-| `stop` | Claude stops responding | Yes |
-| `subagent_stop` | Subagent finishes | Yes |
-| `notification` | On notification | No |
-| `user_prompt_submit` | Before prompt sent | Yes |
-| `session_start` | Session starts/resumes | No |
-| `session_end` | Session ends | No |
-| `pre_compact` | Before context compaction | No |
-| `permission_request` | When permission is requested | No |
-
-### Blocking Hooks
-
-Command hooks can block by outputting:
-```json
-{"decision": "block", "reason": "Why it was blocked"}
+```bash
+git clone https://github.com/pkronstrom/hawk-hooks.git
+cd hawk-hooks
+uv tool install --editable .
 ```
-
-Or exit with code 2.
 
 ## License
 
