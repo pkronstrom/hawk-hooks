@@ -91,6 +91,8 @@ hawk status                   # Show registry and sync state
 hawk sync                     # Sync components to all tools
 hawk add <type> <path>        # Add a component to the registry
 hawk remove <type> <name>     # Remove a component
+hawk enable <target>          # Enable a component, package, or type
+hawk disable <target>         # Disable a component, package, or type
 hawk download <url>           # Import components from a git repo
 hawk scan <path>              # Import from a local directory
 hawk packages                 # List installed packages
