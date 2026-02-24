@@ -127,11 +127,24 @@ def save_global_config(cfg: dict[str, Any]) -> None:
         yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
 
 
+def _validate_profile_name(name: str) -> None:
+    """Validate profile names to prevent path traversal and malformed paths."""
+    if not name or name.strip() != name:
+        raise ValueError(f"Invalid profile name: {name!r}")
+    if ".." in name or "/" in name or "\\" in name:
+        raise ValueError(f"Invalid profile name (path traversal): {name!r}")
+    if name.startswith("."):
+        raise ValueError(f"Invalid profile name (hidden file): {name!r}")
+    if any(c < " " for c in name):
+        raise ValueError(f"Invalid profile name (control chars): {name!r}")
+
+
 def load_profile(name: str) -> dict[str, Any] | None:
     """Load a profile by name.
 
     Returns None if the profile does not exist.
     """
+    _validate_profile_name(name)
     profile_path = get_profiles_dir() / f"{name}.yaml"
     try:
         with open(profile_path) as f:
@@ -145,6 +158,7 @@ def load_profile(name: str) -> dict[str, Any] | None:
 
 def save_profile(name: str, data: dict[str, Any]) -> None:
     """Save a profile."""
+    _validate_profile_name(name)
     profile_path = get_profiles_dir() / f"{name}.yaml"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     with open(profile_path, "w") as f:

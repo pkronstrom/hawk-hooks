@@ -243,11 +243,21 @@ class TestSyncDirectoryWithChain:
 class TestSyncCache:
     def test_cache_key_global(self):
         key = _cache_key("global", Tool.CLAUDE)
-        assert key == "global_claude"
+        assert key.endswith("_claude")
+        assert "/" not in key
+        assert "\\" not in key
 
     def test_cache_key_directory(self):
         key = _cache_key("/home/user/project", Tool.GEMINI)
-        assert key == "home_user_project_gemini"
+        assert key.endswith("_gemini")
+        assert "/" not in key
+        assert "\\" not in key
+        assert key == _cache_key("/home/user/project", Tool.GEMINI)
+
+    def test_cache_key_distinguishes_old_collision_paths(self):
+        key_a = _cache_key("/a/b", Tool.CLAUDE)
+        key_b = _cache_key("/a_b", Tool.CLAUDE)
+        assert key_a != key_b
 
     def test_read_write_cache(self, v2_env):
         _write_cached_hash("global", Tool.CLAUDE, "abc123")

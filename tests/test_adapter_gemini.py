@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import tomllib
 
 import pytest
 
@@ -61,6 +62,16 @@ Body content.
 
         toml = md_to_toml(source)
         assert 'test \\"cmd\\"' in toml
+
+    def test_body_with_triple_single_quotes_round_trips(self, tmp_path):
+        source = tmp_path / "quotes.md"
+        body = "Line 1\n'''\nLine 3"
+        source.write_text(body)
+
+        toml_text = md_to_toml(source)
+        parsed = tomllib.loads(toml_text)
+
+        assert parsed["prompt"] == body
 
 
 class TestGeminiCommands:

@@ -659,10 +659,11 @@ class CodexAdapter(ToolAdapter):
         text = block_re.sub("", text).rstrip()
 
         if commands:
+            escaped_commands = [CodexAdapter._escape_toml_string(cmd) for cmd in commands]
             lines = [
                 _BEGIN_NOTIFY_BLOCK,
                 "notify = [",
-                *[f'  "{cmd}",' for cmd in commands],
+                *[f'  "{cmd}",' for cmd in escaped_commands],
                 "]",
                 _END_NOTIFY_BLOCK,
             ]

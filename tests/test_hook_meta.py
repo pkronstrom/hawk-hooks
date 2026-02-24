@@ -22,6 +22,12 @@ class TestParseCommentHeaders:
         meta = parse_hook_meta(f)
         assert meta.events == ["stop", "notification"]
 
+    def test_alias_events_are_normalized(self, tmp_path):
+        f = tmp_path / "hook.py"
+        f.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool\nimport sys\n")
+        meta = parse_hook_meta(f)
+        assert meta.events == ["pre_tool_use"]
+
     def test_all_fields(self, tmp_path):
         f = tmp_path / "hook.py"
         f.write_text(
@@ -196,6 +202,13 @@ class TestTimeoutParsing:
         f.write_text("#!/usr/bin/env python3\n# hawk-hook: events=pre_tool_use\n# hawk-hook: timeout=abc\nimport sys\n")
         meta = parse_hook_meta(f)
         assert meta.timeout == 0
+
+    def test_timeout_preserved_without_events(self, tmp_path):
+        f = tmp_path / "hook.py"
+        f.write_text("#!/usr/bin/env python3\n# hawk-hook: timeout=30\nimport sys\n")
+        meta = parse_hook_meta(f)
+        assert meta.events == []
+        assert meta.timeout == 30
 
 
 class TestJsonMeta:

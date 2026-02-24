@@ -1,5 +1,7 @@
 """Tests for the adapter base class and registry."""
 
+import json
+
 import pytest
 
 from hawk_hooks.adapters import get_adapter, list_adapters
@@ -375,6 +377,34 @@ class TestGenerateRunnersWithMeta:
         # The raw unquoted version must NOT appear
         assert "export MALICIOUS=$(rm -rf /)" not in content
 
+    def test_invalid_env_var_name_rejected(self, tmp_path, monkeypatch, caplog):
+        """Env var keys with shell metacharacters should be rejected."""
+        from hawk_hooks import v2_config
+        monkeypatch.setattr(v2_config, "get_config_dir", lambda: tmp_path / "config")
+
+        adapter = get_adapter(Tool.CLAUDE)
+        registry = tmp_path / "registry"
+        hooks_dir = registry / "hooks"
+        hooks_dir.mkdir(parents=True)
+        runners_dir = tmp_path / "runners"
+
+        hook = hooks_dir / "hook.py"
+        hook.write_text(
+            "#!/usr/bin/env python3\n"
+            "# hawk-hook: events=pre_tool_use\n"
+            "# hawk-hook: env=SAFE_KEY=ok\n"
+            "# hawk-hook: env=BAD;rm -rf /=nope\n"
+            "import sys\n"
+        )
+
+        with caplog.at_level("WARNING"):
+            runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
+
+        content = runners["pre_tool_use"].read_text()
+        assert "export SAFE_KEY=ok" in content
+        assert "BAD;rm -rf /" not in content
+        assert "Skipping invalid env var name" in caplog.text
+
     def test_venv_python_used_when_available(self, tmp_path, monkeypatch):
         """When venv exists, runners should use venv python path."""
         from hawk_hooks import v2_config
@@ -419,3 +449,21 @@ class TestGenerateRunnersWithMeta:
         runners = adapter._generate_runners(["hook.py"], registry, runners_dir)
         content = runners["pre_tool_use"].read_text()
         assert "python3" in content
+
+
+class TestMcpMergeHelpers:
+    def test_mcp_servers_string_is_skipped_without_crash(self, tmp_path, caplog):
+        cfg_path = tmp_path / "settings.json"
+        cfg_path.write_text(json.dumps({"mcpServers": "not-a-dict", "keep": {"x": 1}}))
+
+        with caplog.at_level("WARNING"):
+            ToolAdapter._merge_mcp_json(
+                cfg_path,
+                {"hawk-test": {"command": "echo", "args": ["ok"]}},
+            )
+
+        merged = json.loads(cfg_path.read_text())
+        assert merged["keep"] == {"x": 1}
+        assert "hawk-test" in merged["mcpServers"]
+        assert isinstance(merged["mcpServers"], dict)
+        assert "Expected mcpServers to be a dict" in caplog.text

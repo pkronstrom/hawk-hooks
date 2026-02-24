@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from hawk_hooks import v2_config
+from hawk_hooks.downloader import ClassifiedContent, ClassifiedItem
 from hawk_hooks.package_service import (
     PackageUpdateFailedError,
     remove_ungrouped_items,
@@ -153,3 +154,65 @@ def test_remove_ungrouped_items_removes_only_unowned(monkeypatch, tmp_path):
     assert v2_config.load_global_config()["global"]["hooks"] == []
     assert v2_config.load_dir_config(project)["skills"]["enabled"] == []
     assert v2_config.load_dir_config(project)["hooks"]["enabled"] == []
+
+
+def test_update_packages_prune_only_removal_triggers_sync(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    registry = Registry(v2_config.get_registry_path())
+    registry.ensure_dirs()
+
+    local_source = tmp_path / "local-pkg"
+    local_source.mkdir()
+
+    src_tdd = tmp_path / "src" / "tdd"
+    src_tdd.mkdir(parents=True)
+    (src_tdd / "SKILL.md").write_text("# TDD")
+    registry.add(ComponentType.SKILL, "tdd", src_tdd)
+
+    src_old = tmp_path / "src" / "old"
+    src_old.mkdir(parents=True)
+    (src_old / "SKILL.md").write_text("# Old")
+    registry.add(ComponentType.SKILL, "old", src_old)
+
+    v2_config.save_packages({
+        "local-pkg": {
+            "url": "",
+            "path": str(local_source),
+            "installed": "2026-02-23",
+            "commit": "",
+            "items": [
+                {"type": "skill", "name": "tdd", "hash": "same"},
+                {"type": "skill", "name": "old", "hash": "oldhash"},
+            ],
+        }
+    })
+
+    monkeypatch.setattr(
+        "hawk_hooks.package_service.scan_directory",
+        lambda _path: ClassifiedContent(
+            items=[
+                ClassifiedItem(
+                    component_type=ComponentType.SKILL,
+                    name="tdd",
+                    source_path=src_tdd,
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "hawk_hooks.v2_config.hash_registry_item",
+        lambda _path: "same",
+    )
+
+    sync_calls: list[bool] = []
+    monkeypatch.setattr(
+        "hawk_hooks.v2_sync.sync_all",
+        lambda force=False: sync_calls.append(force) or {},
+    )
+
+    report = update_packages(prune=True, sync_on_change=True, log=lambda _msg: None)
+
+    assert report.any_changes is True
+    assert sync_calls == [True]
+    assert registry.get_path(ComponentType.SKILL, "old") is None

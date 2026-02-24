@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -14,6 +16,8 @@ from ..types import ResolvedSet, SyncResult, Tool
 
 # Shared marker for hawk-managed MCP entries
 HAWK_MCP_MARKER = "__hawk_managed"
+_ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+logger = logging.getLogger(__name__)
 
 
 class ToolAdapter(ABC):
@@ -288,6 +292,13 @@ class ToolAdapter(ABC):
                 for env_entry in meta.env:
                     if "=" in env_entry:
                         var_name, _, var_value = env_entry.partition("=")
+                        if not _ENV_VAR_NAME_RE.fullmatch(var_name):
+                            logger.warning(
+                                "Skipping invalid env var name in hook metadata: %r (hook=%s)",
+                                var_name,
+                                script.name,
+                            )
+                            continue
                         env_exports.append(f"export {var_name}={shlex.quote(var_value)}")
                 if env_exports:
                     calls.extend(env_exports)
@@ -506,6 +517,14 @@ exit 0
                 data = {}
 
         existing = data.get(server_key, {})
+        if not isinstance(existing, dict):
+            logger.warning(
+                "Expected %s to be a dict in %s, got %s; ignoring malformed section",
+                server_key,
+                config_path,
+                type(existing).__name__,
+            )
+            existing = {}
 
         # Remove old hawk-managed entries
         cleaned = {
@@ -534,6 +553,14 @@ exit 0
         except (json.JSONDecodeError, OSError):
             return {}
         servers = data.get(server_key, {})
+        if not isinstance(servers, dict):
+            logger.warning(
+                "Expected %s to be a dict in %s, got %s; skipping malformed section",
+                server_key,
+                config_path,
+                type(servers).__name__,
+            )
+            return {}
         return {
             k: v for k, v in servers.items()
             if isinstance(v, dict) and v.get(HAWK_MCP_MARKER)
@@ -571,6 +598,14 @@ exit 0
                 data = {}
 
         existing = data.get(server_key, {})
+        if not isinstance(existing, dict):
+            logger.warning(
+                "Expected %s to be a dict in %s, got %s; ignoring malformed section",
+                server_key,
+                config_path,
+                type(existing).__name__,
+            )
+            existing = {}
 
         # Collect legacy inline-marked entries
         for k, v in existing.items():

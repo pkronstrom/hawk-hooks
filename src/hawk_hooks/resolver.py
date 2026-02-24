@@ -14,6 +14,11 @@ from .types import ComponentType, ResolvedSet, Tool
 COMPONENT_FIELDS = ["skills", "hooks", "agents", "mcp", "prompts"]
 
 
+def _as_list(value: Any) -> list[Any]:
+    """Return list values only; treat malformed non-list config as empty."""
+    return list(value) if isinstance(value, list) else []
+
+
 def _merge_list(base: list[str], add: list[str], remove: list[str]) -> list[str]:
     """Merge lists: base + add - remove, preserving order, no duplicates."""
     seen: set[str] = set()
@@ -32,10 +37,10 @@ def _apply_profile(result: ResolvedSet, profile: dict[str, Any]) -> None:
     """Apply a profile layer to the result (adds only, no removes)."""
     for field_name in COMPONENT_FIELDS:
         current = getattr(result, field_name)
-        additions = profile.get(field_name, [])
+        additions = _as_list(profile.get(field_name, []))
         if field_name == "prompts":
             # Backward compatibility: commands are merged into prompts.
-            additions = _merge_list(list(additions), profile.get("commands", []), [])
+            additions = _merge_list(additions, _as_list(profile.get("commands", [])), [])
         merged = _merge_list(current, additions, [])
         setattr(result, field_name, merged)
 
@@ -50,10 +55,10 @@ def _apply_dir_config(
             # Backward compatibility: commands sections migrate into prompts.
             section = _merge_legacy_sections(dir_config.get("commands", {}), section)
         if isinstance(section, dict):
-            enabled = section.get("enabled", [])
-            disabled = section.get("disabled", [])
+            enabled = _as_list(section.get("enabled", []))
+            disabled = _as_list(section.get("disabled", []))
         elif isinstance(section, list):
-            enabled = section
+            enabled = _as_list(section)
             disabled = []
         else:
             continue
@@ -71,8 +76,8 @@ def _apply_dir_config(
                 tool_section = _merge_legacy_sections(tool_overrides.get("commands", {}), tool_section)
             if not isinstance(tool_section, dict):
                 continue
-            extra = tool_section.get("extra", [])
-            exclude = tool_section.get("exclude", [])
+            extra = _as_list(tool_section.get("extra", []))
+            exclude = _as_list(tool_section.get("exclude", []))
             current = getattr(result, field_name)
             merged = _merge_list(current, extra, exclude)
             setattr(result, field_name, merged)
@@ -106,13 +111,13 @@ def resolve(
     global_section = global_config.get("global", {})
 
     result = ResolvedSet(
-        skills=list(global_section.get("skills", [])),
-        hooks=list(global_section.get("hooks", [])),
-        agents=list(global_section.get("agents", [])),
-        mcp=list(global_section.get("mcp", [])),
+        skills=_as_list(global_section.get("skills", [])),
+        hooks=_as_list(global_section.get("hooks", [])),
+        agents=_as_list(global_section.get("agents", [])),
+        mcp=_as_list(global_section.get("mcp", [])),
         prompts=_merge_list(
-            list(global_section.get("prompts", [])),
-            list(global_section.get("commands", [])),
+            _as_list(global_section.get("prompts", [])),
+            _as_list(global_section.get("commands", [])),
             [],
         ),
     )
@@ -138,22 +143,22 @@ def _merge_legacy_sections(legacy: Any, current: Any) -> dict[str, list[str]]:
     current_enabled: list[str] = []
     current_disabled: list[str] = []
     if isinstance(current, dict):
-        current_enabled = list(current.get("enabled", []))
-        current_disabled = list(current.get("disabled", []))
+        current_enabled = _as_list(current.get("enabled", []))
+        current_disabled = _as_list(current.get("disabled", []))
     elif isinstance(current, list):
-        current_enabled = list(current)
+        current_enabled = _as_list(current)
 
     legacy_enabled: list[str] = []
     legacy_disabled: list[str] = []
     if isinstance(legacy, dict):
         if isinstance(legacy.get("extra"), list) or isinstance(legacy.get("exclude"), list):
-            legacy_enabled = list(legacy.get("extra", []))
-            legacy_disabled = list(legacy.get("exclude", []))
+            legacy_enabled = _as_list(legacy.get("extra", []))
+            legacy_disabled = _as_list(legacy.get("exclude", []))
         else:
-            legacy_enabled = list(legacy.get("enabled", []))
-            legacy_disabled = list(legacy.get("disabled", []))
+            legacy_enabled = _as_list(legacy.get("enabled", []))
+            legacy_disabled = _as_list(legacy.get("disabled", []))
     elif isinstance(legacy, list):
-        legacy_enabled = list(legacy)
+        legacy_enabled = _as_list(legacy)
 
     return {
         "enabled": _merge_list(current_enabled, legacy_enabled, []),

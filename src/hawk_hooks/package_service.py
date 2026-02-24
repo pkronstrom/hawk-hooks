@@ -190,7 +190,8 @@ def update_packages(
                         continue
                     if prune:
                         ct = ComponentType(t)
-                        registry.remove(ct, n)
+                        if registry.remove(ct, n):
+                            any_changes = True
                         logf(f"  - {n} (pruned)")
                     else:
                         logf(f"  ? {n} (removed upstream, kept locally)")
@@ -278,7 +279,8 @@ def update_packages(
                 continue
             if prune:
                 ct = ComponentType(t)
-                registry.remove(ct, n)
+                if registry.remove(ct, n):
+                    any_changes = True
                 logf(f"  - {n} (pruned)")
             else:
                 logf(f"  ? {n} (removed upstream, kept locally)")

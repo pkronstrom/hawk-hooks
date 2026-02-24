@@ -17,6 +17,11 @@ def _escape_toml_string(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
 
 
+def _escape_toml_multiline_basic_string(s: str) -> str:
+    """Escape TOML basic multi-line string content."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def md_to_toml(source: Path) -> str:
     """Convert a markdown command file to Gemini TOML format.
 
@@ -47,16 +52,15 @@ def md_to_toml(source: Path) -> str:
 
     name_escaped = _escape_toml_string(name)
     desc_escaped = _escape_toml_string(description)
-    # Use TOML multiline literal string for body
-    body_escaped = body.replace("'''", "'''\"'''\"'''")
+    # Use TOML multiline basic string for body so literal triple-single-quotes
+    # remain valid content.
+    body_escaped = _escape_toml_multiline_basic_string(body)
 
-    return f"""name = "{name_escaped}"
-description = "{desc_escaped}"
-
-prompt = '''
-{body_escaped}
-'''
-"""
+    return (
+        f'name = "{name_escaped}"\n'
+        f'description = "{desc_escaped}"\n\n'
+        f'prompt = """\n{body_escaped}"""\n'
+    )
 
 
 class GeminiAdapter(ToolAdapter):

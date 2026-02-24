@@ -26,6 +26,19 @@ class TestResolveGlobalOnly:
         assert result.skills == []
         assert result.hooks == []
 
+    def test_global_list_fields_require_list_type(self):
+        cfg = {
+            "global": {
+                "skills": "tdd",
+                "hooks": [],
+                "commands": [],
+                "agents": [],
+                "mcp": [],
+            }
+        }
+        result = resolve(cfg)
+        assert result.skills == []
+
 
 class TestResolveWithProfile:
     def test_profile_adds(self):

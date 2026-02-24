@@ -136,12 +136,23 @@ def _migrate_registry(cfg: dict[str, Any], changes: list[str]) -> bool:
     commands_dir = registry_path / "commands"
     prompts_dir = registry_path / "prompts"
 
-    if not commands_dir.exists():
+    try:
+        commands_exists = commands_dir.exists()
+    except OSError:
+        changes.append(f"skipped registry migration: cannot access {commands_dir}")
         return False
 
-    prompts_dir.mkdir(parents=True, exist_ok=True)
+    if not commands_exists:
+        return False
 
-    for src in sorted(commands_dir.iterdir()):
+    try:
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        sources = sorted(commands_dir.iterdir())
+    except OSError:
+        changes.append(f"skipped registry migration: cannot modify {registry_path}")
+        return False
+
+    for src in sources:
         dst = prompts_dir / src.name
         if dst.exists():
             if src.is_dir():
@@ -156,8 +167,12 @@ def _migrate_registry(cfg: dict[str, Any], changes: list[str]) -> bool:
         changes.append(f"moved registry/commands/{src.name} -> registry/prompts/{src.name}")
         changed = True
 
-    if commands_dir.exists() and not any(commands_dir.iterdir()):
-        commands_dir.rmdir()
+    try:
+        if commands_dir.exists() and not any(commands_dir.iterdir()):
+            commands_dir.rmdir()
+    except OSError:
+        # Best-effort cleanup; migration already completed for entries.
+        pass
 
     return changed
 
@@ -218,8 +233,11 @@ def _collect_check_messages(cfg: dict[str, Any]) -> list[str]:
 
     registry_path = v2_config.get_registry_path(cfg)
     commands_dir = registry_path / "commands"
-    if commands_dir.exists() and any(commands_dir.iterdir()):
-        messages.append("registry/commands contains items")
+    try:
+        if commands_dir.exists() and any(commands_dir.iterdir()):
+            messages.append("registry/commands contains items")
+    except OSError:
+        messages.append(f"registry/commands is not accessible: {commands_dir}")
 
     packages = v2_config.load_packages()
     for pkg_name, pkg_data in packages.items():

@@ -94,3 +94,35 @@ def test_build_resolver_dir_chain_returns_config_profile_pairs(monkeypatch, tmp_
     cfg, profile = chain[0]
     assert cfg["skills"]["enabled"] == ["tdd"]
     assert profile is None
+
+
+def test_build_layers_keeps_empty_dir_config(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    project = tmp_path / "empty-config"
+    project.mkdir()
+    v2_config.save_dir_config(project, {})
+
+    layers = build_config_layers_with_profiles(project)
+    assert len(layers) == 1
+    layer_dir, layer_cfg, profile = layers[0]
+    assert layer_dir == project.resolve()
+    assert layer_cfg == {}
+    assert profile is None
+
+
+def test_build_resolver_dir_chain_includes_unregistered_leaf_local_config(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    root = tmp_path / "mono"
+    child = root / "apps" / "web"
+    child.mkdir(parents=True)
+
+    v2_config.save_dir_config(root, {"skills": {"enabled": ["tdd"], "disabled": []}})
+    v2_config.register_directory(root)
+    v2_config.save_dir_config(child, {"skills": {"enabled": ["react"], "disabled": []}})
+
+    chain = build_resolver_dir_chain(child)
+    assert len(chain) == 2
+    assert chain[0][0]["skills"]["enabled"] == ["tdd"]
+    assert chain[1][0]["skills"]["enabled"] == ["react"]

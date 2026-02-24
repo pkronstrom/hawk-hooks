@@ -2039,7 +2039,7 @@ def _handle_missing_components_setup(state: dict) -> bool:
     return changed
 
 
-def _sync_all_with_preflight(scope_dir: str | None = None):
+def _sync_all_with_preflight(scope_dir: str | None = None, *, force: bool = False):
     """Run sync with codex consent preflight prompt when required."""
     pre_state = _load_state(scope_dir)
     if pre_state.get("codex_multi_agent_required", _is_codex_multi_agent_setup_required(pre_state)):
@@ -2047,7 +2047,7 @@ def _sync_all_with_preflight(scope_dir: str | None = None):
 
     from ..v2_sync import sync_all
 
-    return sync_all(force=True)
+    return sync_all(force=force)
 
 
 def _handle_sync(state: dict) -> None:
@@ -2055,7 +2055,7 @@ def _handle_sync(state: dict) -> None:
     from ..v2_sync import format_sync_results
 
     console.print("\n[bold]Syncing...[/bold]")
-    all_results = _sync_all_with_preflight(state.get("scope_dir"))
+    all_results = _sync_all_with_preflight(state.get("scope_dir"), force=True)
     formatted = format_sync_results(all_results, verbose=False)
     console.print(formatted or "  No changes.")
     console.print()
@@ -2069,7 +2069,7 @@ def _apply_auto_sync_if_needed(dirty: bool, scope_dir: str | None = None) -> boo
 
     from ..v2_sync import format_sync_results
 
-    all_results = _sync_all_with_preflight(scope_dir)
+    all_results = _sync_all_with_preflight(scope_dir, force=False)
     has_errors = any(result.errors for scope in all_results.values() for result in scope)
     if has_errors:
         console.print("\n[bold red]Auto-sync encountered errors.[/bold red]")

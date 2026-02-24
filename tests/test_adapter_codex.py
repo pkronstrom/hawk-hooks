@@ -96,6 +96,27 @@ class TestCodexHooks:
         assert "runners/stop.sh" in config_text
         assert (target / "runners" / "stop.sh").exists()
 
+    def test_register_hooks_escapes_notify_paths_for_toml(self, adapter, tmp_path):
+        registry = tmp_path / "registry"
+        hooks = registry / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "done.sh").write_text(
+            "#!/usr/bin/env bash\n"
+            "# hawk-hook: events=stop\n"
+            "exit 0\n"
+        )
+
+        target = tmp_path / 'co"dex\\test'
+        target.mkdir(parents=True)
+
+        registered = adapter.register_hooks(["done.sh"], target, registry_path=registry)
+        assert registered == ["done.sh"]
+
+        config_path = target / "config.toml"
+        data = tomllib.loads(config_path.read_text())
+        assert len(data["notify"]) == 1
+        assert 'co"dex\\test' in data["notify"][0]
+
     def test_sync_reports_unsupported_events(self, adapter, tmp_path):
         registry = tmp_path / "registry"
         hooks = registry / "hooks"

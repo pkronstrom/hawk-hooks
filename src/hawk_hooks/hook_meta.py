@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .event_mapping import _ALIASES_TO_HAWK
 from .events import EVENTS
 
 # Matches: # hawk-hook: key=value  OR  // hawk-hook: key=value
@@ -53,26 +54,26 @@ def parse_hook_meta(path: Path) -> HookMeta:
     # Try JSON metadata for .prompt.json / .json files
     if suffix == ".json":
         meta = _parse_json_meta(text)
-        if meta.events:
-            return meta
+        if _has_parsed_metadata(meta):
+            return _normalize_events(meta)
 
     # Try comment headers for scripts
     if suffix in (".py", ".sh", ".js", ".ts"):
         meta = _parse_comment_headers(text, js_style=suffix in (".js", ".ts"))
-        if meta.events:
-            return meta
+        if _has_parsed_metadata(meta):
+            return _normalize_events(meta)
 
     # Try YAML frontmatter for markdown/text
     if suffix in (".md", ".txt"):
         meta = _parse_frontmatter(text)
-        if meta.events:
-            return meta
+        if _has_parsed_metadata(meta):
+            return _normalize_events(meta)
 
     # Also try frontmatter for .stdout.md / .stdout.txt
     if path.name.endswith((".stdout.md", ".stdout.txt")):
         meta = _parse_frontmatter(text)
-        if meta.events:
-            return meta
+        if _has_parsed_metadata(meta):
+            return _normalize_events(meta)
 
     # Fallback: parent directory name
     return _fallback_from_parent(path)
@@ -113,6 +114,18 @@ def _parse_comment_headers(text: str, js_style: bool = False) -> HookMeta:
                     pass
 
     return meta if found_any else HookMeta()
+
+
+def _has_parsed_metadata(meta: HookMeta) -> bool:
+    """Check whether any metadata fields were parsed."""
+    return bool(meta.events or meta.description or meta.deps or meta.env or meta.timeout > 0)
+
+
+def _normalize_events(meta: HookMeta) -> HookMeta:
+    """Normalize legacy event aliases to canonical hawk event names."""
+    if meta.events:
+        meta.events = [_ALIASES_TO_HAWK.get(event, event) for event in meta.events]
+    return meta
 
 
 def _parse_frontmatter(text: str) -> HookMeta:

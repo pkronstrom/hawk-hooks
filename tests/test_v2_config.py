@@ -80,6 +80,12 @@ class TestProfiles:
     def test_list_profiles_empty(self, v2_env):
         assert v2_config.list_profiles() == []
 
+    def test_profile_name_path_traversal_rejected(self, v2_env):
+        with pytest.raises(ValueError):
+            v2_config.load_profile("../../../etc/passwd")
+        with pytest.raises(ValueError):
+            v2_config.save_profile("../../../etc/passwd", {"name": "bad"})
+
 
 class TestDirConfig:
     def test_save_and_load(self, v2_env, tmp_path):

@@ -276,10 +276,16 @@ def test_codex_setup_prompt_sets_granted(monkeypatch):
 
 
 def test_auto_sync_after_change_returns_clean_on_success(monkeypatch):
+    calls: list[tuple[str | None, bool]] = []
+
+    def _fake_sync(scope_dir=None, force=False):
+        calls.append((scope_dir, force))
+        return {"global": [SyncResult(tool="claude")]}
+
     monkeypatch.setattr(
         dashboard,
         "_sync_all_with_preflight",
-        lambda scope_dir=None: {"global": [SyncResult(tool="claude")]},
+        _fake_sync,
     )
     monkeypatch.setattr(
         "hawk_hooks.v2_sync.format_sync_results",
@@ -288,14 +294,21 @@ def test_auto_sync_after_change_returns_clean_on_success(monkeypatch):
     monkeypatch.setattr(dashboard, "wait_for_continue", lambda *_args, **_kwargs: None)
 
     dirty_after = dashboard._apply_auto_sync_if_needed(True)
+    assert calls == [(None, False)]
     assert dirty_after is False
 
 
 def test_auto_sync_after_change_keeps_dirty_on_errors(monkeypatch):
+    calls: list[tuple[str | None, bool]] = []
+
+    def _fake_sync(scope_dir=None, force=False):
+        calls.append((scope_dir, force))
+        return {"global": [SyncResult(tool="codex", errors=["hooks: failed"])]}
+
     monkeypatch.setattr(
         dashboard,
         "_sync_all_with_preflight",
-        lambda scope_dir=None: {"global": [SyncResult(tool="codex", errors=["hooks: failed"])]},
+        _fake_sync,
     )
     monkeypatch.setattr(
         "hawk_hooks.v2_sync.format_sync_results",
@@ -304,7 +317,23 @@ def test_auto_sync_after_change_keeps_dirty_on_errors(monkeypatch):
     monkeypatch.setattr(dashboard, "wait_for_continue", lambda *_args, **_kwargs: None)
 
     dirty_after = dashboard._apply_auto_sync_if_needed(True)
+    assert calls == [(None, False)]
     assert dirty_after is True
+
+
+def test_handle_sync_uses_force_true(monkeypatch):
+    calls: list[tuple[str | None, bool]] = []
+
+    def _fake_sync(scope_dir=None, force=False):
+        calls.append((scope_dir, force))
+        return {"global": [SyncResult(tool="claude")]}
+
+    monkeypatch.setattr(dashboard, "_sync_all_with_preflight", _fake_sync)
+    monkeypatch.setattr("hawk_hooks.v2_sync.format_sync_results", lambda *_args, **_kwargs: "")
+    monkeypatch.setattr(dashboard, "wait_for_continue", lambda *_args, **_kwargs: None)
+
+    dashboard._handle_sync({"scope_dir": "/tmp/demo"})
+    assert calls == [("/tmp/demo", True)]
 
 
 def test_run_dashboard_dispatches_sync_now(monkeypatch):

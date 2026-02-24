@@ -51,10 +51,18 @@ def build_config_layers_with_profiles(
         layers.append((chain_dir, chain_config, profile))
 
     if layers:
+        # Include unregistered leaf local config when parent chain is registered.
+        project_dir_resolved = project_dir.resolve()
+        if not any(layer_dir == project_dir_resolved for layer_dir, _cfg, _profile in layers):
+            dir_config = v2_config.load_dir_config(project_dir_resolved)
+            if dir_config is not None:
+                profile_name = resolve_profile_name_for_dir(dir_config, project_dir_resolved, cfg)
+                profile = v2_config.load_profile(profile_name) if profile_name else None
+                layers.append((project_dir_resolved, dir_config, profile))
         return layers
 
     dir_config = v2_config.load_dir_config(project_dir)
-    if not dir_config:
+    if dir_config is None:
         return []
 
     profile_name = resolve_profile_name_for_dir(dir_config, project_dir, cfg)
@@ -67,5 +75,8 @@ def build_resolver_dir_chain(
     cfg: dict[str, Any] | None = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
     """Build resolver `dir_chain` argument for `resolve(...)` calls."""
+    if cfg is None:
+        cfg = v2_config.load_global_config()
+
     layers = build_config_layers_with_profiles(project_dir, cfg=cfg)
     return [(dir_config, profile) for _d, dir_config, profile in layers]

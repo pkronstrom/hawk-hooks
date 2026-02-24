@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -21,8 +22,8 @@ def _get_cache_dir() -> Path:
 
 def _cache_key(scope: str, tool: Tool) -> str:
     """Build a cache filename for a scope+tool combination."""
-    safe_scope = scope.replace("/", "_").replace("\\", "_").lstrip("_")
-    return f"{safe_scope}_{tool.value}"
+    scope_hash = hashlib.sha256(scope.encode("utf-8")).hexdigest()
+    return f"{scope_hash}_{tool.value}"
 
 
 def _read_cached_hash(scope: str, tool: Tool) -> str | None:
