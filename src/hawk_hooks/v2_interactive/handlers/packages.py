@@ -426,7 +426,7 @@ def handle_packages(state: dict) -> bool:
                 if not is_ungrouped and not collapsed:
                     url = str(packages.get(pkg_name, {}).get("url", "")).strip()
                     if url:
-                        lines.append(f"    [dim]{url}[/dim]")
+                        lines.append(f"      [dim]{url}[/dim]")
 
             elif kind == ROW_TYPE:
                 pkg_name = row["package"]
@@ -447,7 +447,7 @@ def handle_packages(state: dict) -> bool:
                     style, end = "", ""
                 count_style = enabled_count_style(enabled_count)
                 lines.append(
-                    f"{prefix}  {style}{label} "
+                    f"{prefix}    {style}{label} "
                     f"[{count_style}]({enabled_count}/{total_count})[/{count_style}] {arrow}{end}"
                 )
 
