@@ -658,6 +658,32 @@ def run_toggle_list(
             checked.add(name)
         changed = True
 
+    def _toggle_group(group: ToggleGroup) -> None:
+        """Toggle all items in a group: if all enabled → disable all, else → enable all."""
+        nonlocal changed
+        checked = _checked_set()
+        enabled = sum(1 for name in group.items if name in checked)
+        if enabled == len(group.items):
+            # All enabled → disable all
+            for name in group.items:
+                checked.discard(name)
+        else:
+            # Some or none enabled → enable all
+            for name in group.items:
+                checked.add(name)
+        changed = True
+
+    def _get_group_at_cursor() -> ToggleGroup | None:
+        """Get the group for the current cursor position, or None."""
+        if not groups or cursor >= len(row_list):
+            return None
+        kind, value, gi = row_list[cursor]
+        if kind == ROW_GROUP_HEADER:
+            return groups[gi]
+        if kind == ROW_ITEM and gi >= 0:
+            return groups[gi]
+        return None
+
     def _group_enabled_count(group: ToggleGroup) -> tuple[int, int]:
         """Count (enabled, total) for a group in current scope."""
         checked = _checked_set()
@@ -838,6 +864,8 @@ def run_toggle_list(
             hints += " · v view · e edit · o open"
         if on_delete:
             hints += " · d delete"
+        if groups:
+            hints += " · t toggle group"
         if footer_hint and num_scopes > 1:
             hints += f" · {footer_hint}"
         lines.append(f"[dim]{hints}[/dim]")
@@ -1048,6 +1076,13 @@ def run_toggle_list(
                             else:
                                 status_msg = f"Failed to delete {name}"
                         live.start()
+
+            # Toggle all items in current group
+            elif key == "t":
+                grp = _get_group_at_cursor()
+                if grp:
+                    _toggle_group(grp)
+                    status_msg = f"Toggled group: {grp.label}"
 
             # Quit / done
             elif key in ("q", "\x1b"):
