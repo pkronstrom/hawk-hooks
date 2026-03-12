@@ -439,6 +439,7 @@ def cmd_add(args):
 
     # Auto-detect package from hawk-package.yaml in parent directories
     pkg_name = getattr(args, "package", None)
+    pkg_root: Path | None = None
     if not pkg_name and source:
         from .downloader import PACKAGE_MANIFEST, _parse_package_manifest
 
@@ -449,6 +450,7 @@ def cmd_add(args):
                 meta = _parse_package_manifest(manifest)
                 if meta:
                     pkg_name = meta.name
+                    pkg_root = search
                 break
             search = search.parent
 
@@ -456,12 +458,16 @@ def cmd_add(args):
         packages = config.load_packages()
         pkg_entry = packages.get(pkg_name, {})
         existing_items = pkg_entry.get("items", [])
-        item_key = {"type": component_type.value, "name": name}
-        if item_key not in existing_items:
-            existing_items.append(item_key)
+        # Compare by (type, name) only — existing items may have extra keys like "hash"
+        existing_keys = {(it.get("type"), it.get("name")) for it in existing_items if isinstance(it, dict)}
+        if (component_type.value, name) not in existing_keys:
+            existing_items.append({"type": component_type.value, "name": name})
         pkg_entry["items"] = existing_items
         pkg_entry.setdefault("installed", __import__("datetime").date.today().isoformat())
-        if source:
+        # Use the manifest directory (package root), not the file's immediate parent
+        if pkg_root:
+            pkg_entry.setdefault("path", str(pkg_root))
+        elif source:
             pkg_entry.setdefault("path", str(source.resolve().parent))
         packages[pkg_name] = pkg_entry
         config.save_packages(packages)
@@ -684,11 +690,13 @@ def cmd_scan(args):
     clashes = check_clashes(selected_items, registry)
     replace = args.replace
     if clashes and not replace:
-        from .download_service import _clash_prefix, _prefixed_name
-        pkg = content.package_meta.name if content.package_meta else ""
-        pkg_prefix = pkg.split("/")[-1] if "/" in pkg else pkg if pkg else ""
-        if pkg_prefix:
-            for item in clashes:
+        from .download_service import _prefixed_name
+        top_pkg = content.package_meta.name if content.package_meta else ""
+        for item in clashes:
+            # Prefer per-item package, fall back to top-level package meta
+            item_pkg = item.package or top_pkg
+            pkg_prefix = item_pkg.split("/")[-1] if "/" in item_pkg else item_pkg if item_pkg else ""
+            if pkg_prefix:
                 new_name = _prefixed_name(pkg_prefix, item.name)
                 if not registry.detect_clash(item.component_type, new_name):
                     print(f"  Renamed {item.name} -> {new_name} (clash with existing)")

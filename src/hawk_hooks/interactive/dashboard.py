@@ -903,13 +903,14 @@ def _handle_scan(state: dict) -> bool:
     clashes = check_clashes(selected_items, registry)
     replace = False
     if clashes:
-        # Auto-rename clashing items with package prefix
-        from ..download_service import _clash_prefix, _prefixed_name
-        pkg_prefix = pkg.split("/")[-1] if "/" in pkg else pkg if pkg else ""
+        # Auto-rename clashing items with per-item package prefix
+        from ..download_service import _prefixed_name
         renamed = 0
         for item in clashes:
-            if pkg_prefix:
-                new_name = _prefixed_name(pkg_prefix, item.name)
+            item_pkg = item.package or pkg
+            item_prefix = item_pkg.split("/")[-1] if "/" in item_pkg else item_pkg if item_pkg else ""
+            if item_prefix:
+                new_name = _prefixed_name(item_prefix, item.name)
                 if not registry.detect_clash(item.component_type, new_name):
                     console.print(f"  [dim]Renamed {item.name} -> {new_name} (clash)[/dim]")
                     item.name = new_name

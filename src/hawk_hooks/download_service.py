@@ -262,11 +262,10 @@ def scan_and_install(
     # Check clashes — skip clashing items (caller can use replace=True to overwrite)
     clashes = check_clashes(selected_items, registry)
     if clashes and not replace:
-        clash_keys = {(c.component_type, c.name) for c in clashes}
-        items_to_add = [
-            i for i in selected_items
-            if (i.component_type, i.name) not in clash_keys
-        ]
+        # Use object identity so only the flagged duplicates are removed,
+        # not the first valid occurrence that shares the same (type, name) key.
+        clash_ids = {id(c) for c in clashes}
+        items_to_add = [i for i in selected_items if id(i) not in clash_ids]
     else:
         items_to_add = selected_items
 
@@ -282,6 +281,27 @@ def scan_and_install(
     # Record packages
     if content.packages:
         existing_packages = config.load_packages()
+
+        # Reject source-type conflicts (e.g. overwriting a git package with local scan)
+        selected_pkg_names = {
+            item.package or (content.package_meta.name if content.package_meta else "")
+            for item in selected_items
+        }
+        blocked_pkgs: set[str] = set()
+        for pn in sorted(n for n in selected_pkg_names if n):
+            existing = existing_packages.get(pn)
+            if not existing:
+                continue
+            existing_url = existing.get("url")
+            existing_path = existing.get("path")
+            existing_source = "git" if existing_url else ("local" if existing_path else "manual")
+            if existing_source != "local":
+                logf(
+                    f"Package '{pn}' already exists with source [{existing_source}], "
+                    "skipping metadata update."
+                )
+                blocked_pkgs.add(pn)
+
         items_by_pkg: dict[str, list] = {}
         for item in selected_items:
             pkg_name = item.package or (
@@ -291,6 +311,8 @@ def scan_and_install(
                 items_by_pkg.setdefault(pkg_name, []).append(item)
         pkg_meta_by_name = {p.name: p for p in content.packages}
         for pkg_name, pkg_item_list in items_by_pkg.items():
+            if pkg_name in blocked_pkgs:
+                continue
             pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
             if pkg_items:
                 existing_items = existing_packages.get(pkg_name, {}).get("items", [])
