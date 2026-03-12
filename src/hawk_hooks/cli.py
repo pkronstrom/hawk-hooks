@@ -437,6 +437,36 @@ def cmd_add(args):
         _print(f"[red]Error:[/red] {e}")
         sys.exit(1)
 
+    # Auto-detect package from hawk-package.yaml in parent directories
+    pkg_name = getattr(args, "package", None)
+    if not pkg_name and source:
+        from .downloader import PACKAGE_MANIFEST, _parse_package_manifest
+
+        search = source.resolve().parent
+        while search != search.parent:
+            manifest = search / PACKAGE_MANIFEST
+            if manifest.is_file():
+                meta = _parse_package_manifest(manifest)
+                if meta:
+                    pkg_name = meta.name
+                break
+            search = search.parent
+
+    if pkg_name:
+        packages = config.load_packages()
+        pkg_entry = packages.get(pkg_name, {})
+        existing_items = pkg_entry.get("items", [])
+        item_key = {"type": component_type.value, "name": name}
+        if item_key not in existing_items:
+            existing_items.append(item_key)
+        pkg_entry["items"] = existing_items
+        pkg_entry.setdefault("installed", __import__("datetime").date.today().isoformat())
+        if source:
+            pkg_entry.setdefault("path", str(source.resolve().parent))
+        packages[pkg_name] = pkg_entry
+        config.save_packages(packages)
+        _print(f"  [dim]package:[/dim] {pkg_name}")
+
     # Enable in global config (only when explicitly requested)
     if getattr(args, "enable", False):
         newly = config.enable_items_in_config([(component_type, name)])
@@ -1527,6 +1557,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--force", action="store_true", help="Replace existing")
     add_p.add_argument("--enable", action="store_true", default=False,
                        help="Also enable in global config after adding")
+    add_p.add_argument("--package", help="Package name (default: auto-detect from hawk-package.yaml)")
     add_p.set_defaults(func=cmd_add)
 
     # remove
