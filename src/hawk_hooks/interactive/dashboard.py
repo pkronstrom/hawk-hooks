@@ -852,36 +852,15 @@ def _apply_auto_sync_if_needed(dirty: bool, scope_dir: str | None = None) -> boo
 
 def _enable_items_globally(added: list[str]) -> None:
     """Enable added items in global config. Items are 'type/name' strings."""
-    from ..types import ComponentType
-
-    cfg = config.load_global_config()
-    global_section = cfg.get("global", {})
-    count = 0
-    for item_key in added:
-        parts = item_key.split("/", 1)
-        if len(parts) != 2:
-            continue
-        type_str, name = parts
-        try:
-            ct = ComponentType(type_str)
-        except ValueError:
-            continue
-        field = ct.registry_dir
-        enabled = global_section.get(field, [])
-        if name not in enabled:
-            enabled.append(name)
-            global_section[field] = enabled
-            count += 1
-    if count:
-        cfg["global"] = global_section
-        config.save_global_config(cfg)
-        console.print(f"\n[green]Enabled {count} component(s) in global config.[/green]")
+    newly = config.enable_items_in_config(added)
+    if newly:
+        console.print(f"\n[green]Enabled {len(newly)} component(s) in global config.[/green]")
 
 
 def _handle_scan(state: dict) -> bool:
     """Scan a local directory for components and import selected ones."""
     from pathlib import Path
-    from ..cli import _interactive_select_items, _build_pkg_items, _merge_package_items
+    from ..download_service import _interactive_select_items, _build_pkg_items, _merge_package_items
     from ..downloader import add_items_to_registry, check_clashes, scan_directory
     from ..registry import Registry
     from .. import config as _config
@@ -995,7 +974,7 @@ def _handle_scan(state: dict) -> bool:
 
 
 def _handle_download() -> bool:
-    """Run download flow. Returns True if items were enabled."""
+    """Run download flow. Returns True if items were added to registry."""
     console.print("\n[bold]Download components from git[/bold]")
     try:
         url = console.input("[cyan]URL:[/cyan] ")
@@ -1019,7 +998,7 @@ def _handle_download() -> bool:
 
     console.print()
     wait_for_continue()
-    return result.enable and bool(result.added)
+    return bool(result.added)
 
 
 def _handle_uninstall_from_environment() -> bool:

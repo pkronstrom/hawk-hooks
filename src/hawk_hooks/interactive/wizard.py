@@ -105,7 +105,7 @@ def _offer_builtins_install() -> None:
     """Offer to install bundled starter components as a local package."""
     from ..downloader import classify
     from ..types import ComponentType
-    from ..cli import cmd_scan
+    from ..download_service import scan_and_install
 
     builtins_path = _get_builtins_path()
     if not builtins_path:
@@ -140,18 +140,10 @@ def _offer_builtins_install() -> None:
     if result != 0:
         return
 
-    class Args:
-        pass
-
-    args = Args()
-    args.path = str(builtins_path)
-    args.all = True
-    args.replace = False
-    args.depth = 5
-    args.no_enable = False
-
-    try:
-        cmd_scan(args)
-    except SystemExit:
-        # cmd_scan reports conflicts/summary; wizard should continue either way
-        pass
+    scan_and_install(
+        builtins_path,
+        replace=False,
+        enable=False,
+        max_depth=5,
+        log=lambda msg: console.print(msg),
+    )

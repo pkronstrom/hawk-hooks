@@ -6,9 +6,10 @@ import readchar
 from rich.live import Live
 from rich.text import Text
 
+from rich.console import Console
+
 from ... import config
 from ...types import Tool
-from .. import dashboard as _dashboard
 from ..pause import wait_for_continue
 from ..theme import (
     action_style,
@@ -19,7 +20,7 @@ from ..theme import (
 )
 from ..uninstall_flow import run_uninstall_wizard
 
-console = _dashboard.console
+console = Console(highlight=False)
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +293,8 @@ def handle_environment(state: dict) -> bool:
                 if action == "projects":
                     live.stop()
                     console.clear()
-                    _dashboard._handle_projects(state)
+                    from .projects import handle_projects
+                    handle_projects(state)
                     console.clear()
                     live.start()
                     break
@@ -321,7 +323,7 @@ def handle_environment(state: dict) -> bool:
     return changed
 
 
-# Public API wrappers for backward compat with dashboard imports
+# Public API — imported by dashboard.py
 handle_tools_toggle = _handle_tools_toggle
 prune_disabled_tools = _prune_disabled_tools
 handle_uninstall_from_environment = _handle_uninstall_from_environment

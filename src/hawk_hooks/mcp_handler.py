@@ -249,17 +249,7 @@ def _enable_items(
     section_key: str = "global",
 ) -> list[str]:
     """Enable items in a config section. Returns newly enabled names."""
-    section = cfg.get(section_key, {})
-    newly_enabled = []
-    for ct, name in items:
-        field = ct.registry_dir
-        enabled = section.get(field, [])
-        if name not in enabled:
-            enabled.append(name)
-            section[field] = enabled
-            newly_enabled.append(f"{ct.registry_dir}/{name}")
-    cfg[section_key] = section
-    return newly_enabled
+    return config.enable_items_in_config(items, cfg=cfg, section_key=section_key)
 
 
 def _disable_items(
@@ -742,28 +732,9 @@ def _action_download(data: dict) -> dict:
 
     # Enable added items
     if do_enable and result_obj.added:
-        cfg = config.load_global_config()
-        global_section = cfg.get("global", {})
-        enabled_count = 0
-        for item_key in result_obj.added:
-            parts = item_key.split("/", 1)
-            if len(parts) != 2:
-                continue
-            type_str, item_name = parts
-            try:
-                ct = ComponentType(type_str)
-            except ValueError:
-                continue
-            field = ct.registry_dir
-            enabled = global_section.get(field, [])
-            if item_name not in enabled:
-                enabled.append(item_name)
-                global_section[field] = enabled
-                enabled_count += 1
-        if enabled_count:
-            cfg["global"] = global_section
-            config.save_global_config(cfg)
-            result["enabled_count"] = enabled_count
+        newly = config.enable_items_in_config(result_obj.added)
+        if newly:
+            result["enabled_count"] = len(newly)
 
     if do_sync:
         result["sync_results"] = _run_sync(force=True)

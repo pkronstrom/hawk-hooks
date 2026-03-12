@@ -54,21 +54,23 @@ def test_offer_builtins_install_uses_scan(v2_env, tmp_path, monkeypatch):
     monkeypatch.setattr(wizard, "_get_builtins_path", lambda: builtins_dir)
     monkeypatch.setattr(wizard, "TerminalMenu", _MenuAccept)
 
-    import hawk_hooks.cli as v2_cli
+    from hawk_hooks import download_service
 
-    def _fake_scan(args):
-        captured["args"] = args
+    _orig = download_service.scan_and_install
 
-    monkeypatch.setattr(v2_cli, "cmd_scan", _fake_scan)
+    def _fake_scan(scan_path, **kwargs):
+        captured["scan_path"] = scan_path
+        captured["kwargs"] = kwargs
+        return download_service.ScanResult()
+
+    monkeypatch.setattr(download_service, "scan_and_install", _fake_scan)
 
     wizard._offer_builtins_install()
 
-    args = captured.get("args")
-    assert args is not None
-    assert getattr(args, "path") == str(builtins_dir)
-    assert getattr(args, "all") is True
-    assert getattr(args, "replace") is False
-    assert getattr(args, "no_enable") is False
+    assert captured.get("scan_path") is not None
+    assert str(captured["scan_path"]) == str(builtins_dir.resolve())
+    assert captured["kwargs"]["replace"] is False
+    assert captured["kwargs"]["enable"] is False
 
 
 def test_offer_builtins_install_decline_skips_scan(v2_env, tmp_path, monkeypatch):
@@ -82,12 +84,13 @@ def test_offer_builtins_install_decline_skips_scan(v2_env, tmp_path, monkeypatch
     monkeypatch.setattr(wizard, "_get_builtins_path", lambda: builtins_dir)
     monkeypatch.setattr(wizard, "TerminalMenu", _MenuDecline)
 
-    import hawk_hooks.cli as v2_cli
+    from hawk_hooks import download_service
 
-    def _fake_scan(args):
+    def _fake_scan(scan_path, **kwargs):
         called["scan"] = True
+        return download_service.ScanResult()
 
-    monkeypatch.setattr(v2_cli, "cmd_scan", _fake_scan)
+    monkeypatch.setattr(download_service, "scan_and_install", _fake_scan)
 
     wizard._offer_builtins_install()
 
