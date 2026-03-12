@@ -19,11 +19,11 @@ Ask the user what they want to do:
 
 ### If adding from URL
 
-Run `hawk download <url>` and let the user pick which components to install. After download, ask if they want to run `hawk sync` to activate.
+Run `hawk download <url>` and let the user pick which components to install. After download, ask if they want to enable the added components (`hawk enable <name>`) and run `hawk sync` to activate.
 
 ### If adding an existing file
 
-Run `hawk add <type> <path>` to register it. Ask the user for the component type if not obvious from the path. Then offer to `hawk sync`.
+Run `hawk add <type> <path>` to register it. Ask the user for the component type if not obvious from the path. Then offer to enable it (`hawk enable <type>/<name>`) and run `hawk sync`.
 
 ### If creating new
 
