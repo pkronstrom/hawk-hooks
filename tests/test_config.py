@@ -488,6 +488,58 @@ class TestContentHashing:
         assert h1 == h2
 
 
+class TestEnableItemsInConfig:
+    """Tests for the shared enable_items_in_config function."""
+
+    def test_enable_string_format(self, v2_env):
+        """Enable items using 'type/name' string format."""
+        cfg = config.load_global_config()
+        result = config.enable_items_in_config(["skills/tdd", "hooks/lint"], cfg=cfg)
+        assert result == ["skills/tdd", "hooks/lint"]
+        assert "tdd" in cfg["global"]["skills"]
+        assert "lint" in cfg["global"]["hooks"]
+
+    def test_enable_tuple_format(self, v2_env):
+        """Enable items using (ComponentType, name) tuple format."""
+        from hawk_hooks.types import ComponentType
+        cfg = config.load_global_config()
+        result = config.enable_items_in_config(
+            [(ComponentType.SKILL, "tdd"), (ComponentType.HOOK, "lint")],
+            cfg=cfg,
+        )
+        assert result == ["skills/tdd", "hooks/lint"]
+        assert "tdd" in cfg["global"]["skills"]
+
+    def test_skip_already_enabled(self, v2_env):
+        """Already-enabled items should not be duplicated."""
+        cfg = config.load_global_config()
+        cfg["global"]["skills"] = ["tdd"]
+        result = config.enable_items_in_config(["skills/tdd"], cfg=cfg)
+        assert result == []
+        assert cfg["global"]["skills"] == ["tdd"]
+
+    def test_loads_and_saves_global_when_cfg_none(self, v2_env):
+        """When cfg is None, load global config, mutate, and save."""
+        result = config.enable_items_in_config(["skills/tdd", "agents/coder"])
+        assert result == ["skills/tdd", "agents/coder"]
+        # Verify it was persisted
+        loaded = config.load_global_config()
+        assert "tdd" in loaded["global"]["skills"]
+        assert "coder" in loaded["global"]["agents"]
+
+    def test_invalid_string_format_skipped(self, v2_env):
+        """Malformed strings (no slash) should be skipped."""
+        cfg = config.load_global_config()
+        result = config.enable_items_in_config(["noslash", "skills/valid"], cfg=cfg)
+        assert result == ["skills/valid"]
+
+    def test_invalid_type_string_skipped(self, v2_env):
+        """Unknown type strings should be skipped."""
+        cfg = config.load_global_config()
+        result = config.enable_items_in_config(["bogus/name"], cfg=cfg)
+        assert result == []
+
+
 class TestEnsureDirs:
     def test_creates_registry_dirs(self, v2_env):
         config.ensure_v2_dirs()

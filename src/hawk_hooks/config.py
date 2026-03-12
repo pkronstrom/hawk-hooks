@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from .types import Tool
+from .types import ComponentType, Tool
 
 # Default global config
 DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
@@ -222,6 +222,65 @@ def get_registered_directories() -> dict[str, dict[str, Any]]:
     """Get all registered directories and their settings."""
     cfg = load_global_config()
     return cfg.get("directories", {})
+
+
+def _registry_dir_to_component_type(registry_dir: str) -> ComponentType | None:
+    """Map a registry directory name (e.g. 'skills') to its ComponentType."""
+    for ct in ComponentType:
+        if ct.registry_dir == registry_dir:
+            return ct
+    return None
+
+
+def enable_items_in_config(
+    items: list[str] | list[tuple[ComponentType, str]],
+    cfg: dict[str, Any] | None = None,
+    section_key: str = "global",
+) -> list[str]:
+    """Enable items in a config section. Returns list of newly enabled 'type/name' strings.
+
+    ``items`` accepts either ``"type/name"`` strings or ``(ComponentType, name)``
+    tuples.  When *cfg* is ``None`` the global config is loaded, mutated, and
+    saved automatically.
+    """
+    auto_save = cfg is None
+    if auto_save:
+        cfg = load_global_config()
+
+    section = cfg.get(section_key, {})
+    newly_enabled: list[str] = []
+
+    for item in items:
+        if isinstance(item, tuple):
+            ct, name = item
+        elif isinstance(item, str):
+            parts = item.split("/", 1)
+            if len(parts) != 2:
+                continue
+            type_str, name = parts
+            try:
+                ct = ComponentType(type_str)
+            except ValueError:
+                # Try registry_dir (plural) -> ComponentType lookup
+                ct = _registry_dir_to_component_type(type_str)
+                if ct is None:
+                    continue
+        else:
+            continue
+
+        field = ct.registry_dir
+        enabled = section.get(field, [])
+        if name not in enabled:
+            enabled.append(name)
+            section[field] = enabled
+            newly_enabled.append(f"{ct.registry_dir}/{name}")
+
+    cfg[section_key] = section
+
+    if auto_save and newly_enabled:
+        save_global_config(cfg)
+
+    return newly_enabled
 
 
 def get_enabled_tools(cfg: dict[str, Any] | None = None) -> list[Tool]:

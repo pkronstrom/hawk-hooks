@@ -651,7 +651,8 @@ class TestCmdScanPackageRecording:
             item["name"] for item in packages["test-pkg"]["items"]
             if item["type"] == "mcp"
         }
-        assert item_names == {"figma.json", "linear.json", "goose.json"}
+        # Clashing items are auto-renamed with package prefix
+        assert item_names == {"test-pkg-figma.json", "test-pkg-linear.json", "goose.json"}
 
     def test_scan_all_clashes_still_records_package(self, tmp_path, monkeypatch):
         """Scan can re-associate an existing package even with zero additions."""
@@ -695,7 +696,8 @@ class TestCmdScanPackageRecording:
             item["name"] for item in packages["test-pkg"]["items"]
             if item["type"] == "mcp"
         }
-        assert item_names == {"figma.json", "linear.json"}
+        # Clashing items are auto-renamed with package prefix
+        assert item_names == {"test-pkg-figma.json", "test-pkg-linear.json"}
 
     def test_scan_partial_selection_preserves_existing_package_items(self, tmp_path, monkeypatch):
         """Partial re-scan should merge package ownership instead of replacing existing items."""
@@ -757,7 +759,8 @@ class TestCmdScanPackageRecording:
             item["name"] for item in packages["test-pkg"]["items"]
             if item["type"] == "prompt"
         }
-        assert item_names == {"old.md", "new.md"}
+        # Clashing old.md is auto-renamed with package prefix
+        assert item_names == {"old.md", "test-pkg-old.md", "new.md"}
 
     def test_scan_checks_conflicts_for_clashing_selected_package(self, tmp_path, monkeypatch):
         """Source-type conflict check covers selected package clashes too."""
@@ -872,7 +875,8 @@ class TestCmdScanPackageRecording:
             if item["type"] == "mcp"
         }
         assert old_names == {"figma.json"}
-        assert new_names == {"goose.json"}
+        # Clashing figma.json is auto-renamed with package prefix
+        assert new_names == {"goose.json", "new-pkg-figma.json"}
 
     def test_scan_skips_unowned_clash_when_content_differs(self, tmp_path, monkeypatch):
         """Unowned clashing items are only claimed when contents match."""
@@ -916,7 +920,8 @@ class TestCmdScanPackageRecording:
             item["name"] for item in packages["new-pkg"]["items"]
             if item["type"] == "mcp"
         }
-        assert new_names == {"goose.json"}
+        # Clashing figma.json is auto-renamed with package prefix
+        assert new_names == {"goose.json", "new-pkg-figma.json"}
 
     def test_scan_rejects_source_type_conflict(self, tmp_path, monkeypatch, capsys):
         """hawk scan refuses package source-type replacement (git -> local)."""

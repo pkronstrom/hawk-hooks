@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import config
-from .downloader import ClassifiedContent, add_items_to_registry, check_clashes, classify, get_head_commit, shallow_clone
+from .downloader import ClassifiedContent, add_items_to_registry, check_clashes, classify, get_head_commit, scan_directory, shallow_clone
 from .registry import Registry
 
 
@@ -17,13 +17,92 @@ LogFn = Callable[[str], None]
 SelectFn = Callable[..., "list | tuple[list, str | None]"]
 
 
+def _interactive_select_items(items, registry=None, package_name: str = "",
+                              packages: list | None = None,
+                              collapsed: bool = False, select_all: bool = False):
+    """Interactive item picker backed by run_picker."""
+    from .interactive.toggle import (
+        run_picker,
+        ACTION_SAVE_ENABLE,
+    )
+    from .interactive.handlers.packages import (
+        _ORDERED_COMPONENT_FIELDS,
+    )
+
+    if not items:
+        return [], "cancel"
+
+    # Build package_tree: {pkg: {field: [names]}}
+    package_tree: dict[str, dict[str, list[str]]] = {}
+    for item in items:
+        pkg = getattr(item, "package", "") or package_name or "Components"
+        field = item.component_type.registry_dir
+        package_tree.setdefault(pkg, {}).setdefault(field, []).append(item.name)
+
+    # Dedupe names within each field bucket (preserve order)
+    for pkg_fields in package_tree.values():
+        for field in pkg_fields:
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for name in pkg_fields[field]:
+                if name not in seen:
+                    seen.add(name)
+                    deduped.append(name)
+            pkg_fields[field] = deduped
+
+    package_order = sorted(package_tree.keys())
+
+    field_labels = {f: label for f, label, _ in _ORDERED_COMPONENT_FIELDS}
+
+    # Pre-select all items (clashes are handled via rename after save)
+    enabled: set[tuple[str, str]] = {
+        (item.component_type.registry_dir, item.name)
+        for item in items
+    }
+
+    # Detect items that already exist in registry (for "(exists)" hints)
+    existing: set[tuple[str, str]] | None = None
+    if registry:
+        existing = {
+            (item.component_type.registry_dir, item.name)
+            for item in items
+            if registry.has(item.component_type, item.name)
+        }
+        if not existing:
+            existing = None
+
+    scopes = [{"key": "select", "label": "Select components", "enabled": enabled}]
+
+    final_scopes, changed, chosen_action = run_picker(
+        package_name or "Components",
+        package_tree,
+        package_order,
+        field_labels,
+        scopes=scopes,
+        action_label="Save",
+        secondary_action_label="Save & Enable",
+        existing_items=existing,
+    )
+
+    if not changed:
+        return [], "cancel"
+
+    selected = final_scopes[0]["enabled"]
+    selected_items = [
+        item for item in items
+        if (item.component_type.registry_dir, item.name) in selected
+    ]
+
+    if chosen_action == ACTION_SAVE_ENABLE:
+        return selected_items, "save_enable"
+    return selected_items, "save"
+
+
 def get_interactive_select_fn() -> SelectFn:
-    """Return the interactive item selector from the CLI module.
+    """Return the interactive item selector.
 
     Provides a clean import path so TUI callers don't reach into cli internals.
     """
-    from .cli import _interactive_select_items
-
     return _interactive_select_items
 
 
@@ -117,6 +196,126 @@ def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[st
             }
         )
     return pkg_items
+
+
+def _merge_package_items(
+    existing_items: list[dict[str, str]] | None,
+    new_items: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Merge package items by (type,name), with new items overwriting existing ones."""
+    merged: dict[tuple[str, str], dict[str, str]] = {}
+    for item in existing_items or []:
+        item_type = item.get("type")
+        item_name = item.get("name")
+        if isinstance(item_type, str) and isinstance(item_name, str):
+            merged[(item_type, item_name)] = {
+                "type": item_type,
+                "name": item_name,
+                "hash": str(item.get("hash", "")),
+            }
+
+    for item in new_items:
+        item_type = item.get("type")
+        item_name = item.get("name")
+        if isinstance(item_type, str) and isinstance(item_name, str):
+            merged[(item_type, item_name)] = item
+
+    return sorted(merged.values(), key=lambda i: (i["type"], i["name"]))
+
+
+@dataclass
+class ScanResult:
+    """Summary of a scan-and-install operation."""
+
+    added: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+
+def scan_and_install(
+    scan_path: "Path",
+    *,
+    replace: bool = False,
+    enable: bool = False,
+    max_depth: int = 5,
+    log: LogFn | None = None,
+) -> ScanResult:
+    """Scan a local directory for components and install to registry.
+
+    This is the service-layer function that ``cmd_scan`` (CLI) and
+    ``_offer_builtins_install`` (wizard) both delegate to.
+    """
+    from pathlib import Path
+
+    logf = log or _noop
+
+    scan_path = Path(scan_path).resolve()
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+
+    content = scan_directory(scan_path, max_depth=max_depth)
+    if not content.items:
+        logf("No components found.")
+        return ScanResult()
+
+    selected_items = content.items
+
+    # Check clashes — skip clashing items (caller can use replace=True to overwrite)
+    clashes = check_clashes(selected_items, registry)
+    if clashes and not replace:
+        clash_keys = {(c.component_type, c.name) for c in clashes}
+        items_to_add = [
+            i for i in selected_items
+            if (i.component_type, i.name) not in clash_keys
+        ]
+    else:
+        items_to_add = selected_items
+
+    if not items_to_add and not content.packages:
+        logf("No new components to add.")
+        return ScanResult()
+
+    if items_to_add:
+        added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+    else:
+        added, skipped = [], []
+
+    # Record packages
+    if content.packages:
+        existing_packages = config.load_packages()
+        items_by_pkg: dict[str, list] = {}
+        for item in selected_items:
+            pkg_name = item.package or (
+                content.package_meta.name if content.package_meta else ""
+            )
+            if pkg_name:
+                items_by_pkg.setdefault(pkg_name, []).append(item)
+        pkg_meta_by_name = {p.name: p for p in content.packages}
+        for pkg_name, pkg_item_list in items_by_pkg.items():
+            pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
+            if pkg_items:
+                existing_items = existing_packages.get(pkg_name, {}).get("items", [])
+                merged_items = _merge_package_items(existing_items, pkg_items)
+                config.record_package(
+                    pkg_name, "", "", merged_items,
+                    path=str(scan_path),
+                )
+                meta = pkg_meta_by_name.get(pkg_name)
+                logf(f"Package: {pkg_name}")
+                if meta and meta.description:
+                    logf(f"  {meta.description}")
+
+    # Enable in global config
+    if added and enable:
+        newly = config.enable_items_in_config(added)
+        if newly:
+            logf(f"Enabled {len(newly)} component(s) in global config.")
+
+    if added:
+        logf(f"Added {len(added)} component(s).")
+    if skipped:
+        logf(f"Skipped {len(skipped)}.")
+
+    return ScanResult(added=added, skipped=skipped)
 
 
 def download_and_install(

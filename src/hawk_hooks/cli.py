@@ -439,16 +439,9 @@ def cmd_add(args):
 
     # Enable in global config (only when explicitly requested)
     if getattr(args, "enable", False):
-        cfg = config.load_global_config()
-        global_section = cfg.get("global", {})
-        field = component_type.registry_dir
-        enabled = global_section.get(field, [])
-        if name not in enabled:
-            enabled.append(name)
-            global_section[field] = enabled
-            cfg["global"] = global_section
-            config.save_global_config(cfg)
-            _print(f"[green]+[/green] Enabled in global config [dim]({field})[/dim]")
+        newly = config.enable_items_in_config([(component_type, name)])
+        if newly:
+            _print(f"[green]+[/green] Enabled in global config [dim]({component_type.registry_dir})[/dim]")
 
     _print(f"\n[dim]Run[/dim] [cyan]hawk enable {component_type.value}/{name}[/cyan] [dim]to activate, then[/dim] [cyan]hawk sync[/cyan] [dim]to apply.[/dim]")
 
@@ -523,80 +516,18 @@ def cmd_profile_show(args):
 
 
 def _build_pkg_items(items, registry, package_name: str = "", added_keys: set[str] | None = None):
-    """Build package item list with hashes for selected items present in registry."""
-    from . import config
-
-    pkg_items = []
-    added_keys = added_keys or set()
-    owner_map: dict[tuple[str, str], str] = {}
-    if package_name:
-        for owner_pkg, pkg_data in config.load_packages().items():
-            for pkg_item in pkg_data.get("items", []):
-                item_type = pkg_item.get("type")
-                item_name = pkg_item.get("name")
-                if item_type and item_name:
-                    owner_map.setdefault((item_type, item_name), owner_pkg)
-
-    seen: set[tuple] = set()
-    for item in items:
-        item_key = (item.component_type, item.name)
-        if item_key in seen:
-            continue
-        seen.add(item_key)
-
-        item_key_str = f"{item.component_type}/{item.name}"
-        item_path = registry.get_path(item.component_type, item.name)
-        if item_path is None:
-            continue
-
-        if package_name:
-            owner = owner_map.get((item.component_type.value, item.name))
-            if owner and owner != package_name:
-                continue
-
-            # For unowned clashes not added this run, only claim when scanned
-            # source content matches current registry content.
-            if not owner and item_key_str not in added_keys:
-                source_path = item.source_path
-                if source_path is None or not source_path.exists():
-                    continue
-                source_hash = config.hash_registry_item(source_path)
-                registry_hash = config.hash_registry_item(item_path)
-                if source_hash != registry_hash:
-                    continue
-
-        item_hash = config.hash_registry_item(item_path)
-        pkg_items.append({
-            "type": item.component_type.value,
-            "name": item.name,
-            "hash": item_hash,
-        })
-    return pkg_items
+    """Build package item list — delegates to download_service."""
+    from .download_service import _build_pkg_items as _build
+    return _build(items, registry, package_name, added_keys)
 
 
 def _merge_package_items(
     existing_items: list[dict[str, str]] | None,
     new_items: list[dict[str, str]],
 ) -> list[dict[str, str]]:
-    """Merge package items by (type,name), with new items overwriting existing ones."""
-    merged: dict[tuple[str, str], dict[str, str]] = {}
-    for item in existing_items or []:
-        item_type = item.get("type")
-        item_name = item.get("name")
-        if isinstance(item_type, str) and isinstance(item_name, str):
-            merged[(item_type, item_name)] = {
-                "type": item_type,
-                "name": item_name,
-                "hash": str(item.get("hash", "")),
-            }
-
-    for item in new_items:
-        item_type = item.get("type")
-        item_name = item.get("name")
-        if isinstance(item_type, str) and isinstance(item_name, str):
-            merged[(item_type, item_name)] = item
-
-    return sorted(merged.values(), key=lambda i: (i["type"], i["name"]))
+    """Merge package items — delegates to download_service."""
+    from .download_service import _merge_package_items as _merge
+    return _merge(existing_items, new_items)
 
 
 def _package_source_type(pkg_data: dict) -> str:
@@ -639,111 +570,19 @@ def cmd_download(args):
     if result.added and (getattr(args, "enable", False) or result.enable):
         from . import config
 
-        cfg = config.load_global_config()
-        global_section = cfg.get("global", {})
-        enabled_count = 0
-        for item_key in result.added:
-            # item_key is "type/name"
-            parts = item_key.split("/", 1)
-            if len(parts) != 2:
-                continue
-            type_str, name = parts
-            try:
-                ct = ComponentType(type_str)
-            except ValueError:
-                continue
-            field = ct.registry_dir
-            enabled = global_section.get(field, [])
-            if name not in enabled:
-                enabled.append(name)
-                global_section[field] = enabled
-                enabled_count += 1
-        if enabled_count:
-            cfg["global"] = global_section
-            config.save_global_config(cfg)
-            print(f"\nEnabled {enabled_count} component(s) in global config.")
+        newly = config.enable_items_in_config(result.added)
+        if newly:
+            print(f"\nEnabled {len(newly)} component(s) in global config.")
 
 
 
 def _interactive_select_items(items, registry=None, package_name: str = "",
                               packages: list | None = None,
                               collapsed: bool = False, select_all: bool = False):
-    """Interactive item picker backed by run_picker."""
-    from .interactive.toggle import (
-        run_picker,
-    )
-    from .interactive.handlers.packages import (
-        _ORDERED_COMPONENT_FIELDS,
-    )
-
-    if not items:
-        return [], "cancel"
-
-    # Build package_tree: {pkg: {field: [names]}}
-    package_tree: dict[str, dict[str, list[str]]] = {}
-    for item in items:
-        pkg = getattr(item, "package", "") or package_name or "Components"
-        field = item.component_type.registry_dir
-        package_tree.setdefault(pkg, {}).setdefault(field, []).append(item.name)
-
-    # Dedupe names within each field bucket (preserve order)
-    for pkg_fields in package_tree.values():
-        for field in pkg_fields:
-            seen: set[str] = set()
-            deduped: list[str] = []
-            for name in pkg_fields[field]:
-                if name not in seen:
-                    seen.add(name)
-                    deduped.append(name)
-            pkg_fields[field] = deduped
-
-    package_order = sorted(package_tree.keys())
-
-    field_labels = {f: label for f, label, _ in _ORDERED_COMPONENT_FIELDS}
-
-    # Pre-select all items (clashes are handled via rename after save)
-    enabled: set[tuple[str, str]] = {
-        (item.component_type.registry_dir, item.name)
-        for item in items
-    }
-
-    # Detect items that already exist in registry (for "(exists)" hints)
-    existing: set[tuple[str, str]] | None = None
-    if registry:
-        existing = {
-            (item.component_type.registry_dir, item.name)
-            for item in items
-            if registry.has(item.component_type, item.name)
-        }
-        if not existing:
-            existing = None
-
-    scopes = [{"key": "select", "label": "Select components", "enabled": enabled}]
-
-    final_scopes, changed, chosen_action = run_picker(
-        package_name or "Components",
-        package_tree,
-        package_order,
-        field_labels,
-        scopes=scopes,
-        action_label="Save",
-        secondary_action_label="Save & Enable",
-        existing_items=existing,
-    )
-
-    if not changed:
-        return [], "cancel"
-
-    selected = final_scopes[0]["enabled"]
-    selected_items = [
-        item for item in items
-        if (item.component_type.registry_dir, item.name) in selected
-    ]
-
-    from .interactive.toggle import ACTION_SAVE_ENABLE
-    if chosen_action == ACTION_SAVE_ENABLE:
-        return selected_items, "save_enable"
-    return selected_items, "save"
+    """Interactive item picker — delegates to download_service."""
+    from .download_service import _interactive_select_items as _select
+    return _select(items, registry, package_name=package_name,
+                   packages=packages, collapsed=collapsed, select_all=select_all)
 
 
 
@@ -811,21 +650,34 @@ def cmd_scan(args):
     else:
         selected_items = content.items
 
-    # Check clashes
+    # Check clashes — auto-rename with package prefix, then skip remaining
     clashes = check_clashes(selected_items, registry)
-    if clashes:
-        print(f"\nClashes with existing registry entries:")
-        for item in clashes:
-            print(f"  {item.component_type.value}/{item.name}")
-
-    # Add to registry (copies files)
     replace = args.replace
     if clashes and not replace:
-        print("\nUse --replace to overwrite existing entries.")
-        clash_keys = {(c.component_type, c.name) for c in clashes}
+        from .download_service import _clash_prefix, _prefixed_name
+        pkg = content.package_meta.name if content.package_meta else ""
+        pkg_prefix = pkg.split("/")[-1] if "/" in pkg else pkg if pkg else ""
+        if pkg_prefix:
+            for item in clashes:
+                new_name = _prefixed_name(pkg_prefix, item.name)
+                if not registry.detect_clash(item.component_type, new_name):
+                    print(f"  Renamed {item.name} -> {new_name} (clash with existing)")
+                    item.name = new_name
+
+        # Re-check remaining clashes after renames
+        still_clashing = [
+            i for i in selected_items
+            if registry.detect_clash(i.component_type, i.name)
+        ]
+        if still_clashing:
+            print(f"\nClashes with existing registry entries:")
+            for item in still_clashing:
+                print(f"  {item.component_type.value}/{item.name}")
+            print("\nUse --replace to overwrite existing entries.")
+
         items_to_add = [
             i for i in selected_items
-            if (i.component_type, i.name) not in clash_keys
+            if not registry.detect_clash(i.component_type, i.name)
         ]
     else:
         items_to_add = selected_items
@@ -891,19 +743,9 @@ def cmd_scan(args):
 
     # Enable in global config (only when explicitly requested)
     if added and getattr(args, "enable", False):
-        cfg = config.load_global_config()
-        global_section = cfg.get("global", {})
-        for item in items_to_add:
-            item_key = f"{item.component_type}/{item.name}"
-            if item_key in added:
-                field = item.component_type.registry_dir
-                enabled = global_section.get(field, [])
-                if item.name not in enabled:
-                    enabled.append(item.name)
-                global_section[field] = enabled
-        cfg["global"] = global_section
-        config.save_global_config(cfg)
-        print(f"\nEnabled {len(added)} component(s) in global config.")
+        newly = config.enable_items_in_config(added)
+        if newly:
+            print(f"\nEnabled {len(newly)} component(s) in global config.")
 
     # Summary
     if added:
@@ -1526,17 +1368,8 @@ def _enable_items(
     section_key: str = "global",
 ) -> list[str]:
     """Enable items in a config section. Returns list of newly enabled names."""
-    section = cfg.get(section_key, {})
-    newly_enabled = []
-    for ct, name in items:
-        field = ct.registry_dir
-        enabled = section.get(field, [])
-        if name not in enabled:
-            enabled.append(name)
-            section[field] = enabled
-            newly_enabled.append(f"{ct.registry_dir}/{name}")
-    cfg[section_key] = section
-    return newly_enabled
+    from . import config
+    return config.enable_items_in_config(items, cfg=cfg, section_key=section_key)
 
 
 def _disable_items(
