@@ -8,45 +8,17 @@ tools: [claude, codex]
 
 You are using **Gemini CLI** in non-interactive mode for hands-off task execution.
 
-## Recommended Model
+## Defaults
 
-**Default: `--model auto`** - Recommended by Gemini CLI for most tasks.
+Use `--model auto` by default.
 
-- With preview features enabled, `auto` can route to Gemini 3 models.
-- For stable fallback, `auto` routes to Gemini 2.5 models.
+With preview features enabled, `auto` or `pro` can route to Gemini 3 models.
 
 ```bash
-gemini --model auto --approval-mode yolo "your task here"
+gemini -p --model auto --approval-mode auto_edit "your task here"
 ```
 
-## Model Selection Guide
-
-### Alias-Based Selection (Recommended)
-
-| Model Alias | Resolves To | Best For |
-|-------------|-------------|----------|
-| `auto` | `gemini-3-pro-preview` or `gemini-2.5-pro` | Default, best overall quality/cost routing |
-| `pro` | `gemini-3-pro-preview` or `gemini-2.5-pro` | Deep reasoning, architecture, complex debugging |
-| `flash` | `gemini-2.5-flash` | Faster day-to-day implementation |
-| `flash-lite` | `gemini-2.5-flash-lite` | Fastest/simple tasks |
-
-### Manual Models
-
-| Model | Best For | Notes |
-|-------|----------|-------|
-| `gemini-3-pro-preview` | Most complex reasoning | Requires preview features |
-| `gemini-3-flash-preview` | Fast + capable coding loops | Requires preview features |
-| `gemini-2.5-pro` | Stable complex work | Reliable fallback |
-| `gemini-2.5-flash` | Quick implementation tasks | Lower latency/cost |
-
-To enable Gemini 3 preview models:
-1. Upgrade Gemini CLI (`npm install -g @google/gemini-cli@latest`)
-2. Use `/settings` and set Preview Features to `true`
-3. Use `/model` and pick Auto (Gemini 3), or pass a Gemini 3 model via `--model`
-
 ## Prerequisites
-
-Before using this skill, ensure Gemini CLI is installed and configured:
 
 ```bash
 gemini --version
@@ -54,84 +26,69 @@ gemini --version
 
 If not installed, see the [Gemini CLI documentation](https://github.com/google-gemini/gemini-cli).
 
-## Operating Modes
+## Handoff Strategy
 
-### Approval Modes
+Gemini does **not** inherit the parent agent's reasoning context. Keep the handoff as small as possible.
 
-| Mode | Flag | Use Case |
-|------|------|----------|
-| `default` | `--approval-mode default` | Prompt on tool calls (safest default) |
-| `auto_edit` | `--approval-mode auto_edit` | Auto-approve file edits only |
-| `yolo` | `--approval-mode yolo` | Auto-approve all actions |
-| `plan` | `--approval-mode plan` | Read-only planning mode (experimental) |
-
-`--yolo` / `-y` still works but is deprecated; prefer `--approval-mode yolo`.
-
-### Sandboxing
-
-Use `-s` / `--sandbox` to run in a sandboxed environment.
+1. Use a short direct prompt for small, self-contained tasks.
 
 ```bash
-gemini -s --model auto --approval-mode auto_edit "analyze and suggest safe changes"
+gemini -p --model auto --approval-mode auto_edit "In src/auth/login.ts, validateToken throws on expired tokens instead of returning false. Fix it and run the relevant tests."
 ```
 
-## Key Commands
+2. Pipe stdin for transient generated context.
 
 ```bash
-# Read-only-style analysis with default approvals
-gemini --model auto "analyze the codebase structure"
-
-# Full implementation (auto-approve all tools)
-gemini --model auto --approval-mode yolo "implement the feature"
-
-# Faster implementation loop with a specific model
-gemini --model gemini-3-flash-preview --approval-mode yolo "refactor the module"
-
-# JSON output for scripting
-gemini --model auto --approval-mode auto_edit --output-format json "run tests and summarize failures"
-
-# Streaming JSON events for monitoring
-gemini --model auto --output-format stream-json "triage repository risks"
+pytest -q tests/auth 2>&1 | gemini -p --model auto --approval-mode auto_edit "Use the failing test output from stdin to diagnose and fix the issue. Run the same tests after the fix."
 ```
 
-## Prompting Gemini
-
-Gemini runs in isolation. Write self-contained prompts that include all necessary context.
-
-### Effective prompts include:
-
-1. **Clear objective**: What should be accomplished
-2. **File paths**: Specific files to read/modify (if known)
-3. **Constraints**: Tech stack, patterns, things to avoid
-4. **Success criteria**: How to verify completion
-
-### Examples
+3. Write findings to a file when the context is long, structured, or reusable.
 
 ```bash
-# Bad - too vague
-gemini --model auto --approval-mode yolo "fix the bug"
-
-# Good - specific and testable
-gemini --model auto --approval-mode yolo "In src/auth/login.ts, validateToken throws on expired tokens instead of returning false. Fix it to return false for expired tokens and run existing tests."
-
-# Good - includes architecture constraints
-gemini --model auto --approval-mode yolo "Add a dark mode toggle to the settings page. Use ThemeContext in src/contexts/ and follow existing patterns in src/components/settings/. Persist to localStorage."
+gemini -p --model auto --approval-mode auto_edit "Read docs/plans/gemini-findings.md, implement the requested changes, and run relevant verification commands."
 ```
 
-### Piping context
+Prefer short prompts over piping, and piping over files, unless reuse or prompt size makes a file clearer.
+
+## Models
+
+- `auto`: default routing
+- `pro`: deeper reasoning
+- `flash`: faster coding loop
+- `flash-lite`: fastest, least capable
+
+## Useful Switches
+
+- `--approval-mode default|auto_edit|yolo`: autonomy level
+- `-s, --sandbox`: run inside the Gemini sandbox
+- `--output-format json|stream-json`: structured automation output
+- `--include-directories <dir1,dir2,...>`: multi-directory workspace context
+- `--resume [session]`: continue a previous session
+- `-e none`: disable extensions for the session
+
+There is no single documented "no tools" switch. `-e none` disables extensions, not built-in tools. To constrain Gemini, prefer `--approval-mode default` plus sandboxing over vague prompting alone.
+
+## Examples
 
 ```bash
-# Pipe architecture context
-cat ARCHITECTURE.md | gemini --model auto --approval-mode yolo "Using this architecture, add a new UserPreferences service"
+# Read-only planning
+gemini -p --model auto --approval-mode default -s "Analyze the codebase structure and summarize the main modules."
 
-# Pipe test output for targeted debugging
-npm test 2>&1 | gemini --model auto --approval-mode yolo "Fix the failing tests shown in this output"
+# Standard implementation
+gemini -p --model auto --approval-mode auto_edit "Implement the feature in src/foo.ts and run relevant tests."
+
+# Structured CI output
+gemini -p --model auto --approval-mode auto_edit --output-format json "Run tests and summarize failures."
 ```
 
 ## Best Practices
 
 - Default to `--model auto` unless you have a strong reason to pin
+- Keep handoff context minimal and explicit
+- Choose short prompt vs stdin vs file intentionally
+- Prefer `--approval-mode default` for investigation and `auto_edit` for practical automation
+- Use `--include-directories` instead of overloading the prompt with cross-repo context
+- Use `-e none` when you want to suppress extensions or MCP-based extras
 - Use `--output-format json` or `stream-json` for automation
-- Prefer `--approval-mode auto_edit` for safer unattended runs
 - Use `--approval-mode yolo` only in controlled environments
 - Run relevant tests after making changes
