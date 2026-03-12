@@ -464,3 +464,122 @@ def test_delete_project_scope_can_remove_local_hawk_dir(tmp_path, monkeypatch):
     ok, _msg = dashboard._delete_project_scope(project, delete_local_hawk=True)
     assert ok is True
     assert not hawk_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# _handle_download dirty-flag tests
+# ---------------------------------------------------------------------------
+
+
+def test_handle_download_marks_dirty_on_save_without_enable(monkeypatch):
+    """_handle_download returns True when items are added (Save, not Save & Enable)."""
+    from hawk_hooks.download_service import DownloadResult
+
+    monkeypatch.setattr(dashboard.console, "input", lambda *a, **kw: "https://example.com/repo")
+    monkeypatch.setattr(
+        "hawk_hooks.download_service.download_and_install",
+        lambda *a, **kw: DownloadResult(success=True, added=["skill/foo"], enable=False),
+    )
+    monkeypatch.setattr(dashboard, "wait_for_continue", lambda *a, **kw: None)
+
+    assert dashboard._handle_download() is True
+
+
+def test_handle_download_returns_false_when_no_items_added(monkeypatch):
+    """_handle_download returns False when download succeeds but adds nothing."""
+    from hawk_hooks.download_service import DownloadResult
+
+    monkeypatch.setattr(dashboard.console, "input", lambda *a, **kw: "https://example.com/repo")
+    monkeypatch.setattr(
+        "hawk_hooks.download_service.download_and_install",
+        lambda *a, **kw: DownloadResult(success=True, added=[], enable=False),
+    )
+    monkeypatch.setattr(dashboard, "wait_for_continue", lambda *a, **kw: None)
+
+    assert dashboard._handle_download() is False
+
+
+def test_handle_download_calls_enable_on_save_enable(monkeypatch):
+    """Save & Enable triggers _enable_items_globally with the added items."""
+    from hawk_hooks.download_service import DownloadResult
+
+    monkeypatch.setattr(dashboard.console, "input", lambda *a, **kw: "https://example.com/repo")
+    monkeypatch.setattr(
+        "hawk_hooks.download_service.download_and_install",
+        lambda *a, **kw: DownloadResult(success=True, added=["skill/foo"], enable=True),
+    )
+    monkeypatch.setattr(dashboard, "wait_for_continue", lambda *a, **kw: None)
+
+    enable_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "hawk_hooks.config.enable_items_in_config",
+        lambda items: (enable_calls.append(items), items)[-1],
+    )
+
+    result = dashboard._handle_download()
+    assert result is True
+    assert enable_calls == [["skill/foo"]]
+
+
+# ---------------------------------------------------------------------------
+# _enable_items_globally delegation test
+# ---------------------------------------------------------------------------
+
+
+def test_enable_items_globally_delegates_to_config(monkeypatch):
+    """_enable_items_globally delegates to config.enable_items_in_config."""
+    enable_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "hawk_hooks.config.enable_items_in_config",
+        lambda items: (enable_calls.append(items), items)[-1],
+    )
+
+    dashboard._enable_items_globally(["skill/tdd", "hook/lint"])
+    assert enable_calls == [["skill/tdd", "hook/lint"]]
+
+
+# ---------------------------------------------------------------------------
+# _handle_scan import source test
+# ---------------------------------------------------------------------------
+
+
+def test_handle_scan_imports_from_download_service(monkeypatch):
+    """_handle_scan uses download_service functions (not cli) for its flow."""
+    from types import SimpleNamespace as NS
+
+    state = _minimal_state()
+
+    monkeypatch.setattr(dashboard.console, "input", lambda *a, **kw: "/tmp")
+    monkeypatch.setattr(dashboard.console, "print", lambda *a, **kw: None)
+
+    fake_item = NS(
+        component_type=ComponentType.SKILL,
+        name="demo.md",
+        package="",
+        source_path=None,
+    )
+    fake_content = NS(items=[fake_item], package_meta=None, packages=[])
+
+    monkeypatch.setattr(
+        "hawk_hooks.downloader.scan_directory",
+        lambda *a, **kw: fake_content,
+    )
+
+    # Stub _interactive_select_items from download_service (NOT cli)
+    select_calls: list = []
+
+    def _fake_select(items, registry=None, **kwargs):
+        select_calls.append(True)
+        return [], "cancel"
+
+    monkeypatch.setattr(
+        "hawk_hooks.download_service._interactive_select_items",
+        _fake_select,
+    )
+    monkeypatch.setattr(dashboard, "wait_for_continue", lambda *a, **kw: None)
+
+    # Temporarily make /tmp pass is_dir check (it always does on macOS)
+    result = dashboard._handle_scan(state)
+    # The select returned cancel, so no items added
+    assert result is False
+    assert select_calls, "_interactive_select_items from download_service was called"

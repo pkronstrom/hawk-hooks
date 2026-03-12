@@ -104,3 +104,12 @@ def test_import_environment_handler_module():
 
 def test_import_projects_handler_module():
     importlib.import_module("hawk_hooks.interactive.handlers.projects")
+
+
+def test_environment_handler_has_own_console():
+    """Environment handler creates its own Console (no cyclic import from dashboard)."""
+    env_mod = importlib.import_module("hawk_hooks.interactive.handlers.environment")
+    dash_mod = importlib.import_module("hawk_hooks.interactive.dashboard")
+
+    assert hasattr(env_mod, "console"), "environment module should have its own console"
+    assert env_mod.console is not dash_mod.console, "environment.console should not be dashboard.console"
