@@ -270,6 +270,11 @@ class ClaudeAdapter(ToolAdapter):
     def _is_hawk_rule(rule: object) -> bool:
         """Check if a hook rule (matcher group) is hawk-managed.
 
+        Detects both:
+        - Entries with the ``__hawk_managed`` marker (current format)
+        - Unmarked entries whose command points to a ``runners/*.sh`` path
+          (legacy entries that predate the marker)
+
         Defensive against malformed legacy entries (e.g. strings).
         """
         if not isinstance(rule, dict):
@@ -277,7 +282,16 @@ class ClaudeAdapter(ToolAdapter):
         hooks = rule.get("hooks", [])
         if not isinstance(hooks, list):
             return False
-        return any(isinstance(h, dict) and h.get(_HAWK_HOOK_MARKER) for h in hooks)
+        for h in hooks:
+            if not isinstance(h, dict):
+                continue
+            if h.get(_HAWK_HOOK_MARKER):
+                return True
+            # Catch unmarked legacy entries pointing to hawk runner scripts
+            cmd = h.get("command", "")
+            if isinstance(cmd, str) and "/runners/" in cmd and cmd.endswith(".sh"):
+                return True
+        return False
 
     # Keep old name as alias for backward compatibility in tests
     _is_hawk_hook = _is_hawk_rule
