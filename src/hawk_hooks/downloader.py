@@ -48,7 +48,8 @@ _NON_COMPONENT_FILES = {
     "README.md", "readme.md", "README", "readme.txt",
     "LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE", "LICENCE.md",
     "CHANGELOG.md", "CHANGELOG", "CHANGES.md", "HISTORY.md",
-    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+    "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "CODE-OF-CONDUCT.md",
+    "SECURITY.md", "AGENTS.md", "CLAUDE.md",
     "package.json", "package-lock.json", "pyproject.toml",
     "setup.py", "setup.cfg", "Makefile", "Dockerfile",
     ".gitignore", ".gitattributes", ".editorconfig",
@@ -197,12 +198,34 @@ def classify(directory: Path, repo_name: str = "") -> ClassifiedContent:
             content.packages.append(content.package_meta)
 
     # Check for well-known directory structures
+    _TYPED_DIRS = {"skills", "hooks", "commands", "agents", "prompts", "mcp"}
     _scan_typed_dir(directory / "skills", ComponentType.SKILL, content)
     _scan_typed_dir(directory / "hooks", ComponentType.HOOK, content, repo_name=repo_name)
     _scan_typed_dir(directory / "commands", ComponentType.PROMPT, content)
     _scan_typed_dir(directory / "agents", ComponentType.AGENT, content)
     _scan_typed_dir(directory / "prompts", ComponentType.PROMPT, content)
     _scan_mcp_dir(directory / "mcp", content)
+
+    # Check non-typed top-level dirs for nested typed structures
+    # (e.g. authoring/skills/, migration/skills/ in monorepo layouts)
+    try:
+        top_entries = sorted(directory.iterdir())
+    except PermissionError:
+        top_entries = []
+    for entry in top_entries:
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        if entry.name.lower() in _TYPED_DIRS or entry.name in _SCAN_SKIP_DIRS:
+            continue
+        if entry.is_symlink():
+            continue
+        _scan_typed_dir(entry / "skills", ComponentType.SKILL, content)
+        _scan_typed_dir(entry / "hooks", ComponentType.HOOK, content, repo_name=repo_name)
+        _scan_typed_dir(entry / "commands", ComponentType.PROMPT, content)
+        _scan_typed_dir(entry / "agents", ComponentType.AGENT, content)
+        _scan_typed_dir(entry / "prompts", ComponentType.PROMPT, content)
+        _scan_mcp_dir(entry / "mcp", content)
+
     _scan_top_level_hook_metadata(directory, content)
 
     # Check for top-level items if no subdirectories found
