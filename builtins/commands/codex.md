@@ -53,7 +53,9 @@ Prefer short prompts over piping, and piping over files, unless reuse or prompt 
 
 ## Models
 
-- `gpt-5.4`: default
+**IMPORTANT:** `gpt-5.4` does NOT have a `-codex` variant. The model name is just `gpt-5.4`. Do NOT use `gpt-5.4-codex` — that model does not exist and will error.
+
+- `gpt-5.4`: default (no `-codex` suffix)
 - `gpt-5.3-codex`: older Codex-tuned fallback
 - `gpt-5.2-codex`: older agentic coding fallback
 - `gpt-5.2`: broader general-purpose fallback
