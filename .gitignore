@@ -44,3 +44,6 @@ htmlcov/
 
 # Private builtins (not committed)
 builtins-private/
+
+# Archived plan docs
+docs/plans/archive/
