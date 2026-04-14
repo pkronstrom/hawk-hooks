@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.request import urlretrieve
 
 import yaml
 
@@ -126,6 +129,62 @@ def shallow_clone(url: str, dest: Path | None = None) -> Path:
         text=True,
         timeout=120,
     )
+    return dest
+
+
+ARCHIVE_EXTENSIONS = (".zip", ".tar.gz", ".tgz", ".skill")
+
+
+def is_archive(path: str | Path) -> bool:
+    """Check if a path has a supported archive extension."""
+    name = str(path).lower()
+    return any(name.endswith(ext) for ext in ARCHIVE_EXTENSIONS)
+
+
+def extract_archive(path: Path) -> Path:
+    """Extract an archive to a temp directory.
+
+    Supports .zip, .skill (zip format), .tar.gz, and .tgz.
+    Returns the path to the temp directory containing extracted contents.
+    Caller is responsible for cleanup (shutil.rmtree).
+
+    Raises:
+        ValueError: If the archive format is not supported.
+        zipfile.BadZipFile / tarfile.TarError: If the archive is corrupt.
+    """
+    path = Path(path)
+    dest = Path(tempfile.mkdtemp(prefix="hawk-archive-"))
+    name_lower = path.name.lower()
+
+    if name_lower.endswith(".zip") or name_lower.endswith(".skill"):
+        with zipfile.ZipFile(path, "r") as zf:
+            zf.extractall(dest)
+    elif name_lower.endswith(".tar.gz") or name_lower.endswith(".tgz"):
+        with tarfile.open(path, "r:gz") as tf:
+            tf.extractall(dest)
+    else:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise ValueError(f"Unsupported archive format: {path.name}")
+
+    return dest
+
+
+def fetch_remote_archive(url: str) -> Path:
+    """Download a remote archive URL to a temp file.
+
+    Returns the path to the downloaded file.
+    Caller is responsible for cleanup.
+    """
+    suffix = ""
+    url_lower = url.lower().split("?")[0]
+    for ext in ARCHIVE_EXTENSIONS:
+        if url_lower.endswith(ext):
+            suffix = ext
+            break
+
+    tmp = Path(tempfile.mkdtemp(prefix="hawk-fetch-"))
+    dest = tmp / f"archive{suffix}"
+    urlretrieve(url, str(dest))
     return dest
 
 

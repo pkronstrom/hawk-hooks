@@ -1070,3 +1070,107 @@ class TestPascalToSnake:
         assert _pascal_to_snake("UserPromptSubmit") == "user_prompt_submit"
         assert _pascal_to_snake("SessionStart") == "session_start"
         assert _pascal_to_snake("PreCompact") == "pre_compact"
+
+
+import zipfile
+import tarfile
+
+
+class TestArchiveHelpers:
+    def test_is_archive_zip(self):
+        from hawk_hooks.downloader import is_archive
+        assert is_archive(Path("foo.zip")) is True
+
+    def test_is_archive_tar_gz(self):
+        from hawk_hooks.downloader import is_archive
+        assert is_archive(Path("foo.tar.gz")) is True
+
+    def test_is_archive_tgz(self):
+        from hawk_hooks.downloader import is_archive
+        assert is_archive(Path("foo.tgz")) is True
+
+    def test_is_archive_skill(self):
+        from hawk_hooks.downloader import is_archive
+        assert is_archive(Path("foo.skill")) is True
+
+    def test_is_archive_md(self):
+        from hawk_hooks.downloader import is_archive
+        assert is_archive(Path("foo.md")) is False
+
+    def test_is_archive_string(self):
+        from hawk_hooks.downloader import is_archive
+        assert is_archive("foo.zip") is True
+        assert is_archive("foo.md") is False
+
+    def test_extract_zip(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        archive = tmp_path / "test.zip"
+        inner = tmp_path / "content"
+        inner.mkdir()
+        (inner / "hello.md").write_text("# Hello skill")
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.write(inner / "hello.md", "hello.md")
+
+        result = extract_archive(archive)
+        assert result.is_dir()
+        assert (result / "hello.md").read_text() == "# Hello skill"
+
+    def test_extract_skill(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        archive = tmp_path / "test.skill"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("my-skill.md", "# My skill")
+
+        result = extract_archive(archive)
+        assert (result / "my-skill.md").read_text() == "# My skill"
+
+    def test_extract_tar_gz(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        inner = tmp_path / "content"
+        inner.mkdir()
+        (inner / "hello.md").write_text("# Hello skill")
+
+        archive = tmp_path / "test.tar.gz"
+        with tarfile.open(archive, "w:gz") as tf:
+            tf.add(inner / "hello.md", "hello.md")
+
+        result = extract_archive(archive)
+        assert result.is_dir()
+        assert (result / "hello.md").read_text() == "# Hello skill"
+
+    def test_extract_tgz(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        inner = tmp_path / "content2"
+        inner.mkdir()
+        (inner / "a.md").write_text("A")
+
+        archive = tmp_path / "test.tgz"
+        with tarfile.open(archive, "w:gz") as tf:
+            tf.add(inner / "a.md", "a.md")
+
+        result = extract_archive(archive)
+        assert (result / "a.md").read_text() == "A"
+
+    def test_extract_unsupported_raises(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        bad = tmp_path / "test.rar"
+        bad.write_text("not an archive")
+        with pytest.raises(ValueError, match="Unsupported archive"):
+            extract_archive(bad)
+
+    def test_fetch_remote_archive(self, tmp_path, monkeypatch):
+        from hawk_hooks.downloader import fetch_remote_archive
+        archive = tmp_path / "remote.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("skill.md", "# Remote skill")
+
+        def fake_urlretrieve(url, filename):
+            import shutil
+            shutil.copy2(archive, filename)
+            return filename, {}
+
+        monkeypatch.setattr("hawk_hooks.downloader.urlretrieve", fake_urlretrieve)
+
+        result = fetch_remote_archive("https://example.com/pkg.zip")
+        assert result.exists()
+        assert result.name.endswith(".zip")
