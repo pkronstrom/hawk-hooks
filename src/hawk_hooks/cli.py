@@ -338,6 +338,61 @@ def _name_from_content(text: str, suffix: str = ".md") -> str:
     return slug
 
 
+def _add_from_archive(archive_path: Path, args):
+    """Extract an archive and add all classified components to registry."""
+    from .downloader import (
+        add_items_to_registry, check_clashes, classify,
+        extract_archive,
+    )
+    from .registry import Registry
+    from . import config
+    import shutil
+
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+
+    try:
+        extract_dir = extract_archive(archive_path)
+    except Exception as exc:
+        print(f"Error extracting archive: {exc}")
+        sys.exit(1)
+
+    try:
+        content = classify(extract_dir)
+        if not content.items:
+            print("No components found in archive.")
+            return
+
+        _print(f"Found {len(content.items)} component(s) in archive:")
+        for item in content.items:
+            _print(f"  [dim]\\[{item.component_type.value}][/dim] {item.name}")
+
+        replace = getattr(args, "force", False)
+        clashes = check_clashes(content.items, registry)
+        if clashes and not replace:
+            clash_names = {f"{c.component_type.value}/{c.name}" for c in clashes}
+            _print(f"\nSkipping {len(clashes)} clash(es): {', '.join(sorted(clash_names))}")
+            _print("Use [cyan]--force[/cyan] to replace.")
+            items_to_add = [i for i in content.items if i not in clashes]
+        else:
+            items_to_add = content.items
+
+        if not items_to_add:
+            print("No new components to add.")
+            return
+
+        added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+        for ct_name in added:
+            _print(f"[green]+[/green] Added {ct_name}")
+
+        if getattr(args, "enable", False) and added:
+            newly = config.enable_items_in_config(added)
+            if newly:
+                _print(f"Enabled {len(newly)} component(s) in global config.")
+    finally:
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
+
 def cmd_add(args):
     """Add a component to the registry."""
     import tempfile
@@ -367,6 +422,12 @@ def cmd_add(args):
         if not source.exists():
             print(f"Error: {source} does not exist.")
             sys.exit(1)
+
+        # Archive? Extract and use classify+batch-add flow instead
+        from .downloader import is_archive
+        if source.is_file() and is_archive(source):
+            _add_from_archive(source, args)
+            return
     elif not sys.stdin.isatty():
         stdin_content = sys.stdin.read()
         if not stdin_content.strip():

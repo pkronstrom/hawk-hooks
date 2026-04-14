@@ -1160,3 +1160,38 @@ class TestScanArchive:
         from hawk_hooks.registry import Registry
         reg = Registry(registry_dir)
         assert reg.detect_clash(ComponentType.PROMPT, "my-skill.md")
+
+
+class TestAddArchive:
+    def test_add_zip_with_skills(self, tmp_path, monkeypatch):
+        """hawk add <archive.zip> should extract and add all components."""
+        from hawk_hooks import config
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_profiles_dir", lambda: config_dir / "profiles")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        archive = tmp_path / "bundle.zip"
+        with _zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("skills/s1.md", "# Skill 1")
+            zf.writestr("skills/s2.md", "# Skill 2")
+
+        from hawk_hooks.cli import cmd_add
+        import argparse
+
+        args = argparse.Namespace(
+            type=str(archive), path=None, name=None,
+            force=False, enable=False, package=None,
+            type_flag=None,
+        )
+        cmd_add(args)
+
+        from hawk_hooks.registry import Registry
+        reg = Registry(registry_dir)
+        assert reg.detect_clash(ComponentType.SKILL, "s1.md")
+        assert reg.detect_clash(ComponentType.SKILL, "s2.md")
