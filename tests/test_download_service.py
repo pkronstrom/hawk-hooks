@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import zipfile as _zipfile
 from pathlib import Path
 
 from hawk_hooks import config
@@ -178,3 +179,56 @@ def test_get_interactive_select_fn():
 
     fn = get_interactive_select_fn()
     assert callable(fn)
+
+
+def test_download_local_archive(monkeypatch, tmp_path):
+    """hawk download with a local .zip should extract and classify."""
+    from hawk_hooks.download_service import download_and_install
+
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    archive = tmp_path / "package.zip"
+    with _zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("skills/hello.md", "# Hello skill")
+
+    result = download_and_install(str(archive), select_all=True)
+
+    assert result.success is True
+    assert any("hello.md" in item for item in result.added)
+
+
+def test_download_skill_archive(monkeypatch, tmp_path):
+    """hawk download with a .skill file should work."""
+    from hawk_hooks.download_service import download_and_install
+
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    archive = tmp_path / "my-package.skill"
+    with _zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("hello.md", "# Hello")
+
+    result = download_and_install(str(archive), select_all=True)
+
+    assert result.success is True
+    assert len(result.added) > 0
+
+
+def test_download_remote_archive(monkeypatch, tmp_path):
+    """hawk download with a URL ending in .zip should fetch and extract."""
+    from hawk_hooks.download_service import download_and_install
+
+    _patch_config_paths(monkeypatch, tmp_path)
+
+    archive = tmp_path / "remote.zip"
+    with _zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("skills/remote-skill.md", "# Remote skill")
+
+    def fake_fetch(url):
+        return archive
+
+    monkeypatch.setattr("hawk_hooks.download_service.fetch_remote_archive", fake_fetch)
+
+    result = download_and_install("https://example.com/pkg.zip", select_all=True)
+
+    assert result.success is True
+    assert any("remote-skill.md" in item for item in result.added)

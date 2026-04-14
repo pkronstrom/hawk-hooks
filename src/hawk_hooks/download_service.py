@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import config
-from .downloader import ClassifiedContent, add_items_to_registry, check_clashes, classify, get_head_commit, scan_directory, shallow_clone
+from .downloader import ClassifiedContent, add_items_to_registry, check_clashes, classify, extract_archive, fetch_remote_archive, get_head_commit, is_archive, scan_directory, shallow_clone
 from .registry import Registry
 
 
@@ -359,13 +359,41 @@ def download_and_install(
     registry = Registry(config.get_registry_path())
     registry.ensure_dirs()
 
-    logf(f"Cloning {url}...")
-    try:
-        clone_dir = shallow_clone(url)
-    except Exception as exc:  # pragma: no cover - parity with current CLI behavior
-        err = f"Error cloning: {exc}"
-        logf(err)
-        return DownloadResult(success=False, error=err)
+    # Detect archive input: local file or remote archive URL
+    from pathlib import Path as _Path
+    local_path = _Path(url)
+    archive_tmp = None
+    is_local_archive = local_path.is_file() and is_archive(local_path)
+    is_remote_archive = not is_local_archive and "://" in url and is_archive(url)
+
+    if is_local_archive:
+        logf(f"Extracting {local_path.name}...")
+        try:
+            clone_dir = extract_archive(local_path)
+            archive_tmp = clone_dir
+        except Exception as exc:
+            err = f"Error extracting archive: {exc}"
+            logf(err)
+            return DownloadResult(success=False, error=err)
+    elif is_remote_archive:
+        logf(f"Downloading {url}...")
+        try:
+            fetched = fetch_remote_archive(url)
+            logf("Extracting...")
+            clone_dir = extract_archive(fetched)
+            archive_tmp = clone_dir
+        except Exception as exc:
+            err = f"Error downloading archive: {exc}"
+            logf(err)
+            return DownloadResult(success=False, error=err)
+    else:
+        logf(f"Cloning {url}...")
+        try:
+            clone_dir = shallow_clone(url)
+        except Exception as exc:
+            err = f"Error cloning: {exc}"
+            logf(err)
+            return DownloadResult(success=False, error=err)
 
     try:
         commit_hash = get_head_commit(clone_dir)
