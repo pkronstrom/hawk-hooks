@@ -73,6 +73,19 @@ class TestCodexMCP:
         with pytest.raises(ValueError, match="manual \\[mcp_servers.github\\]"):
             adapter.write_mcp_config({"github": {"command": "gh-mcp"}}, target)
 
+    def test_sanitizes_mcp_name_with_dots(self, adapter, tmp_path):
+        """MCP server names with dots are sanitized for Codex compatibility."""
+        target = tmp_path / "codex"
+        target.mkdir()
+
+        servers = {"pencil.dev": {"command": "/path/to/pencil"}}
+        adapter.write_mcp_config(servers, target)
+
+        config_path = target / "config.toml"
+        data = tomllib.loads(config_path.read_text())
+        assert "pencil-dev" in data["mcp_servers"]
+        assert "pencil.dev" not in data.get("mcp_servers", {})
+
 
 class TestCodexHooks:
     def test_register_hooks_writes_notify_block(self, adapter, tmp_path):

@@ -214,11 +214,12 @@ class CodexAdapter(ToolAdapter):
         for raw_name, cfg in sorted(servers.items()):
             name = str(raw_name)
             _validate_name(name)
+            codex_name = self._sanitize_mcp_name(name)
             if not isinstance(cfg, dict):
                 raise ValueError(f"invalid MCP server config for {name!r}: expected object")
-            if self._has_manual_mcp_table(manual_text, name):
+            if self._has_manual_mcp_table(manual_text, codex_name):
                 raise ValueError(
-                    f"codex config.toml already has a manual [mcp_servers.{name}] table; "
+                    f"codex config.toml already has a manual [mcp_servers.{codex_name}] table; "
                     "remove it or let hawk manage a different server name"
                 )
             unit_id = self._mcp_unit_id(name)
@@ -228,7 +229,7 @@ class CodexAdapter(ToolAdapter):
                     file=config_path,
                     unit_id=unit_id,
                     action="upsert",
-                    payload=self._render_mcp_payload(name, cfg),
+                    payload=self._render_mcp_payload(codex_name, cfg),
                 )
             )
 
@@ -485,6 +486,11 @@ class CodexAdapter(ToolAdapter):
     def _slug(text: str) -> str:
         slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
         return slug or "agent"
+
+    @staticmethod
+    def _sanitize_mcp_name(name: str) -> str:
+        """Sanitize MCP server name for Codex (must match ^[a-zA-Z0-9_-]+$)."""
+        return re.sub(r"[^a-zA-Z0-9_-]", "-", name)
 
     @staticmethod
     def _mcp_unit_id(name: str) -> str:
