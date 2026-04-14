@@ -1,8 +1,11 @@
 """Tests for v2 CLI."""
 
+import zipfile as _zipfile
+
 import pytest
 
 from hawk_hooks.cli import _name_from_content, build_parser
+from hawk_hooks.types import ComponentType
 
 
 class TestArgParsing:
@@ -1095,3 +1098,65 @@ class TestCmdUpdateLocalPackages:
         assert len(packages["local-pkg"]["items"]) == 1
         assert packages["local-pkg"]["items"][0]["type"] == "prompt"
         assert packages["local-pkg"]["items"][0]["name"] == "hello.md"
+
+
+class TestScanArchive:
+    def test_scan_zip_archive(self, tmp_path, monkeypatch):
+        """hawk scan should accept a zip file and extract before scanning."""
+        from hawk_hooks import config
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_profiles_dir", lambda: config_dir / "profiles")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        archive = tmp_path / "components.zip"
+        with _zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("prompts/hello.md", "# Hello\nA prompt.")
+
+        from hawk_hooks.cli import cmd_scan
+        import argparse
+
+        args = argparse.Namespace(
+            path=str(archive), ui=False, replace=False,
+            select=None, depth=5, enable=False,
+        )
+        cmd_scan(args)
+
+        from hawk_hooks.registry import Registry
+        reg = Registry(registry_dir)
+        assert reg.detect_clash(ComponentType.PROMPT, "hello.md")
+
+    def test_scan_skill_archive(self, tmp_path, monkeypatch):
+        """hawk scan should accept a .skill file."""
+        from hawk_hooks import config
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        registry_dir = tmp_path / "registry"
+        monkeypatch.setattr(config, "get_config_dir", lambda: config_dir)
+        monkeypatch.setattr(config, "get_global_config_path", lambda: config_dir / "config.yaml")
+        monkeypatch.setattr(config, "get_profiles_dir", lambda: config_dir / "profiles")
+        monkeypatch.setattr(config, "get_packages_path", lambda: config_dir / "packages.yaml")
+        monkeypatch.setattr(config, "get_registry_path", lambda cfg=None: registry_dir)
+
+        archive = tmp_path / "pkg.skill"
+        with _zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("commands/my-skill.md", "# My Skill")
+
+        from hawk_hooks.cli import cmd_scan
+        import argparse
+
+        args = argparse.Namespace(
+            path=str(archive), ui=False, replace=False,
+            select=None, depth=5, enable=False,
+        )
+        cmd_scan(args)
+
+        from hawk_hooks.registry import Registry
+        reg = Registry(registry_dir)
+        assert reg.detect_clash(ComponentType.PROMPT, "my-skill.md")

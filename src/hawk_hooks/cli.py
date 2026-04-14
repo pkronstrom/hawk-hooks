@@ -631,172 +631,186 @@ def cmd_scan(args):
     from . import config
 
     scan_path = Path(args.path).resolve()
-    if not scan_path.is_dir():
-        print(f"Error: {scan_path} is not a directory.")
+    archive_tmp = None
+    if scan_path.is_file():
+        from .downloader import is_archive, extract_archive
+        if is_archive(scan_path):
+            archive_tmp = extract_archive(scan_path)
+            scan_path = archive_tmp
+        else:
+            print(f"Error: {scan_path} is not a directory or supported archive.")
+            sys.exit(1)
+    elif not scan_path.is_dir():
+        print(f"Error: {scan_path} does not exist.")
         sys.exit(1)
 
-    registry = Registry(config.get_registry_path())
-    registry.ensure_dirs()
+    try:
+        registry = Registry(config.get_registry_path())
+        registry.ensure_dirs()
 
-    # Scan
-    use_ui = getattr(args, "ui", False)
-    depth = getattr(args, "depth", 5)
-    if not use_ui:
-        print(f"Scanning {scan_path} (max depth {depth})...")
-    content = scan_directory(scan_path, max_depth=depth)
+        # Scan
+        use_ui = getattr(args, "ui", False)
+        depth = getattr(args, "depth", 5)
+        if not use_ui:
+            print(f"Scanning {scan_path} (max depth {depth})...")
+        content = scan_directory(scan_path, max_depth=depth)
 
-    if not content.items:
-        print("No components found.")
-        return
-
-    if not use_ui:
-        # Show compact summary (avoid flooding terminal before interactive picker)
-        by_type = content.by_type
-        type_counts = ", ".join(
-            f"{len(items)} {ct.value}{'s' if len(items) != 1 else ''}"
-            for ct, items in sorted(by_type.items(), key=lambda x: x[0].value)
-        )
-        print(f"\nFound {len(content.items)} component(s): {type_counts}")
-
-    # Filter by --select names, --ui picker, or default to all
-    select_names = None
-    if getattr(args, "select", None):
-        select_names = {s.strip() for s in args.select.split(",") if s.strip()}
-
-    if select_names is not None:
-        selected_items = [i for i in content.items if i.name in select_names]
-        unknown = select_names - {i.name for i in content.items}
-        if unknown:
-            print(f"\nWarning: not found: {', '.join(sorted(unknown))}")
-        if not selected_items:
-            print("\nNo matching components found.")
+        if not content.items:
+            print("No components found.")
             return
-    elif getattr(args, "ui", False):
-        pkg = content.package_meta.name if content.package_meta else ""
-        selected_items, action = _interactive_select_items(
-            content.items, registry, package_name=pkg,
-            packages=content.packages,
-            collapsed=True, select_all=True,
-        )
-        if not selected_items or action == "cancel":
-            print("\nNo components selected.")
-            return
-        if action == "save_enable":
-            args.enable = True
-    else:
-        selected_items = content.items
 
-    # Check clashes — auto-rename with package prefix, then skip remaining
-    clashes = check_clashes(selected_items, registry)
-    replace = args.replace
-    if clashes and not replace:
-        from .download_service import _prefixed_name
-        top_pkg = content.package_meta.name if content.package_meta else ""
-        for item in clashes:
-            # Prefer per-item package, fall back to top-level package meta
-            item_pkg = item.package or top_pkg
-            pkg_prefix = item_pkg.split("/")[-1] if "/" in item_pkg else item_pkg if item_pkg else ""
-            if pkg_prefix:
-                new_name = _prefixed_name(pkg_prefix, item.name)
-                if not registry.detect_clash(item.component_type, new_name):
-                    print(f"  Renamed {item.name} -> {new_name} (clash with existing)")
-                    item.name = new_name
-
-        # Re-check remaining clashes after renames
-        still_clashing = [
-            i for i in selected_items
-            if registry.detect_clash(i.component_type, i.name)
-        ]
-        if still_clashing:
-            print(f"\nClashes with existing registry entries:")
-            for item in still_clashing:
-                print(f"  {item.component_type.value}/{item.name}")
-            print("\nUse --replace to overwrite existing entries.")
-
-        items_to_add = [
-            i for i in selected_items
-            if not registry.detect_clash(i.component_type, i.name)
-        ]
-    else:
-        items_to_add = selected_items
-
-    if not items_to_add and not content.packages:
-        print("\nNo new components to add.")
-        return
-
-    # Reject package source-type conflicts up front (before mutating registry)
-    if content.packages:
-        existing_packages = config.load_packages()
-        selected_pkg_names = {
-            item.package or (content.package_meta.name if content.package_meta else "")
-            for item in selected_items
-        }
-        for pkg_name in sorted(n for n in selected_pkg_names if n):
-            existing = existing_packages.get(pkg_name)
-            if not existing:
-                continue
-            existing_source = _package_source_type(existing)
-            if existing_source != "local":
-                print(
-                    f"Package '{pkg_name}' already exists with source [{existing_source}], "
-                    "refusing to replace source metadata."
-                )
-                print(f"Fix: hawk remove-package {pkg_name} && hawk scan {scan_path} --all")
-                print(
-                    f"Fix: hawk remove-package {pkg_name} && "
-                    f"hawk download <url> --name {pkg_name}"
-                )
-                sys.exit(1)
-
-    if items_to_add:
-        added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
-    else:
-        print("\nNo new components to add.")
-        added, skipped = [], []
-
-    # Record packages — group items by their per-item .package tag
-    if content.packages:
-        existing_packages = config.load_packages()
-        items_by_pkg: dict[str, list] = {}
-        for item in selected_items:
-            pkg_name = item.package or (
-                content.package_meta.name if content.package_meta else ""
+        if not use_ui:
+            # Show compact summary (avoid flooding terminal before interactive picker)
+            by_type = content.by_type
+            type_counts = ", ".join(
+                f"{len(items)} {ct.value}{'s' if len(items) != 1 else ''}"
+                for ct, items in sorted(by_type.items(), key=lambda x: x[0].value)
             )
-            if pkg_name:
-                items_by_pkg.setdefault(pkg_name, []).append(item)
-        pkg_meta_by_name = {p.name: p for p in content.packages}
-        for pkg_name, pkg_item_list in items_by_pkg.items():
-            pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
-            if pkg_items:
-                existing_items = existing_packages.get(pkg_name, {}).get("items", [])
-                merged_items = _merge_package_items(existing_items, pkg_items)
-                config.record_package(
-                    pkg_name, "", "", merged_items,
-                    path=str(scan_path),
+            print(f"\nFound {len(content.items)} component(s): {type_counts}")
+
+        # Filter by --select names, --ui picker, or default to all
+        select_names = None
+        if getattr(args, "select", None):
+            select_names = {s.strip() for s in args.select.split(",") if s.strip()}
+
+        if select_names is not None:
+            selected_items = [i for i in content.items if i.name in select_names]
+            unknown = select_names - {i.name for i in content.items}
+            if unknown:
+                print(f"\nWarning: not found: {', '.join(sorted(unknown))}")
+            if not selected_items:
+                print("\nNo matching components found.")
+                return
+        elif getattr(args, "ui", False):
+            pkg = content.package_meta.name if content.package_meta else ""
+            selected_items, action = _interactive_select_items(
+                content.items, registry, package_name=pkg,
+                packages=content.packages,
+                collapsed=True, select_all=True,
+            )
+            if not selected_items or action == "cancel":
+                print("\nNo components selected.")
+                return
+            if action == "save_enable":
+                args.enable = True
+        else:
+            selected_items = content.items
+
+        # Check clashes — auto-rename with package prefix, then skip remaining
+        clashes = check_clashes(selected_items, registry)
+        replace = args.replace
+        if clashes and not replace:
+            from .download_service import _prefixed_name
+            top_pkg = content.package_meta.name if content.package_meta else ""
+            for item in clashes:
+                # Prefer per-item package, fall back to top-level package meta
+                item_pkg = item.package or top_pkg
+                pkg_prefix = item_pkg.split("/")[-1] if "/" in item_pkg else item_pkg if item_pkg else ""
+                if pkg_prefix:
+                    new_name = _prefixed_name(pkg_prefix, item.name)
+                    if not registry.detect_clash(item.component_type, new_name):
+                        print(f"  Renamed {item.name} -> {new_name} (clash with existing)")
+                        item.name = new_name
+
+            # Re-check remaining clashes after renames
+            still_clashing = [
+                i for i in selected_items
+                if registry.detect_clash(i.component_type, i.name)
+            ]
+            if still_clashing:
+                print(f"\nClashes with existing registry entries:")
+                for item in still_clashing:
+                    print(f"  {item.component_type.value}/{item.name}")
+                print("\nUse --replace to overwrite existing entries.")
+
+            items_to_add = [
+                i for i in selected_items
+                if not registry.detect_clash(i.component_type, i.name)
+            ]
+        else:
+            items_to_add = selected_items
+
+        if not items_to_add and not content.packages:
+            print("\nNo new components to add.")
+            return
+
+        # Reject package source-type conflicts up front (before mutating registry)
+        if content.packages:
+            existing_packages = config.load_packages()
+            selected_pkg_names = {
+                item.package or (content.package_meta.name if content.package_meta else "")
+                for item in selected_items
+            }
+            for pkg_name in sorted(n for n in selected_pkg_names if n):
+                existing = existing_packages.get(pkg_name)
+                if not existing:
+                    continue
+                existing_source = _package_source_type(existing)
+                if existing_source != "local":
+                    print(
+                        f"Package '{pkg_name}' already exists with source [{existing_source}], "
+                        "refusing to replace source metadata."
+                    )
+                    print(f"Fix: hawk remove-package {pkg_name} && hawk scan {scan_path} --all")
+                    print(
+                        f"Fix: hawk remove-package {pkg_name} && "
+                        f"hawk download <url> --name {pkg_name}"
+                    )
+                    sys.exit(1)
+
+        if items_to_add:
+            added, skipped = add_items_to_registry(items_to_add, registry, replace=replace)
+        else:
+            print("\nNo new components to add.")
+            added, skipped = [], []
+
+        # Record packages — group items by their per-item .package tag
+        if content.packages:
+            existing_packages = config.load_packages()
+            items_by_pkg: dict[str, list] = {}
+            for item in selected_items:
+                pkg_name = item.package or (
+                    content.package_meta.name if content.package_meta else ""
                 )
-                meta = pkg_meta_by_name.get(pkg_name)
-                _print(f"\n[green]Package:[/green] {pkg_name}")
-                if meta and meta.description:
-                    _print(f"  {meta.description}")
+                if pkg_name:
+                    items_by_pkg.setdefault(pkg_name, []).append(item)
+            pkg_meta_by_name = {p.name: p for p in content.packages}
+            for pkg_name, pkg_item_list in items_by_pkg.items():
+                pkg_items = _build_pkg_items(pkg_item_list, registry, pkg_name, set(added))
+                if pkg_items:
+                    existing_items = existing_packages.get(pkg_name, {}).get("items", [])
+                    merged_items = _merge_package_items(existing_items, pkg_items)
+                    config.record_package(
+                        pkg_name, "", "", merged_items,
+                        path=str(scan_path),
+                    )
+                    meta = pkg_meta_by_name.get(pkg_name)
+                    _print(f"\n[green]Package:[/green] {pkg_name}")
+                    if meta and meta.description:
+                        _print(f"  {meta.description}")
 
-    # Enable in global config (only when explicitly requested)
-    if added and getattr(args, "enable", False):
-        newly = config.enable_items_in_config(added)
-        if newly:
-            print(f"\nEnabled {len(newly)} component(s) in global config.")
+        # Enable in global config (only when explicitly requested)
+        if added and getattr(args, "enable", False):
+            newly = config.enable_items_in_config(added)
+            if newly:
+                print(f"\nEnabled {len(newly)} component(s) in global config.")
 
-    # Summary
-    if added:
-        print(f"\nAdded {len(added)} component(s):")
-        for name in added:
-            print(f"  + {name}")
-    if skipped:
-        print(f"\nSkipped {len(skipped)}:")
-        for name in skipped:
-            print(f"  - {name}")
+        # Summary
+        if added:
+            print(f"\nAdded {len(added)} component(s):")
+            for name in added:
+                print(f"  + {name}")
+        if skipped:
+            print(f"\nSkipped {len(skipped)}:")
+            for name in skipped:
+                print(f"  - {name}")
 
-    if added and not getattr(args, "enable", False):
-        print("\nRun 'hawk enable <name>' to activate, then 'hawk sync' to apply.")
+        if added and not getattr(args, "enable", False):
+            print("\nRun 'hawk enable <name>' to activate, then 'hawk sync' to apply.")
+    finally:
+        if archive_tmp:
+            import shutil
+            shutil.rmtree(archive_tmp, ignore_errors=True)
 
 
 def cmd_packages(args):
