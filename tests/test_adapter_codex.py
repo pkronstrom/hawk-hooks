@@ -169,6 +169,40 @@ class TestCodexHooks:
 
 
 class TestCodexAgents:
+    def test_purge_orphaned_agent_entries(self, adapter, tmp_path, monkeypatch):
+        """Orphaned [agents.*] entries with missing config_files are auto-removed."""
+        registry = tmp_path / "registry"
+        agents_reg = registry / "agents"
+        agents_reg.mkdir(parents=True)
+        (agents_reg / "reviewer.md").write_text(
+            "---\nname: reviewer\ndescription: Code reviewer\ntools: [codex]\n---\n\nReview code.\n"
+        )
+
+        target = tmp_path / ".codex"
+        target.mkdir()
+        (target / "agents").mkdir()
+        # Write an orphaned entry (no managed block markers, no role file)
+        (target / "config.toml").write_text(
+            "[features]\nmulti_agent = true\n\n"
+            "[agents.reviewer]\n"
+            'description = "old orphan"\n'
+            'config_file = "agents/reviewer.toml"\n'
+        )
+
+        monkeypatch.setattr(
+            "hawk_hooks.config.load_global_config",
+            lambda: {"tools": {"codex": {"allow_multi_agent": True, "agent_trigger_mode": "skills"}}},
+        )
+
+        result = adapter.sync(ResolvedSet(agents=["reviewer.md"]), target, registry)
+
+        # Orphan was purged and re-created with managed blocks
+        assert any("orphaned" in item for item in result.unlinked)
+        assert any("agent:reviewer.md" in item for item in result.linked)
+        config_text = (target / "config.toml").read_text()
+        assert "hawk-hooks managed: codex-agent-reviewer" in config_text
+        assert (target / "agents" / "reviewer.toml").exists()
+
     def test_sync_agents_requires_multi_agent_opt_in(self, adapter, tmp_path, monkeypatch):
         registry = tmp_path / "registry"
         agents = registry / "agents"

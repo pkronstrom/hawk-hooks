@@ -308,6 +308,7 @@ class CodexAdapter(ToolAdapter):
             )
             return
 
+        self._purge_orphaned_agent_entries(config_path, target_dir, result)
         manual_text = self._manual_codex_toml(config_path)
         current_multi = self._read_multi_agent_flag(config_path)
         manual_features_table = bool(re.search(r"(?m)^\s*\[features\]\s*$", manual_text))
@@ -634,6 +635,47 @@ class CodexAdapter(ToolAdapter):
     def _has_manual_agent_table(manual_text: str, role_key: str) -> bool:
         pattern = rf"(?m)^\s*\[agents\.{re.escape(role_key)}\]\s*$"
         return bool(re.search(pattern, manual_text))
+
+    def _purge_orphaned_agent_entries(
+        self, config_path: Path, target_dir: Path, result: SyncResult
+    ) -> None:
+        """Remove manual [agents.*] entries whose config_file doesn't exist.
+
+        These are leftovers from older hawk versions that wrote agent entries
+        without managed-block markers.
+        """
+        if not config_path.exists():
+            return
+        text = config_path.read_text()
+        manual_text = TomlBlockDriver.strip_all(text)
+        try:
+            data = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return
+        agents = data.get("agents", {})
+        if not isinstance(agents, dict):
+            return
+        orphaned: list[str] = []
+        for key, val in agents.items():
+            if not isinstance(val, dict):
+                continue
+            config_file = val.get("config_file", "")
+            if (
+                config_file
+                and not (target_dir / config_file).exists()
+                and self._has_manual_agent_table(manual_text, key)
+            ):
+                orphaned.append(key)
+        if not orphaned:
+            return
+        for key in orphaned:
+            text = re.sub(
+                rf"(?m)^\[agents\.{re.escape(key)}\]\n(?:(?!\[)[^\n]*\n)*\n*",
+                "",
+                text,
+            )
+            result.unlinked.append(f"agent:{key} (orphaned)")
+        config_path.write_text(text)
 
     @staticmethod
     def _is_hawk_role_file(path: Path) -> bool:
