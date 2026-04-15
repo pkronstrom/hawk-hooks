@@ -1666,8 +1666,8 @@ def build_parser() -> argparse.ArgumentParser:
     profile_show_p.set_defaults(func=cmd_profile_show)
 
     # scan
-    scan_p = subparsers.add_parser("scan", help="Scan directory for components to import")
-    scan_p.add_argument("path", nargs="?", default=".", help="Directory to scan (default: cwd)")
+    scan_p = subparsers.add_parser("scan", help="Scan directory or archive for components to import")
+    scan_p.add_argument("path", nargs="?", default=".", help="Directory or archive file to scan (default: cwd)")
     scan_p.add_argument("--ui", action="store_true", help="Launch interactive TUI picker")
     scan_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     scan_p.add_argument("--select", help="Comma-separated component names to import (default: all)")
@@ -1677,8 +1677,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan_p.set_defaults(func=cmd_scan)
 
     # download
-    dl_p = subparsers.add_parser("download", help="Download components from git URL")
-    dl_p.add_argument("url", help="Git URL to clone")
+    dl_p = subparsers.add_parser("download", help="Download components from git URL or archive")
+    dl_p.add_argument("url", help="Git URL, archive URL, or local archive path")
     dl_p.add_argument("--ui", action="store_true", help="Launch interactive TUI picker")
     dl_p.add_argument("--replace", action="store_true", help="Replace existing registry entries")
     dl_p.add_argument("--name", help="Package name (default: derived from URL)")
