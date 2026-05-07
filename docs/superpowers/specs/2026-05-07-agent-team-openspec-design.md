@@ -102,22 +102,25 @@ If `spec-flow` is absent, the lead falls back to vanilla OpenSpec primitives (`/
 
 The lead does **not** literally invoke `/spec-flow go` — that flow expects to drive the implementation itself, which conflicts with the team doing the work. The lead instead reads the spec-flow conventions document once and orchestrates accordingly.
 
-## Hawk package layout
+## Hawk layout
+
+Ships as a single bundled skill (subdir form) plus a thin slash command companion. The persona spawn-prompt files live **inside the skill directory**, not as separate top-level hawk agent components.
 
 ```
-agent-team-openspec/
-├── hawk-package.yaml
+builtins/
 ├── skills/
 │   └── agent-team-openspec/
-│       └── SKILL.md
-├── agents/
-│   ├── implementer-sonnet.md
-│   └── reviewer-rev3.md
+│       ├── SKILL.md                          # orchestration playbook
+│       └── agents/
+│           ├── implementer-sonnet.md         # implementer spawn-prompt body
+│           └── reviewer-rev3.md              # reviewer spawn-prompt body
 └── commands/
-    └── agent-team-openspec.md
+    └── agent-team-openspec.md                # /agent-team-openspec slash kickoff
 ```
 
-Note: this design ships as a hawk **package**, not a single skill. Tracked in dodo `hawk-hooks_8f9eb2` task `0478e5c2`: hawk skills cannot declare dependencies on companion agent / hook components, so a "skill that needs sibling agents" must be packaged as a multi-component bundle.
+Why this shape: the personas are **roles inside this one workflow**, not standalone reusable agents. Bundling them inside the skill directory matches their actual scope and avoids polluting the top-level `agents/` namespace. The slash command must be a sibling because hawk's component scanner is type-by-top-level-dir, but it's a 3-line activator.
+
+This shape sidesteps but does not resolve dodo `hawk-hooks_8f9eb2` task `0478e5c2` (hawk skills cannot declare deps on top-level companion components). Future skills that need *reusable* sibling agents will still hit that gap.
 
 ### `commands/agent-team-openspec.md`
 
@@ -130,15 +133,15 @@ The orchestration playbook. Steps mirror the Flow section above. Includes:
 - Preflight checklist
 - Worktree prompt template
 - Task-seeding logic (file-footprint annotation, dependency derivation from overlaps)
-- Spawn invocations referencing the agent defs by name
+- Spawn invocations: lead reads `agents/implementer-sonnet.md` and `agents/reviewer-rev3.md` from this skill's base directory and uses each file's full content as the spawn prompt body
 - Advisor reply patterns
 - Verify command discovery (spec-flow vs fallback)
 - Reviewer wake-up message template
 - End-of-run user prompt ("merge or PR?") + archive trigger
 
-### `agents/implementer-sonnet.md`
+### `skills/agent-team-openspec/agents/implementer-sonnet.md`
 
-Sonnet system prompt covering:
+Plain-markdown spawn-prompt body (no frontmatter — this file is data consumed by the skill, not a registered hawk component). Covers:
 
 - Self-claim discipline; one task at a time; mark done promptly
 - Read OpenSpec change docs before implementing
@@ -147,9 +150,9 @@ Sonnet system prompt covering:
 - On escalation, claim next ready task instead of stalling
 - Brief git-status mutex before staging
 
-### `agents/reviewer-rev3.md`
+### `skills/agent-team-openspec/agents/reviewer-rev3.md`
 
-Sonnet system prompt covering:
+Plain-markdown spawn-prompt body (no frontmatter). Covers:
 
 - Idle until messaged by lead
 - Run `/rev3` on the diff between current worktree state and the base branch (typically `main`)
