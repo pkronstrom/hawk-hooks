@@ -8,10 +8,13 @@ from pathlib import Path
 
 from . import config
 from .adapters import get_adapter
+from .config import get_logger
 from .registry import Registry
 from .resolver import resolve
 from .scope_resolution import build_resolver_dir_chain
 from .types import ResolvedSet, SyncResult, Tool
+
+logger = get_logger("hawk_hooks.sync")
 
 
 def _get_cache_dir() -> Path:
@@ -75,6 +78,8 @@ def count_unsynced_targets(
     unsynced = 0
     total = 0
 
+    logger.debug("count_unsynced project_dir=%s tools=%s", project_dir, [str(t) for t in selected_tools])
+
     if include_global:
         resolved_global = resolve(cfg)
         global_hash = resolved_global.hash_key(registry_path=registry.path)
@@ -87,18 +92,24 @@ def count_unsynced_targets(
 
     if project_dir is not None:
         dir_chain = build_resolver_dir_chain(project_dir, cfg=cfg)
-
-        resolved_project = resolve(cfg, dir_chain=dir_chain) if dir_chain else resolve(cfg)
-        project_hash = resolved_project.hash_key(registry_path=registry.path)
         scope_key = str(project_dir.resolve())
 
         for tool in selected_tools:
             adapter = get_adapter(tool)
+            # Resolve per-tool to match sync_directory behaviour (per-tool
+            # overrides can change the resolved set and therefore the hash).
+            resolved_project = (
+                resolve(cfg, dir_chain=dir_chain, tool=tool)
+                if dir_chain
+                else resolve(cfg, tool=tool)
+            )
+            project_hash = resolved_project.hash_key(registry_path=registry.path)
             expected = _cache_identity(project_hash, adapter)
             total += 1
             if _read_cached_hash(scope_key, tool) != expected:
                 unsynced += 1
 
+    logger.debug("count_unsynced result: unsynced=%d total=%d", unsynced, total)
     return unsynced, total
 
 
@@ -134,6 +145,8 @@ def sync_directory(
 
     scope_key = str(project_dir.resolve())
 
+    logger.debug("sync_directory %s tools=%s force=%s", project_dir, [str(t) for t in enabled_tools], force)
+
     for tool in enabled_tools:
         adapter = get_adapter(tool)
 
@@ -149,15 +162,23 @@ def sync_directory(
         # Check cache — skip if resolved set hasn't changed
         current_hash = resolved.hash_key(registry_path=registry.path)
         identity = _cache_identity(current_hash, adapter)
-        if not force and _read_cached_hash(scope_key, tool) == identity:
+        cached = _read_cached_hash(scope_key, tool)
+        if not force and cached == identity:
+            logger.debug("  %s: cache hit, skipping", tool)
             results.append(SyncResult(tool=str(tool)))
             continue
+
+        logger.debug("  %s: cache miss (cached=%s expected=%s)", tool, cached, identity)
 
         # Determine target directory
         target_dir = adapter.get_project_dir(project_dir)
 
         result = adapter.sync(resolved, target_dir, registry.path)
         results.append(result)
+
+        logger.debug("  %s: linked=%d unlinked=%d skipped=%d errors=%d",
+                      tool, len(result.linked), len(result.unlinked),
+                      len(result.skipped), len(result.errors))
 
         # Update cache after successful sync
         if not result.errors:
@@ -218,24 +239,44 @@ def sync_all(
     tools: list[Tool] | None = None,
     dry_run: bool = False,
     force: bool = False,
+    project_dir: Path | None = None,
 ) -> dict[str, list[SyncResult]]:
-    """Sync global + all registered directories.
+    """Sync global + all registered directories (+ optional project_dir).
+
+    Args:
+        tools: Optional filter to specific tools.
+        dry_run: If True, compute what would change but don't apply.
+        force: If True, bypass hash cache and sync unconditionally.
+        project_dir: Optional extra directory to sync even if unregistered
+            (e.g. the current working directory in the TUI dashboard).
 
     Returns:
         Dict mapping "global" or directory path to list of SyncResults.
     """
     all_results: dict[str, list[SyncResult]] = {}
 
+    logger.debug("sync_all project_dir=%s force=%s", project_dir, force)
+
     # Sync global
     all_results["global"] = sync_global(tools=tools, dry_run=dry_run, force=force)
 
     # Sync each registered directory
     directories = config.get_registered_directories()
+    synced_dirs: set[str] = set()
     for dir_path_str in directories:
         dir_path = Path(dir_path_str)
         if dir_path.exists():
             all_results[dir_path_str] = sync_directory(
                 dir_path, tools=tools, dry_run=dry_run, force=force
+            )
+            synced_dirs.add(str(dir_path.resolve()))
+
+    # Sync explicit project_dir if not already covered by registered dirs
+    if project_dir is not None:
+        resolved_str = str(project_dir.resolve())
+        if resolved_str not in synced_dirs and project_dir.exists():
+            all_results[resolved_str] = sync_directory(
+                project_dir, tools=tools, dry_run=dry_run, force=force
             )
 
     return all_results
@@ -634,13 +675,23 @@ def format_sync_results(
         results: Mapping of scope name to per-tool sync results.
         verbose: When True, include per-item link/unlink/error lines.
     """
-    lines: list[str] = []
+    def _is_noop(r: SyncResult) -> bool:
+        return not (r.linked or r.unlinked or r.skipped or r.errors)
 
+    # If every scope is fully no-op, emit a single-line summary.
+    if results and all(all(_is_noop(r) for r in trs) for trs in results.values()):
+        return "Nothing to sync."
+
+    lines: list[str] = []
     for scope, tool_results in results.items():
-        lines.append(f"\n  {scope}:")
+        # Collapse a fully no-op scope into one line.
+        if tool_results and all(_is_noop(r) for r in tool_results):
+            lines.append(f"{scope}: no changes")
+            continue
+
+        lines.append(f"{scope}:")
         for result in tool_results:
-            if not result.linked and not result.unlinked and not result.skipped and not result.errors:
-                lines.append(f"    {result.tool}: no changes")
+            if _is_noop(result):
                 continue
 
             parts = []
@@ -652,16 +703,16 @@ def format_sync_results(
                 parts.append(f"~{len(result.skipped)} skipped")
             if result.errors:
                 parts.append(f"!{len(result.errors)} errors")
-            lines.append(f"    {result.tool}: {', '.join(parts)}")
+            lines.append(f"  {result.tool}: {', '.join(parts)}")
 
             if verbose:
                 for item in result.linked:
-                    lines.append(f"      + {item}")
+                    lines.append(f"    + {item}")
                 for item in result.unlinked:
-                    lines.append(f"      - {item}")
+                    lines.append(f"    - {item}")
                 for skipped in result.skipped:
-                    lines.append(f"      ~ {skipped}")
+                    lines.append(f"    ~ {skipped}")
                 for err in result.errors:
-                    lines.append(f"      ! {err}")
+                    lines.append(f"    ! {err}")
 
     return "\n".join(lines)
