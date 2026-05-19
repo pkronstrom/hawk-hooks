@@ -80,6 +80,15 @@ class GeminiAdapter(ToolAdapter):
     def get_project_dir(self, project: Path) -> Path:
         return project / ".gemini"
 
+    def get_skills_dir(self, target_dir: Path) -> Path:
+        """Gemini reads skills from both `<root>/.gemini/skills` and
+        `<root>/.agents/skills`. Deploying to the latter dedupes against the
+        codex adapter (which also uses `.agents/skills`) and avoids the
+        "Skill conflict detected" warnings gemini emits when the same skill
+        appears in both locations.
+        """
+        return target_dir.parent / ".agents" / "skills"
+
     def link_command(self, source: Path, target_dir: Path) -> Path:
         """Convert markdown command to TOML and write to commands dir."""
         commands_dir = self.get_commands_dir(target_dir)
