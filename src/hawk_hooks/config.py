@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import logging
 import os
 from datetime import date
 from pathlib import Path
@@ -21,6 +22,36 @@ from typing import Any
 import yaml
 
 from .types import ComponentType, Tool
+
+_logger_configured = False
+
+
+def get_logger(name: str = "hawk_hooks") -> logging.Logger:
+    """Get a logger that writes to ``~/.config/hawk-hooks/hawk.log`` when debug is on."""
+    global _logger_configured
+    logger = logging.getLogger(name)
+    if not _logger_configured:
+        _logger_configured = True
+        try:
+            cfg_path = get_config_dir() / "config.yaml"
+            with open(cfg_path) as f:
+                raw = yaml.safe_load(f)
+            debug = isinstance(raw, dict) and raw.get("debug", False)
+        except Exception:
+            debug = False
+        if debug:
+            log_path = get_config_dir() / "hawk.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handler = logging.FileHandler(str(log_path))
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s [%(name)s] %(message)s", datefmt="%H:%M:%S")
+            )
+            logger.addHandler(handler)
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.addHandler(logging.NullHandler())
+            logger.setLevel(logging.WARNING)
+    return logger
 
 # Default global config
 DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {

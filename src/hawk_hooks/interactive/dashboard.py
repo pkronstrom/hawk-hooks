@@ -815,7 +815,8 @@ def _sync_all_with_preflight(scope_dir: str | None = None, *, force: bool = Fals
 
     from ..sync import sync_all
 
-    return sync_all(force=force)
+    project_dir = Path(scope_dir) if scope_dir else None
+    return sync_all(force=force, project_dir=project_dir)
 
 
 def _handle_sync(state: dict) -> None:
