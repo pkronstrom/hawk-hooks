@@ -616,7 +616,7 @@ class TestFormatResults:
     def test_format_empty(self):
         results = {"global": [SyncResult(tool="claude")]}
         output = format_sync_results(results)
-        assert "no changes" in output
+        assert output == "Nothing to sync."
 
     def test_format_with_changes_compact(self):
         results = {

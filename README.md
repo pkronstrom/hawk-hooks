@@ -127,7 +127,7 @@ On `hawk sync`, the resolver walks the config chain (global → registered paren
 git clone https://github.com/pkronstrom/hawk-hooks.git
 cd hawk-hooks
 uv tool install --editable .
-python3 -m pytest tests/ -q    # 630 tests
+python3 -m pytest tests/ -q    # 662 tests
 ```
 
 ## License
