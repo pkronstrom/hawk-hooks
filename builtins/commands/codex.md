@@ -1,6 +1,6 @@
 ---
 name: codex
-description: Leverage OpenAI GPT models for autonomous code implementation via Codex CLI. Use when the user asks to invoke/call/run Codex, use codex CLI or codex exec, mention GPT-5 for implementation, or delegate coding tasks to Codex. Default model is gpt-5.4.
+description: Leverage OpenAI GPT models for autonomous code implementation via Codex CLI. Use when the user asks to invoke/call/run Codex, use codex CLI or codex exec, mention GPT-5 for implementation, or delegate coding tasks to Codex. Default model is gpt-5.5.
 tools: [claude, gemini]
 ---
 
@@ -10,10 +10,10 @@ You are operating in **codex exec** - a non-interactive automation mode for hand
 
 ## Defaults
 
-Use `gpt-5.4` by default.
+Use `gpt-5.5` by default.
 
 ```bash
-codex exec -m gpt-5.4 -c model_reasoning_effort="medium" --full-auto "your task here"
+codex exec -m gpt-5.5 -c model_reasoning_effort="medium" --full-auto "your task here"
 ```
 
 Access legacy models with `-m <model>` or via `config.toml`.
@@ -34,31 +34,33 @@ Codex does **not** inherit the parent agent's reasoning context. Keep the handof
 1. Use a short direct prompt for small, self-contained tasks.
 
 ```bash
-codex exec -m gpt-5.4 -c model_reasoning_effort="medium" --full-auto "In src/auth/login.ts, validateToken throws on expired tokens instead of returning false. Fix it and run the relevant tests."
+codex exec -m gpt-5.5 -c model_reasoning_effort="medium" --full-auto "In src/auth/login.ts, validateToken throws on expired tokens instead of returning false. Fix it and run the relevant tests."
 ```
 
 2. Pipe stdin for transient generated context.
 
 ```bash
-pytest -q tests/auth 2>&1 | codex exec -m gpt-5.4 --full-auto "Use the failing test output from stdin to diagnose and fix the issue. Run the same tests after the fix."
+pytest -q tests/auth 2>&1 | codex exec -m gpt-5.5 --full-auto "Use the failing test output from stdin to diagnose and fix the issue. Run the same tests after the fix."
 ```
 
 3. Write findings to a file when the context is long, structured, or reusable.
 
 ```bash
-codex exec -m gpt-5.4 --full-auto "Read docs/plans/codex-findings.md, implement the requested changes, and run relevant verification commands."
+codex exec -m gpt-5.5 --full-auto "Read docs/plans/codex-findings.md, implement the requested changes, and run relevant verification commands."
 ```
 
 Prefer short prompts over piping, and piping over files, unless reuse or prompt size makes a file clearer.
 
 ## Models
 
-**IMPORTANT:** `gpt-5.4` does NOT have a `-codex` variant. The model name is just `gpt-5.4`. Do NOT use `gpt-5.4-codex` — that model does not exist and will error.
+- `gpt-5.5`: default — frontier model for complex coding, research, and real-world work
+- `gpt-5.4`: strong model for everyday coding
+- `gpt-5.4-mini`: small, fast, cost-efficient for simpler coding tasks
+- `gpt-5.3-codex`: coding-optimized model
+- `gpt-5.2`: optimized for professional work and long-running agents
 
-- `gpt-5.4`: default (no `-codex` suffix)
-- `gpt-5.3-codex`: older Codex-tuned fallback
-- `gpt-5.2-codex`: older agentic coding fallback
-- `gpt-5.2`: broader general-purpose fallback
+Older fallbacks (still accessible, no longer in the default menu):
+
 - `gpt-5.1-codex-max`: deep, slower reasoning
 - `gpt-5.1-codex-mini`: fast, cheap, less capable
 
@@ -81,13 +83,16 @@ There is no single documented "no tools" switch in `codex exec`. Constrain Codex
 
 ```bash
 # Read-only investigation
-codex exec -m gpt-5.4 -s read-only "Analyze the codebase structure and summarize the main modules."
+codex exec -m gpt-5.5 -s read-only "Analyze the codebase structure and summarize the main modules."
 
 # Standard implementation
-codex exec -m gpt-5.4 -c model_reasoning_effort="medium" --full-auto "Implement the feature in src/foo.ts and run relevant tests."
+codex exec -m gpt-5.5 -c model_reasoning_effort="medium" --full-auto "Implement the feature in src/foo.ts and run relevant tests."
 
-# Deep refactor
-codex exec -m gpt-5.1-codex-max -c model_reasoning_effort="high" --full-auto "Refactor the module and preserve behavior."
+# Fast, cheap pass
+codex exec -m gpt-5.4-mini --full-auto "Rename the helper and update its callers."
+
+# Long-running agent work
+codex exec -m gpt-5.2 -c model_reasoning_effort="high" --full-auto "Work through the migration plan end-to-end."
 
 # Structured CI output
 codex exec -m gpt-5.4 --json --output-schema ./schema.json "Run tests and summarize failures."
@@ -95,7 +100,7 @@ codex exec -m gpt-5.4 --json --output-schema ./schema.json "Run tests and summar
 
 ## Best Practices
 
-- Use `gpt-5.4` by default
+- Use `gpt-5.5` by default; drop to `gpt-5.4` or `gpt-5.4-mini` when speed/cost matters
 - Keep handoff context minimal and explicit
 - Choose short prompt vs stdin vs file intentionally
 - Start with `-s read-only` for investigation tasks
