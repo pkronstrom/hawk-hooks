@@ -45,5 +45,11 @@ htmlcov/
 # Private builtins (not committed)
 builtins-private/
 
+# Hawk-managed tool configs (output of `hawk sync`, machine-specific)
+.claude/
+.codex/
+.gemini/
+.mcp.json
+
 # Archived plan docs
 docs/plans/archive/
