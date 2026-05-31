@@ -1,9 +1,9 @@
 ---
-name: hawk-new
+name: hawk
 description: Create or add hawk components (commands, hooks, agents, MCP servers, skills)
 ---
 
-# hawk-new
+# hawk
 
 Help the user add a new component to their hawk setup.
 
