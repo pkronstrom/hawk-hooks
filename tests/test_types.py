@@ -6,13 +6,12 @@ from hawk_hooks.types import ComponentType, ResolvedSet, SyncResult, Tool
 class TestTool:
     def test_values(self):
         assert str(Tool.CLAUDE) == "claude"
-        assert str(Tool.GEMINI) == "gemini"
         assert str(Tool.CODEX) == "codex"
         assert str(Tool.OPENCODE) == "opencode"
 
     def test_all(self):
         tools = Tool.all()
-        assert len(tools) == 6
+        assert len(tools) == 5
         assert Tool.CLAUDE in tools
         assert Tool.OPENCODE in tools
         assert Tool.CURSOR in tools
@@ -20,7 +19,7 @@ class TestTool:
 
     def test_str_enum(self):
         assert Tool.CLAUDE == "claude"
-        assert Tool("gemini") == Tool.GEMINI
+        assert Tool("antigravity") == Tool.ANTIGRAVITY
 
 
 class TestComponentType:

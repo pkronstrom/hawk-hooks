@@ -12,7 +12,6 @@ from .base import ToolAdapter
 def get_adapter(tool: Tool) -> ToolAdapter:
     """Get the adapter instance for a tool."""
     from .claude import ClaudeAdapter
-    from .gemini import GeminiAdapter
     from .codex import CodexAdapter
     from .opencode import OpenCodeAdapter
     from .cursor import CursorAdapter
@@ -20,7 +19,6 @@ def get_adapter(tool: Tool) -> ToolAdapter:
 
     adapters: dict[Tool, type[ToolAdapter]] = {
         Tool.CLAUDE: ClaudeAdapter,
-        Tool.GEMINI: GeminiAdapter,
         Tool.CODEX: CodexAdapter,
         Tool.OPENCODE: OpenCodeAdapter,
         Tool.CURSOR: CursorAdapter,

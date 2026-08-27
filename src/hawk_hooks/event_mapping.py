@@ -40,15 +40,13 @@ _TOOL_EVENT_MAP: dict[str, dict[str, str]] = {
         "pre_compact": "PreCompact",
         "permission_request": "PermissionRequest",
     },
-    "gemini": {
-        "pre_tool_use": "BeforeTool",
-        "post_tool_use": "AfterTool",
-        "notification": "Notification",
-        "stop": "AfterAgent",
-        "user_prompt_submit": "BeforeAgent",
-        "session_start": "SessionStart",
-        "session_end": "SessionEnd",
-        "pre_compact": "PreCompress",
+    "antigravity": {
+        # Antigravity's hooks.json exposes five lifecycle events. Only these
+        # three map cleanly onto hawk's contract: PreInvocation/PostInvocation
+        # fire once per model call, which no hawk event describes.
+        "pre_tool_use": "PreToolUse",
+        "post_tool_use": "PostToolUse",
+        "stop": "Stop",
     },
     "codex": {
         # Limited bridge mode: Codex notify callbacks currently model
@@ -68,8 +66,8 @@ _EVENT_SUPPORT: dict[str, dict[str, SupportLevel]] = {
     "claude": {
         event: "native" for event in _TOOL_EVENT_MAP["claude"]
     },
-    "gemini": {
-        event: "native" for event in _TOOL_EVENT_MAP["gemini"]
+    "antigravity": {
+        event: "native" for event in _TOOL_EVENT_MAP["antigravity"]
     },
     "codex": {
         "stop": "bridge",
@@ -85,7 +83,7 @@ _EVENT_SUPPORT: dict[str, dict[str, SupportLevel]] = {
 # Tool-specific events that are not part of hawk event names.
 _TOOL_SPECIFIC_EVENTS: dict[str, list[str]] = {
     "claude": [],
-    "gemini": ["BeforeModel", "AfterModel", "BeforeToolSelection"],
+    "antigravity": ["PreInvocation", "PostInvocation"],
     "codex": ["agent-turn-complete"],
     "opencode": [],
 }

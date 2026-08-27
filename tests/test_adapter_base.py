@@ -30,9 +30,9 @@ class TestAdapterRegistry:
         adapter = get_adapter(Tool.CLAUDE)
         assert adapter.tool == Tool.CLAUDE
 
-    def test_get_gemini_adapter(self):
-        adapter = get_adapter(Tool.GEMINI)
-        assert adapter.tool == Tool.GEMINI
+    def test_get_antigravity_adapter(self):
+        adapter = get_adapter(Tool.ANTIGRAVITY)
+        assert adapter.tool == Tool.ANTIGRAVITY
 
     def test_get_codex_adapter(self):
         adapter = get_adapter(Tool.CODEX)
@@ -44,7 +44,7 @@ class TestAdapterRegistry:
 
     def test_list_adapters(self):
         adapters = list_adapters()
-        assert len(adapters) == 6
+        assert len(adapters) == 5
         assert Tool.CLAUDE in adapters
 
 

@@ -505,6 +505,37 @@ class TestClaudeHookWiring:
         # Hawk event keys should be gone
         assert "PreToolUse" not in hooks
 
+    def test_register_handles_string_hook_entries(self, hook_env):
+        """Legacy string entries in settings hooks should not crash registration."""
+        settings_path = hook_env["target"] / "settings.json"
+        settings_path.write_text(json.dumps({
+            "hooks": [
+                "legacy-string-entry",
+                {
+                    "matcher": "Stop",
+                    "hooks": [{"type": "command", "command": "/usr/local/bin/my-stop-hook"}],
+                },
+            ]
+        }))
+
+        adapter = ClaudeAdapter()
+        adapter.register_hooks(
+            ["file-guard.py"],
+            hook_env["target"],
+            registry_path=hook_env["registry"],
+        )
+
+        settings = json.loads(settings_path.read_text())
+        # The array format is migrated to the record format, so the assertion is
+        # about the user's hook surviving, not about the shape it arrives in. The
+        # bare string is not a valid entry in either format and is dropped.
+        stop_rules = settings["hooks"]["Stop"]
+        assert any(
+            h.get("command") == "/usr/local/bin/my-stop-hook"
+            for rule in stop_rules
+            for h in rule.get("hooks", [])
+        ), "a foreign hook must survive registration untouched"
+
     def test_stale_runners_cleaned_up(self, hook_env):
         """Runners for events that no longer have hooks should be deleted."""
         adapter = ClaudeAdapter()

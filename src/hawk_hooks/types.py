@@ -17,7 +17,6 @@ class Tool(str, Enum):
     """Supported AI CLI tools."""
 
     CLAUDE = "claude"
-    GEMINI = "gemini"
     CODEX = "codex"
     OPENCODE = "opencode"
     CURSOR = "cursor"

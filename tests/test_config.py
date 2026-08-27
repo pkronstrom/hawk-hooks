@@ -129,16 +129,16 @@ class TestEnabledTools:
     def test_all_enabled_by_default(self, v2_env):
         tools = config.get_enabled_tools()
         assert Tool.CLAUDE in tools
-        assert Tool.GEMINI in tools
-        assert len(tools) == 6
+        assert Tool.ANTIGRAVITY in tools
+        assert len(tools) == 5
 
     def test_disable_tool(self, v2_env):
         cfg = config.load_global_config()
-        cfg["tools"]["gemini"]["enabled"] = False
+        cfg["tools"]["antigravity"]["enabled"] = False
         config.save_global_config(cfg)
 
         tools = config.get_enabled_tools()
-        assert Tool.GEMINI not in tools
+        assert Tool.ANTIGRAVITY not in tools
         assert Tool.CLAUDE in tools
 
 
@@ -154,6 +154,82 @@ class TestToolGlobalDir:
 
         path = config.get_tool_global_dir(Tool.CLAUDE)
         assert str(path) == "/custom/path"
+
+
+class TestGeminiMigration:
+    """Gemini CLI was sunset; existing configs must fold onto antigravity."""
+
+    def _write(self, v2_env, data):
+        (v2_env / "config.yaml").write_text(yaml.dump(data))
+
+    def test_gemini_block_is_replaced_by_antigravity(self, v2_env):
+        self._write(v2_env, {"tools": {"gemini": {"enabled": True, "global_dir": "~/.gemini"}}})
+
+        assert config.migrate_global_config() is True
+
+        saved = yaml.safe_load((v2_env / "config.yaml").read_text())
+        assert "gemini" not in saved["tools"]
+        assert saved["tools"]["antigravity"]["enabled"] is True
+
+    def test_disabled_gemini_does_not_enable_antigravity(self, v2_env):
+        self._write(v2_env, {"tools": {"gemini": {"enabled": False}}})
+        config.migrate_global_config()
+
+        saved = yaml.safe_load((v2_env / "config.yaml").read_text())
+        assert saved["tools"]["antigravity"]["enabled"] is False
+
+    def test_enabled_gemini_reenables_stub_antigravity(self, v2_env):
+        # Antigravity used to be a non-functional stub most users left off; it
+        # must not veto the tool the user actually had running.
+        self._write(
+            v2_env,
+            {"tools": {"gemini": {"enabled": True}, "antigravity": {"enabled": False}}},
+        )
+        config.migrate_global_config()
+
+        saved = yaml.safe_load((v2_env / "config.yaml").read_text())
+        assert saved["tools"]["antigravity"]["enabled"] is True
+
+    def test_both_disabled_stays_disabled(self, v2_env):
+        self._write(
+            v2_env,
+            {"tools": {"gemini": {"enabled": False}, "antigravity": {"enabled": False}}},
+        )
+        config.migrate_global_config()
+
+        saved = yaml.safe_load((v2_env / "config.yaml").read_text())
+        assert saved["tools"]["antigravity"]["enabled"] is False
+
+    def test_stale_antigravity_dir_is_repointed(self, v2_env):
+        self._write(v2_env, {"tools": {"antigravity": {"global_dir": "~/.gemini/antigravity"}}})
+
+        assert config.migrate_global_config() is True
+        assert str(config.get_tool_global_dir(Tool.ANTIGRAVITY)).endswith(".gemini/config")
+
+    def test_migration_is_idempotent(self, v2_env):
+        self._write(v2_env, {"tools": {"gemini": {"enabled": True}}})
+        assert config.migrate_global_config() is True
+        assert config.migrate_global_config() is False
+
+    def test_load_applies_migration_in_memory(self, v2_env):
+        self._write(v2_env, {"tools": {"gemini": {"enabled": True}}})
+
+        cfg = config.load_global_config()
+
+        assert "gemini" not in cfg["tools"]
+        assert Tool.ANTIGRAVITY in config.get_enabled_tools(cfg)
+
+    def test_dir_overrides_move_to_antigravity(self, v2_env, tmp_path):
+        project = tmp_path / "project"
+        (project / ".hawk").mkdir(parents=True)
+        (project / ".hawk" / "config.yaml").write_text(
+            yaml.dump({"tools": {"gemini": {"skills": {"exclude": ["generic"]}}}})
+        )
+
+        dir_cfg = config.load_dir_config(project)
+
+        assert "gemini" not in dir_cfg["tools"]
+        assert dir_cfg["tools"]["antigravity"]["skills"]["exclude"] == ["generic"]
 
 
 class TestConfigChain:

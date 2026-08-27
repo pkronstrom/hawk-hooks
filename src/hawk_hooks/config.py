@@ -66,7 +66,6 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
     },
     "tools": {
         "claude": {"enabled": True, "global_dir": "~/.claude"},
-        "gemini": {"enabled": True, "global_dir": "~/.gemini"},
         "codex": {
             "enabled": True,
             "global_dir": "~/.codex",
@@ -76,7 +75,7 @@ DEFAULT_GLOBAL_CONFIG: dict[str, Any] = {
         },
         "opencode": {"enabled": True, "global_dir": "~/.config/opencode"},
         "cursor": {"enabled": True, "global_dir": "~/.cursor"},
-        "antigravity": {"enabled": True, "global_dir": "~/.gemini/antigravity"},
+        "antigravity": {"enabled": True, "global_dir": "~/.gemini/config"},
     },
     "directories": {},
 }
@@ -135,6 +134,68 @@ def ensure_v2_dirs(cfg: dict[str, Any] | None = None) -> None:
     (get_config_dir() / "cache" / "resolved").mkdir(parents=True, exist_ok=True)
 
 
+# Gemini CLI was sunset by Google and replaced by Antigravity, which uses a
+# different customization root (~/.gemini/config). Older hawk installs carry a
+# "gemini" tool block and an outdated antigravity global_dir.
+LEGACY_ANTIGRAVITY_DIRS = ("~/.gemini/antigravity",)
+
+
+def migrate_legacy_tools(data: dict[str, Any]) -> bool:
+    """Fold a legacy ``gemini`` tool block into ``antigravity`` in place.
+
+    Also repoints an antigravity ``global_dir`` still pointing at the old
+    Antigravity 2.0 directory. Returns True if anything changed.
+    """
+    tools = data.get("tools")
+    if not isinstance(tools, dict):
+        return False
+
+    changed = False
+    gemini_cfg = tools.pop("gemini", None)
+    if gemini_cfg is not None:
+        changed = True
+        antigravity_cfg = tools.get("antigravity")
+        if not isinstance(antigravity_cfg, dict):
+            antigravity_cfg = {}
+        # Enable the successor if either side was explicitly on. Before
+        # Antigravity became a real target its block was a stub most users left
+        # disabled, so a disabled antigravity must not veto an enabled gemini —
+        # but an explicit "gemini: off" is an opt-out worth carrying over.
+        gemini_enabled = gemini_cfg.get("enabled", True) if isinstance(gemini_cfg, dict) else True
+        antigravity_cfg["enabled"] = bool(
+            gemini_enabled or antigravity_cfg.get("enabled", False)
+        )
+        antigravity_cfg.pop("global_dir", None)
+        tools["antigravity"] = antigravity_cfg
+
+    antigravity_cfg = tools.get("antigravity")
+    if isinstance(antigravity_cfg, dict):
+        if antigravity_cfg.get("global_dir") in LEGACY_ANTIGRAVITY_DIRS:
+            del antigravity_cfg["global_dir"]
+            changed = True
+
+    return changed
+
+
+def migrate_global_config() -> bool:
+    """Apply legacy tool migrations to config.yaml on disk.
+
+    Returns True if the file was rewritten.
+    """
+    config_path = get_global_config_path()
+    try:
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+    except (FileNotFoundError, yaml.YAMLError, OSError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    if not migrate_legacy_tools(data):
+        return False
+    save_global_config(data)
+    return True
+
+
 def load_global_config() -> dict[str, Any]:
     """Load the global v2 config (config.yaml)."""
     config_path = get_global_config_path()
@@ -143,6 +204,7 @@ def load_global_config() -> dict[str, Any]:
             data = yaml.safe_load(f)
         if not isinstance(data, dict):
             return copy.deepcopy(DEFAULT_GLOBAL_CONFIG)
+        migrate_legacy_tools(data)
         return _deep_merge(copy.deepcopy(DEFAULT_GLOBAL_CONFIG), data)
     except FileNotFoundError:
         return copy.deepcopy(DEFAULT_GLOBAL_CONFIG)
@@ -216,10 +278,26 @@ def load_dir_config(project_dir: Path) -> dict[str, Any] | None:
         with open(config_path) as f:
             data = yaml.safe_load(f)
         if isinstance(data, dict):
+            _migrate_dir_tool_overrides(data)
             return data
         return None
     except (FileNotFoundError, yaml.YAMLError, OSError):
         return None
+
+
+def _migrate_dir_tool_overrides(data: dict[str, Any]) -> bool:
+    """Rename a per-directory ``tools.gemini`` override block to ``antigravity``.
+
+    Unlike the global config these blocks hold extra/exclude lists, so the whole
+    block moves across. An existing antigravity block wins.
+    """
+    tools = data.get("tools")
+    if not isinstance(tools, dict) or "gemini" not in tools:
+        return False
+    gemini_overrides = tools.pop("gemini")
+    if "antigravity" not in tools:
+        tools["antigravity"] = gemini_overrides
+    return True
 
 
 def save_dir_config(project_dir: Path, data: dict[str, Any]) -> None:
@@ -403,11 +481,10 @@ def get_tool_global_dir(tool: Tool, cfg: dict[str, Any] | None = None) -> Path:
     tool_cfg = tools_cfg.get(str(tool), {})
     default_dirs = {
         Tool.CLAUDE: "~/.claude",
-        Tool.GEMINI: "~/.gemini",
         Tool.CODEX: "~/.codex",
         Tool.OPENCODE: "~/.config/opencode",
         Tool.CURSOR: "~/.cursor",
-        Tool.ANTIGRAVITY: "~/.gemini/antigravity",
+        Tool.ANTIGRAVITY: "~/.gemini/config",
     }
     raw = tool_cfg.get("global_dir", default_dirs.get(tool, ""))
     return Path(os.path.expanduser(raw))

@@ -985,6 +985,27 @@ def cmd_clean(args):
         print("\nAll hawk-managed items removed from tool configs.")
 
 
+def cmd_cleanup_gemini(args):
+    """Remove hawk-managed leftovers from the sunset Gemini CLI integration."""
+    from .legacy_gemini import cleanup_legacy_gemini
+
+    project_dir = Path(args.dir).resolve() if args.dir else Path.cwd()
+    actions = cleanup_legacy_gemini(project_dir=project_dir, dry_run=args.dry_run)
+
+    if not actions:
+        print("No Gemini CLI leftovers found.")
+        return
+
+    if args.dry_run:
+        print("Dry run (no changes applied):")
+    for action in actions:
+        print(f"  {action}")
+
+    if not args.dry_run:
+        print(f"\nRemoved {len(actions)} hawk-managed Gemini CLI artifact(s).")
+        print("Run 'hawk sync' to populate Antigravity at ~/.gemini/config.")
+
+
 def cmd_prune(args):
     """Aggressively remove hawk-managed and stale hawk-linked artifacts."""
     from .sync import format_sync_results, purge_all, purge_directory, purge_global
@@ -1717,6 +1738,17 @@ def build_parser() -> argparse.ArgumentParser:
     clean_p.add_argument("--global", dest="globals_only", action="store_true", help="Clean global only")
     clean_p.set_defaults(func=cmd_clean)
 
+    # cleanup-gemini
+    cleanup_gemini_p = subparsers.add_parser(
+        "cleanup-gemini",
+        help="Remove leftovers from the sunset Gemini CLI integration",
+    )
+    cleanup_gemini_p.add_argument("--dir", help="Also clean this project directory")
+    cleanup_gemini_p.add_argument(
+        "--dry-run", action="store_true", help="Show what would be removed"
+    )
+    cleanup_gemini_p.set_defaults(func=cmd_cleanup_gemini)
+
     # prune
     prune_p = subparsers.add_parser(
         "prune",
@@ -1798,6 +1830,13 @@ def main():
     """Main entry point."""
     parser = build_parser()
     args = parser.parse_args()
+
+    # Fold a legacy gemini tool block into antigravity before anything reads it
+    from . import config
+
+    if config.migrate_global_config():
+        print("Migrated config: 'gemini' tool replaced by 'antigravity'.")
+        print("Run 'hawk cleanup-gemini' to remove leftover Gemini CLI files.")
 
     # Warn if top-level --dir used with a subcommand (ambiguous)
     if args.command is not None and args.main_dir is not None:

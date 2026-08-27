@@ -14,11 +14,11 @@ class TestMappings:
     def test_legacy_alias_maps_to_claude(self):
         assert get_tool_event("pre_tool", "claude") == "PreToolUse"
 
-    def test_hawk_event_maps_to_gemini(self):
-        assert get_tool_event("pre_tool_use", "gemini") == "BeforeTool"
+    def test_hawk_event_maps_to_antigravity(self):
+        assert get_tool_event("pre_tool_use", "antigravity") == "PreToolUse"
 
     def test_unsupported_returns_input_for_compat(self):
-        assert get_tool_event("permission_request", "gemini") == "permission_request"
+        assert get_tool_event("permission_request", "antigravity") == "permission_request"
 
     def test_get_tool_event_or_none(self):
         assert get_tool_event_or_none("stop", "codex") == "agent-turn-complete"
@@ -31,9 +31,12 @@ class TestSupportLevels:
         assert get_event_support("post_tool_use_failure", "claude") == "native"
         assert get_event_support("subagent_start", "claude") == "native"
 
-    def test_gemini_native_subset(self):
-        assert get_event_support("user_prompt_submit", "gemini") == "native"
-        assert get_event_support("permission_request", "gemini") == "unsupported"
+    def test_antigravity_native_subset(self):
+        assert get_event_support("pre_tool_use", "antigravity") == "native"
+        assert get_event_support("post_tool_use", "antigravity") == "native"
+        assert get_event_support("stop", "antigravity") == "native"
+        assert get_event_support("user_prompt_submit", "antigravity") == "unsupported"
+        assert get_event_support("permission_request", "antigravity") == "unsupported"
 
     def test_codex_bridge(self):
         assert get_event_support("stop", "codex") == "bridge"
@@ -52,9 +55,9 @@ class TestSupportLevels:
 
 
 class TestToolSpecificEvents:
-    def test_before_model_is_gemini_specific(self):
-        assert is_tool_specific_event("BeforeModel", "gemini") is True
-        assert is_tool_specific_event("BeforeModel", "claude") is False
+    def test_pre_invocation_is_antigravity_specific(self):
+        assert is_tool_specific_event("PreInvocation", "antigravity") is True
+        assert is_tool_specific_event("PreInvocation", "claude") is False
 
 
 class TestReverseMapping:
