@@ -168,6 +168,58 @@ class TestSyncDirectory:
         assert "dodo" in data["mcpServers"]
         assert not (project / ".claude" / ".mcp.json").exists()
 
+    def test_sync_directory_links_skill_required_agent(self, v2_env, tmp_path):
+        registry_path = v2_env["registry_path"]
+        skill = registry_path / "skills" / "bundle"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\n"
+            "name: bundle\n"
+            "description: Bundle\n"
+            "requires:\n"
+            "  agents: [observer.md]\n"
+            "---\n\n"
+            "# Bundle\n"
+        )
+        (registry_path / "agents" / "observer.md").write_text(
+            "---\nname: observer\n---\n\nObserve.\n"
+        )
+
+        project = tmp_path / "project"
+        project.mkdir()
+        config.save_dir_config(project, {"skills": {"enabled": ["bundle"]}})
+
+        results = sync_directory(project, tools=[Tool.CLAUDE], force=True)
+
+        assert not results[0].errors
+        assert (project / ".claude" / "skills" / "bundle").is_symlink()
+        assert (project / ".claude" / "agents" / "observer.md").is_symlink()
+
+    def test_sync_directory_warns_about_missing_skill_requirement(self, v2_env, tmp_path):
+        registry_path = v2_env["registry_path"]
+        skill = registry_path / "skills" / "bundle"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\n"
+            "name: bundle\n"
+            "description: Bundle\n"
+            "requires:\n"
+            "  agents: [observer.md]\n"
+            "---\n\n"
+            "# Bundle\n"
+        )
+
+        project = tmp_path / "project"
+        project.mkdir()
+        config.save_dir_config(project, {"skills": {"enabled": ["bundle"]}})
+
+        results = sync_directory(project, tools=[Tool.CLAUDE], force=True)
+
+        assert any(
+            "skill bundle requires missing agent observer.md" in item
+            for item in results[0].skipped
+        )
+
 
 class TestSyncDirectoryWithChain:
     """Tests for sync_directory with hierarchical config chain."""
@@ -248,11 +300,11 @@ class TestSyncCache:
         assert "\\" not in key
 
     def test_cache_key_directory(self):
-        key = _cache_key("/home/user/project", Tool.GEMINI)
-        assert key.endswith("_gemini")
+        key = _cache_key("/home/user/project", Tool.ANTIGRAVITY)
+        assert key.endswith("_antigravity")
         assert "/" not in key
         assert "\\" not in key
-        assert key == _cache_key("/home/user/project", Tool.GEMINI)
+        assert key == _cache_key("/home/user/project", Tool.ANTIGRAVITY)
 
     def test_cache_key_distinguishes_old_collision_paths(self):
         key_a = _cache_key("/a/b", Tool.CLAUDE)
@@ -646,7 +698,7 @@ class TestFormatResults:
     def test_format_with_errors(self):
         results = {
             "global": [
-                SyncResult(tool="gemini", errors=["hooks: failed"]),
+                SyncResult(tool="antigravity", errors=["hooks: failed"]),
             ]
         }
         output = format_sync_results(results)

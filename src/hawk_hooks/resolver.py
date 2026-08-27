@@ -7,8 +7,11 @@ Supports both single dir_config (backward compat) and dir_chain (hierarchical).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from .registry import _validate_name
+from .skill_meta import parse_skill_meta
 from .types import ComponentType, ResolvedSet, Tool
 
 COMPONENT_FIELDS = ["skills", "hooks", "agents", "mcp", "prompts"]
@@ -164,3 +167,68 @@ def _merge_legacy_sections(legacy: Any, current: Any) -> dict[str, list[str]]:
         "enabled": _merge_list(current_enabled, legacy_enabled, []),
         "disabled": _merge_list(current_disabled, legacy_disabled, []),
     }
+
+
+def expand_skill_dependencies(
+    resolved: ResolvedSet,
+    registry_path: Path,
+) -> tuple[ResolvedSet, list[str]]:
+    """Add companion components required by active skills.
+
+    Missing requirements are returned as warnings and are not added.
+    """
+    expanded = ResolvedSet(
+        skills=list(resolved.skills),
+        hooks=list(resolved.hooks),
+        commands=list(resolved.commands),
+        agents=list(resolved.agents),
+        mcp=list(resolved.mcp),
+        prompts=list(resolved.prompts),
+    )
+    warnings: list[str] = []
+
+    field_dirs = {
+        "agents": "agents",
+        "hooks": "hooks",
+        "prompts": "prompts",
+        "mcp": "mcp",
+    }
+    singular = {
+        "agents": "agent",
+        "hooks": "hook",
+        "prompts": "prompt",
+        "mcp": "mcp",
+    }
+
+    for skill_name in resolved.skills:
+        try:
+            _validate_name(skill_name)
+        except ValueError as exc:
+            warnings.append(f"skill {skill_name!r} has invalid name: {exc}")
+            continue
+
+        skill_path = registry_path / "skills" / skill_name
+        meta = parse_skill_meta(skill_path)
+        warnings.extend(f"skill {skill_name}: {warning}" for warning in meta.warnings)
+
+        for field_name, dir_name in field_dirs.items():
+            current = getattr(expanded, field_name)
+            for requirement in getattr(meta.requires, field_name):
+                try:
+                    _validate_name(requirement)
+                except ValueError as exc:
+                    warnings.append(
+                        f"skill {skill_name} requires invalid {singular[field_name]} "
+                        f"{requirement!r}: {exc}"
+                    )
+                    continue
+                if not (registry_path / dir_name / requirement).exists():
+                    warnings.append(
+                        f"skill {skill_name} requires missing "
+                        f"{singular[field_name]} {requirement}"
+                    )
+                    continue
+                if requirement not in current:
+                    current.append(requirement)
+
+    return expanded, warnings

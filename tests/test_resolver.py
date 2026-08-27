@@ -1,7 +1,9 @@
 """Tests for the resolver module."""
 
-from hawk_hooks.resolver import resolve
-from hawk_hooks.types import Tool
+from pathlib import Path
+
+from hawk_hooks.resolver import expand_skill_dependencies, resolve
+from hawk_hooks.types import ResolvedSet, Tool
 
 
 class TestResolveGlobalOnly:
@@ -116,13 +118,13 @@ class TestResolveWithToolOverrides:
         }
         dir_cfg = {
             "tools": {
-                "gemini": {
+                "antigravity": {
                     "skills": {"exclude": ["generic"]},
                 }
             }
         }
 
-        result = resolve(cfg, dir_config=dir_cfg, tool=Tool.GEMINI)
+        result = resolve(cfg, dir_config=dir_cfg, tool=Tool.ANTIGRAVITY)
         assert result.skills == ["tdd"]
 
     def test_tool_override_ignored_without_tool(self):
@@ -295,3 +297,69 @@ class TestResolveFullStack:
         assert "lint" not in result.hooks
         assert result.mcp == ["github", "postgres"]
         assert result.prompts == ["deploy"]
+
+
+class TestExpandSkillDependencies:
+    def test_adds_existing_required_components(self, tmp_path: Path):
+        registry = tmp_path / "registry"
+        skill = registry / "skills" / "bundle"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\n"
+            "name: bundle\n"
+            "description: Bundle\n"
+            "requires:\n"
+            "  agents: [observer.md]\n"
+            "  hooks: [observe.sh]\n"
+            "  prompts: [instinct-status.md]\n"
+            "  mcp: [dodo.json]\n"
+            "---\n\n"
+            "# Bundle\n"
+        )
+        (registry / "agents").mkdir()
+        (registry / "agents" / "observer.md").write_text("# Observer\n")
+        (registry / "hooks").mkdir()
+        (registry / "hooks" / "observe.sh").write_text("#!/bin/sh\n")
+        (registry / "prompts").mkdir()
+        (registry / "prompts" / "instinct-status.md").write_text("# Status\n")
+        (registry / "mcp").mkdir()
+        (registry / "mcp" / "dodo.json").write_text('{"command":"dodo"}\n')
+
+        expanded, warnings = expand_skill_dependencies(
+            ResolvedSet(skills=["bundle"]),
+            registry,
+        )
+
+        assert expanded.skills == ["bundle"]
+        assert expanded.agents == ["observer.md"]
+        assert expanded.hooks == ["observe.sh"]
+        assert expanded.prompts == ["instinct-status.md"]
+        assert expanded.mcp == ["dodo.json"]
+        assert warnings == []
+
+    def test_reports_missing_components(self, tmp_path: Path):
+        registry = tmp_path / "registry"
+        skill = registry / "skills" / "bundle"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\n"
+            "name: bundle\n"
+            "description: Bundle\n"
+            "requires:\n"
+            "  agents: [observer.md]\n"
+            "  hooks: [observe.sh]\n"
+            "---\n\n"
+            "# Bundle\n"
+        )
+
+        expanded, warnings = expand_skill_dependencies(
+            ResolvedSet(skills=["bundle"]),
+            registry,
+        )
+
+        assert expanded.agents == []
+        assert expanded.hooks == []
+        assert warnings == [
+            "skill bundle requires missing agent observer.md",
+            "skill bundle requires missing hook observe.sh",
+        ]

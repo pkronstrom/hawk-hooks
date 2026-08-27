@@ -595,6 +595,13 @@ _SCAN_SKIP_DIRS = {
 # File patterns that indicate a skill directory
 _SKILL_MARKERS = {"SKILL.md", "skill.md"}
 
+_SKILL_BUNDLE_TYPED_DIRS = {
+    "agents": ComponentType.AGENT,
+    "hooks": ComponentType.HOOK,
+    "commands": ComponentType.PROMPT,
+    "prompts": ComponentType.PROMPT,
+}
+
 
 def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
     """Recursively scan a directory tree for hawk-compatible components.
@@ -686,6 +693,7 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
                     source_path=path,
                     package=pkg_name,
                 ))
+            _scan_skill_bundle_companions(path, content, pkg_name, seen_paths)
             return  # Don't recurse into skill dirs
 
         # Classify based on parent directory name
@@ -723,6 +731,157 @@ def scan_directory(directory: Path, max_depth: int = 5) -> ClassifiedContent:
 
     _walk(root, 0)
     return content
+
+
+def _scan_skill_bundle_companions(
+    skill_dir: Path,
+    content: ClassifiedContent,
+    package_name: str,
+    seen_paths: set[Path],
+) -> None:
+    """Scan typed companion dirs in a skill without recursing into resources."""
+    for dir_name, component_type in _SKILL_BUNDLE_TYPED_DIRS.items():
+        _scan_skill_bundle_typed_dir(
+            skill_dir / dir_name,
+            dir_name,
+            component_type,
+            content,
+            package_name,
+            seen_paths,
+        )
+    _scan_skill_bundle_mcp_dir(
+        skill_dir / "mcp",
+        content,
+        package_name,
+        seen_paths,
+    )
+
+
+def _scan_skill_bundle_typed_dir(
+    directory: Path,
+    dir_name: str,
+    component_type: ComponentType,
+    content: ClassifiedContent,
+    package_name: str,
+    seen_paths: set[Path],
+) -> None:
+    if not directory.exists() or not directory.is_dir():
+        return
+
+    for entry in sorted(directory.iterdir()):
+        if entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+        if entry.is_symlink():
+            continue
+        if entry.is_file() and entry.name in _NON_COMPONENT_FILES:
+            continue
+
+        if entry.is_dir():
+            if component_type == ComponentType.HOOK:
+                _scan_skill_bundle_hook_event_dir(
+                    entry,
+                    content,
+                    package_name,
+                    seen_paths,
+                )
+            elif entry not in seen_paths:
+                seen_paths.add(entry)
+                content.items.append(
+                    ClassifiedItem(
+                        component_type=component_type,
+                        name=entry.name,
+                        source_path=entry,
+                        package=package_name,
+                    )
+                )
+            continue
+
+        if not entry.is_file() or entry in seen_paths:
+            continue
+
+        if component_type == ComponentType.HOOK and entry.name == "hooks.json":
+            for exploded in _explode_hooks_json(entry, package_name=package_name):
+                if exploded.source_path in seen_paths:
+                    continue
+                exploded.package = package_name
+                seen_paths.add(exploded.source_path)
+                content.items.append(exploded)
+            seen_paths.add(entry)
+            continue
+
+        item = _classify_file(entry, dir_name)
+        if item is None:
+            continue
+        item.package = package_name
+        seen_paths.add(entry)
+        content.items.append(item)
+
+
+def _scan_skill_bundle_hook_event_dir(
+    directory: Path,
+    content: ClassifiedContent,
+    package_name: str,
+    seen_paths: set[Path],
+) -> None:
+    for entry in sorted(directory.iterdir()):
+        if entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+        if entry.is_symlink() or not entry.is_file():
+            continue
+        if entry.name in _NON_COMPONENT_FILES or entry in seen_paths:
+            continue
+        if not _is_hook_file(entry):
+            continue
+        seen_paths.add(entry)
+        content.items.append(
+            ClassifiedItem(
+                component_type=ComponentType.HOOK,
+                name=entry.name,
+                source_path=entry,
+                package=package_name,
+            )
+        )
+
+
+def _scan_skill_bundle_mcp_dir(
+    directory: Path,
+    content: ClassifiedContent,
+    package_name: str,
+    seen_paths: set[Path],
+) -> None:
+    if not directory.exists() or not directory.is_dir():
+        return
+
+    for entry in sorted(directory.iterdir()):
+        if entry.name.startswith(".") or entry.name.startswith("_"):
+            continue
+        if entry.is_symlink():
+            continue
+        if not entry.is_file() or entry.suffix not in (".yaml", ".yml", ".json"):
+            continue
+
+        exploded = _explode_mcp_file(entry)
+        if exploded:
+            for item in exploded:
+                if item.source_path in seen_paths:
+                    continue
+                item.package = package_name
+                seen_paths.add(item.source_path)
+                content.items.append(item)
+            seen_paths.add(entry)
+            continue
+
+        if entry in seen_paths:
+            continue
+        seen_paths.add(entry)
+        content.items.append(
+            ClassifiedItem(
+                component_type=ComponentType.MCP,
+                name=entry.name,
+                source_path=entry,
+                package=package_name,
+            )
+        )
 
 
 def _is_hook_file(path: Path) -> bool:
@@ -772,6 +931,21 @@ def _has_explicit_hawk_hook_metadata(path: Path) -> bool:
         return bool(parse_hook_meta(path).events)
     except Exception:
         return False
+
+
+def _resolve_candidate_if_file(base: Path, relative: str) -> Path | None:
+    """Resolve base/relative and return it if it's a file, else None.
+
+    `relative` may be a hook command's full shell text (not a real path) —
+    e.g. an inline `node -e "..."` script — which can be long enough to
+    trip ENAMETOOLONG on resolve()/is_file() instead of just failing to
+    match. Treat any OSError here as "not a file".
+    """
+    try:
+        candidate = (base / relative).resolve()
+        return candidate if candidate.is_file() else None
+    except OSError:
+        return None
 
 
 def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedItem]:
@@ -845,8 +1019,8 @@ def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedIt
                     # --- Tier 1: direct file path resolution (existing logic) ---
                     expanded = cmd.replace("${CLAUDE_PLUGIN_ROOT}", str(out_dir))
                     for base in (out_dir, out_dir.parent):
-                        candidate = (base / expanded).resolve()
-                        if candidate.is_file():
+                        candidate = _resolve_candidate_if_file(base, expanded)
+                        if candidate is not None:
                             try:
                                 candidate.relative_to(out_dir.parent.resolve())
                                 resolved_path = candidate
@@ -863,8 +1037,8 @@ def _explode_hooks_json(path: Path, package_name: str = "") -> list[ClassifiedIt
                                 "${CLAUDE_PLUGIN_ROOT}", str(out_dir)
                             )
                             for base in (out_dir, out_dir.parent):
-                                candidate = (base / script_arg).resolve()
-                                if candidate.is_file():
+                                candidate = _resolve_candidate_if_file(base, script_arg)
+                                if candidate is not None:
                                     try:
                                         candidate.relative_to(
                                             out_dir.parent.resolve()

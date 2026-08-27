@@ -422,6 +422,54 @@ class TestScanDirectory:
         assert len(content.items) == 1
         assert content.items[0].component_type == ComponentType.PROMPT
 
+    def test_skill_bundle_companions_are_scanned(self, tmp_path):
+        """Typed companion dirs inside a skill are imported as normal components."""
+        skill_dir = tmp_path / "continuous-learning-v2"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Continuous Learning")
+        (skill_dir / "agents").mkdir()
+        (skill_dir / "agents" / "observer.md").write_text("# Observer")
+        (skill_dir / "hooks").mkdir()
+        (skill_dir / "hooks" / "observe.sh").write_text("#!/usr/bin/env bash\n")
+        (skill_dir / "commands").mkdir()
+        (skill_dir / "commands" / "observe.md").write_text("# Observe")
+        (skill_dir / "scripts").mkdir()
+        (skill_dir / "scripts" / "helper.py").write_text("print('resource')\n")
+
+        content = scan_directory(tmp_path)
+        found = {(item.component_type, item.name) for item in content.items}
+
+        assert (ComponentType.SKILL, "continuous-learning-v2") in found
+        assert (ComponentType.AGENT, "observer.md") in found
+        assert (ComponentType.HOOK, "observe.sh") in found
+        assert (ComponentType.PROMPT, "observe.md") in found
+        assert (ComponentType.HOOK, "helper.py") not in found
+
+    def test_skill_bundle_companions_inherit_package(self, tmp_path):
+        """Companion components inside a packaged skill keep the package tag."""
+        (tmp_path / "hawk-package.yaml").write_text(
+            "name: learning-pack\n"
+            "description: Learning bundle\n"
+        )
+        skill_dir = tmp_path / "continuous-learning-v2"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("# Continuous Learning")
+        (skill_dir / "agents").mkdir()
+        (skill_dir / "agents" / "observer.md").write_text("# Observer")
+
+        content = scan_directory(tmp_path)
+        found = {
+            (item.component_type, item.name, item.package)
+            for item in content.items
+        }
+
+        assert (
+            ComponentType.SKILL,
+            "continuous-learning-v2",
+            "learning-pack",
+        ) in found
+        assert (ComponentType.AGENT, "observer.md", "learning-pack") in found
+
 
 class TestClassifyFlatHooks:
     """Test classify() with flat hook files (hawk-hook headers)."""
@@ -793,6 +841,37 @@ class TestHooksJsonExplode:
         text = item.source_path.read_text()
         assert "./scripts/block.sh" in text
         assert "hawk-hook: events=pre_tool_use" in text
+
+    def test_wraps_command_hook_with_pathologically_long_inline_command(self, tmp_path):
+        """An inline `node -e "<long JS>" ...` command must not crash classify().
+
+        Regression: resolving the full command text as a path candidate hit
+        OSError (ENAMETOOLONG on macOS) before the runner-prefix stripping
+        tier ever ran, crashing `hawk update` outright instead of falling
+        through to the synthetic-wrapper tier.
+        """
+        import json
+        hooks_dir = tmp_path / "hooks"
+        hooks_dir.mkdir()
+
+        long_inline_js = "const p=require('path');" * 50
+        cmd = f'node -e "{long_inline_js}" node scripts/hooks/pre-bash-dispatcher.js'
+
+        hooks_json = {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": cmd}
+                    ]}
+                ]
+            }
+        }
+        (hooks_dir / "hooks.json").write_text(json.dumps(hooks_json))
+
+        content = classify(tmp_path)
+        hook_items = [i for i in content.items if i.component_type == ComponentType.HOOK]
+        assert len(hook_items) == 1
+        assert hook_items[0].name.endswith(".sh")
 
     def test_extracts_command_hooks_with_script(self, tmp_path):
         """Command hooks with existing scripts are extracted."""

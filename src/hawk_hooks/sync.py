@@ -10,7 +10,7 @@ from . import config
 from .adapters import get_adapter
 from .config import get_logger
 from .registry import Registry
-from .resolver import resolve
+from .resolver import expand_skill_dependencies, resolve
 from .scope_resolution import build_resolver_dir_chain
 from .types import ResolvedSet, SyncResult, Tool
 
@@ -53,6 +53,14 @@ def _cache_identity(resolved_hash: str, adapter) -> str:
     return f"{resolved_hash}|cap:{fingerprint}"
 
 
+def _expand_for_sync(
+    resolved: ResolvedSet,
+    registry_path: Path,
+) -> tuple[ResolvedSet, list[str]]:
+    """Expand skill bundle requirements before syncing."""
+    return expand_skill_dependencies(resolved, registry_path)
+
+
 def count_unsynced_targets(
     project_dir: Path | None = None,
     tools: list[Tool] | None = None,
@@ -81,7 +89,7 @@ def count_unsynced_targets(
     logger.debug("count_unsynced project_dir=%s tools=%s", project_dir, [str(t) for t in selected_tools])
 
     if include_global:
-        resolved_global = resolve(cfg)
+        resolved_global, _ = _expand_for_sync(resolve(cfg), registry.path)
         global_hash = resolved_global.hash_key(registry_path=registry.path)
         for tool in selected_tools:
             adapter = get_adapter(tool)
@@ -103,6 +111,9 @@ def count_unsynced_targets(
                 if dir_chain
                 else resolve(cfg, tool=tool)
             )
+            # Expand bundle dependencies here too, or the hash ignores them
+            # and the scope reads unsynced forever (global does this at the top).
+            resolved_project, _ = _expand_for_sync(resolved_project, registry.path)
             project_hash = resolved_project.hash_key(registry_path=registry.path)
             expected = _cache_identity(project_hash, adapter)
             total += 1
@@ -152,10 +163,12 @@ def sync_directory(
 
         # Resolve using dir_chain for hierarchical layering
         resolved = resolve(cfg, dir_chain=dir_chain, tool=tool)
+        resolved, dependency_warnings = _expand_for_sync(resolved, registry.path)
 
         if dry_run:
             result = SyncResult(tool=str(tool))
             result.linked = _compute_would_link(resolved, registry, adapter, project_dir)
+            result.skipped.extend(f"dependencies: {warning}" for warning in dependency_warnings)
             results.append(result)
             continue
 
@@ -174,6 +187,7 @@ def sync_directory(
         target_dir = adapter.get_project_dir(project_dir)
 
         result = adapter.sync(resolved, target_dir, registry.path)
+        result.skipped.extend(f"dependencies: {warning}" for warning in dependency_warnings)
         results.append(result)
 
         logger.debug("  %s: linked=%d unlinked=%d skipped=%d errors=%d",
@@ -210,10 +224,12 @@ def sync_global(
     for tool in enabled_tools:
         adapter = get_adapter(tool)
         resolved = resolve(cfg)
+        resolved, dependency_warnings = _expand_for_sync(resolved, registry.path)
 
         if dry_run:
             result = SyncResult(tool=str(tool))
             result.linked = _compute_would_link(resolved, registry, adapter, None)
+            result.skipped.extend(f"dependencies: {warning}" for warning in dependency_warnings)
             results.append(result)
             continue
 
@@ -226,6 +242,7 @@ def sync_global(
 
         target_dir = adapter.get_global_dir()
         result = adapter.sync(resolved, target_dir, registry.path)
+        result.skipped.extend(f"dependencies: {warning}" for warning in dependency_warnings)
         results.append(result)
 
         # Update cache after successful sync

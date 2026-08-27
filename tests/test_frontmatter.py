@@ -32,7 +32,7 @@ tools: all
 Content.
 """
         fm, body = parse_frontmatter(content)
-        assert fm.tools == ["claude", "gemini", "codex"]
+        assert fm.tools == ["claude", "antigravity", "codex"]
 
     def test_parse_with_hooks(self):
         content = """---

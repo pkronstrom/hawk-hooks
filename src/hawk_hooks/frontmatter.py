@@ -19,7 +19,11 @@ from dataclasses import dataclass, field
 import yaml
 
 # All supported tools
-ALL_TOOLS = ["claude", "gemini", "codex"]
+ALL_TOOLS = ["claude", "antigravity", "codex"]
+
+# Google sunset Gemini CLI in favour of Antigravity. Existing prompt/agent
+# frontmatter still names "gemini", so accept it as an alias.
+TOOL_ALIASES = {"gemini": "antigravity"}
 
 # Frontmatter regex: matches --- at start, content, ---
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n?---\s*\n?", re.DOTALL)
@@ -107,6 +111,9 @@ def parse_frontmatter(content: str, *, warn_unknown_tools: bool = True) -> tuple
         raise ValueError(
             f"Field 'tools' must be a string, list, or 'all', got {type(tools).__name__}"
         )
+
+    # Resolve deprecated tool names before validating
+    tools = [TOOL_ALIASES.get(t, t) if isinstance(t, str) else t for t in tools]
 
     # Warn on unknown tools (but don't reject - allow extension)
     unknown = set(tools) - set(ALL_TOOLS)
