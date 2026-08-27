@@ -16,7 +16,8 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.request import urlretrieve
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import yaml
 
@@ -134,6 +135,12 @@ def shallow_clone(url: str, dest: Path | None = None) -> Path:
 
 ARCHIVE_EXTENSIONS = (".zip", ".tar.gz", ".tgz", ".skill")
 
+# An archive arrives from a stranger, so extraction is a trust boundary: cap what
+# it can expand to, and refuse members that write outside the temp directory.
+MAX_EXTRACTED_BYTES = 2 * 1024**3
+MAX_DOWNLOAD_BYTES = 512 * 1024**2
+DOWNLOAD_TIMEOUT = 120
+
 
 def is_archive(path: str | Path) -> bool:
     """Check if a path has a supported archive extension."""
@@ -149,24 +156,58 @@ def extract_archive(path: Path) -> Path:
     Caller is responsible for cleanup (shutil.rmtree).
 
     Raises:
-        ValueError: If the archive format is not supported.
+        ValueError: If the format is unsupported, the archive expands past
+            MAX_EXTRACTED_BYTES, or a member would write outside the temp dir.
         zipfile.BadZipFile / tarfile.TarError: If the archive is corrupt.
     """
     path = Path(path)
     dest = Path(tempfile.mkdtemp(prefix="hawk-archive-"))
     name_lower = path.name.lower()
 
-    if name_lower.endswith(".zip") or name_lower.endswith(".skill"):
-        with zipfile.ZipFile(path, "r") as zf:
-            zf.extractall(dest)
-    elif name_lower.endswith(".tar.gz") or name_lower.endswith(".tgz"):
-        with tarfile.open(path, "r:gz") as tf:
-            tf.extractall(dest)
-    else:
+    try:
+        if name_lower.endswith(".zip") or name_lower.endswith(".skill"):
+            with zipfile.ZipFile(path, "r") as zf:
+                # zipfile normalizes away ".." and never creates symlinks, so
+                # size is the only thing left to check.
+                _check_extracted_size(sum(i.file_size for i in zf.infolist()), path)
+                zf.extractall(dest)
+        elif name_lower.endswith(".tar.gz") or name_lower.endswith(".tgz"):
+            with tarfile.open(path, "r:gz") as tf:
+                members = tf.getmembers()
+                _check_extracted_size(sum(m.size for m in members), path)
+                tf.extractall(dest, members=_vetted_tar_members(members, dest))
+        else:
+            raise ValueError(f"Unsupported archive format: {path.name}")
+    except Exception:
         shutil.rmtree(dest, ignore_errors=True)
-        raise ValueError(f"Unsupported archive format: {path.name}")
+        raise
 
     return dest
+
+
+def _check_extracted_size(total: int, path: Path) -> None:
+    """Reject an archive that expands past MAX_EXTRACTED_BYTES."""
+    if total > MAX_EXTRACTED_BYTES:
+        raise ValueError(
+            f"Archive expands to {total} bytes, over the "
+            f"{MAX_EXTRACTED_BYTES} byte limit: {path.name}"
+        )
+
+
+def _vetted_tar_members(members: list[tarfile.TarInfo], dest: Path) -> list[tarfile.TarInfo]:
+    """Return members that stay inside dest, rejecting the archive if any escapes.
+
+    tarfile's own extraction filter would do this, but it only exists from
+    3.10.12 on and defaults to trusting the archive before 3.14.
+    """
+    root = dest.resolve()
+    for member in members:
+        if member.issym() or member.islnk() or member.isdev():
+            raise ValueError(f"Archive contains a link or device entry: {member.name}")
+        target = Path(root / member.name).resolve()
+        if target != root and root not in target.parents:
+            raise ValueError(f"Archive member escapes the extraction directory: {member.name}")
+    return members
 
 
 def fetch_remote_archive(url: str) -> Path:
@@ -174,7 +215,17 @@ def fetch_remote_archive(url: str) -> Path:
 
     Returns the path to the downloaded file.
     Caller is responsible for cleanup.
+
+    Raises:
+        ValueError: If the URL is not https, or the body exceeds
+            MAX_DOWNLOAD_BYTES. hawk links what it downloads into tool configs
+            an agent then executes, so an unauthenticated transport is not
+            good enough.
     """
+    scheme = urlparse(url).scheme.lower()
+    if scheme != "https":
+        raise ValueError(f"Archive URLs must use https, got '{scheme or 'no scheme'}': {url}")
+
     suffix = ""
     url_lower = url.lower().split("?")[0]
     for ext in ARCHIVE_EXTENSIONS:
@@ -184,7 +235,19 @@ def fetch_remote_archive(url: str) -> Path:
 
     tmp = Path(tempfile.mkdtemp(prefix="hawk-fetch-"))
     dest = tmp / f"archive{suffix}"
-    urlretrieve(url, str(dest))
+    try:
+        with urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, dest.open("wb") as out:
+            downloaded = 0
+            while chunk := response.read(65536):
+                downloaded += len(chunk)
+                if downloaded > MAX_DOWNLOAD_BYTES:
+                    raise ValueError(
+                        f"Archive is larger than the {MAX_DOWNLOAD_BYTES} byte limit: {url}"
+                    )
+                out.write(chunk)
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     return dest
 
 

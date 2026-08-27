@@ -1237,19 +1237,70 @@ class TestArchiveHelpers:
         with pytest.raises(ValueError, match="Unsupported archive"):
             extract_archive(bad)
 
+    def test_extract_tar_rejects_traversal(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        payload = tmp_path / "payload"
+        payload.write_text("owned")
+
+        archive = tmp_path / "evil.tar.gz"
+        with tarfile.open(archive, "w:gz") as tf:
+            tf.add(payload, "../../escaped.txt")
+
+        with pytest.raises(ValueError, match="escapes the extraction directory"):
+            extract_archive(archive)
+
+    def test_extract_tar_rejects_symlink_member(self, tmp_path):
+        from hawk_hooks.downloader import extract_archive
+        archive = tmp_path / "link.tar.gz"
+        with tarfile.open(archive, "w:gz") as tf:
+            info = tarfile.TarInfo("secrets")
+            info.type = tarfile.SYMTYPE
+            info.linkname = "/etc/hosts"
+            tf.addfile(info)
+
+        with pytest.raises(ValueError, match="link or device entry"):
+            extract_archive(archive)
+
+    def test_extract_rejects_oversized_archive(self, tmp_path, monkeypatch):
+        from hawk_hooks import downloader
+        monkeypatch.setattr(downloader, "MAX_EXTRACTED_BYTES", 4)
+        archive = tmp_path / "big.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("big.md", "far more than four bytes")
+
+        with pytest.raises(ValueError, match="over the"):
+            downloader.extract_archive(archive)
+
     def test_fetch_remote_archive(self, tmp_path, monkeypatch):
         from hawk_hooks.downloader import fetch_remote_archive
         archive = tmp_path / "remote.zip"
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("skill.md", "# Remote skill")
 
-        def fake_urlretrieve(url, filename):
-            import shutil
-            shutil.copy2(archive, filename)
-            return filename, {}
-
-        monkeypatch.setattr("hawk_hooks.downloader.urlretrieve", fake_urlretrieve)
+        monkeypatch.setattr(
+            "hawk_hooks.downloader.urlopen",
+            lambda url, timeout=None: archive.open("rb"),
+        )
 
         result = fetch_remote_archive("https://example.com/pkg.zip")
         assert result.exists()
         assert result.name.endswith(".zip")
+        assert result.read_bytes() == archive.read_bytes()
+
+    def test_fetch_remote_archive_requires_https(self):
+        from hawk_hooks.downloader import fetch_remote_archive
+        with pytest.raises(ValueError, match="must use https"):
+            fetch_remote_archive("http://example.com/pkg.zip")
+
+    def test_fetch_remote_archive_caps_size(self, tmp_path, monkeypatch):
+        from hawk_hooks import downloader
+        archive = tmp_path / "remote.zip"
+        archive.write_bytes(b"x" * 1024)
+        monkeypatch.setattr(downloader, "MAX_DOWNLOAD_BYTES", 16)
+        monkeypatch.setattr(
+            "hawk_hooks.downloader.urlopen",
+            lambda url, timeout=None: archive.open("rb"),
+        )
+
+        with pytest.raises(ValueError, match="larger than"):
+            downloader.fetch_remote_archive("https://example.com/pkg.zip")

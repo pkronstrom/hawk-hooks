@@ -82,7 +82,10 @@ class Registry:
             raise FileExistsError(f"Already exists in registry: {component_type}/{name}")
 
         if source.is_dir():
-            shutil.copytree(source, dest)
+            # symlinks=True copies links as links. Following them would pull the
+            # contents of whatever they point at into the registry, so a skill
+            # directory could smuggle out any file the user can read.
+            shutil.copytree(source, dest, symlinks=True)
         else:
             shutil.copy2(source, dest)
 

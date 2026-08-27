@@ -362,7 +362,7 @@ def download_and_install(
     # Detect archive input: local file or remote archive URL
     from pathlib import Path as _Path
     local_path = _Path(url)
-    archive_tmp = None
+    fetched_tmp = None
     is_local_archive = local_path.is_file() and is_archive(local_path)
     is_remote_archive = not is_local_archive and "://" in url and is_archive(url)
 
@@ -370,7 +370,6 @@ def download_and_install(
         logf(f"Extracting {local_path.name}...")
         try:
             clone_dir = extract_archive(local_path)
-            archive_tmp = clone_dir
         except Exception as exc:
             err = f"Error extracting archive: {exc}"
             logf(err)
@@ -379,9 +378,9 @@ def download_and_install(
         logf(f"Downloading {url}...")
         try:
             fetched = fetch_remote_archive(url)
+            fetched_tmp = fetched.parent
             logf("Extracting...")
             clone_dir = extract_archive(fetched)
-            archive_tmp = clone_dir
         except Exception as exc:
             err = f"Error downloading archive: {exc}"
             logf(err)
@@ -528,3 +527,5 @@ def download_and_install(
         return DownloadResult(success=False, error=err)
     finally:
         shutil.rmtree(clone_dir, ignore_errors=True)
+        if fetched_tmp is not None:
+            shutil.rmtree(fetched_tmp, ignore_errors=True)
