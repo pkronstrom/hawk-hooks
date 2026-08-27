@@ -53,3 +53,10 @@ builtins-private/
 
 # Archived plan docs
 docs/plans/archive/
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+credentials.*
