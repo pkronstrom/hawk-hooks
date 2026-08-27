@@ -13,7 +13,7 @@ src/hawk_hooks/
 ├── registry.py             # Registry add/remove/replace/list operations
 ├── downloader.py           # Git/local package scan + metadata-aware classification
 ├── event_mapping.py        # Canonical hook event contract + per-tool support
-├── adapters/               # Claude, Gemini, Codex, OpenCode, Cursor, Antigravity
+├── adapters/               # Claude, Codex, OpenCode, Cursor, Antigravity
 └── interactive/            # Dashboard, toggles, wizard, settings editor
 ```
 

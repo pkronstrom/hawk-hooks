@@ -8,13 +8,13 @@
   <img src="docs/demo.gif" alt="hawk TUI demo" width="720">
 </p>
 
-You have Claude Code, Gemini CLI, and Codex CLI all running on the same codebase — each with its own config format, its own directory, its own way of wiring hooks. You copy files between `~/.claude`, `~/.gemini`, and `~/.codex`. You forget which project has which hooks enabled. You update a skill in one place and forget the other two.
+You have Claude Code, Antigravity, and Codex CLI all running on the same codebase — each with its own config format, its own directory, its own way of wiring hooks. You copy files between `~/.claude`, `~/.antigravity`, and `~/.codex`. You forget which project has which hooks enabled. You update a skill in one place and forget the other two.
 
 hawk-hooks manages a single registry of components and syncs them into every tool's native format. Write once, enable anywhere.
 
 ## Features
 
-- **One registry, every tool** — Write a hook or skill once, hawk symlinks it into Claude Code, Gemini CLI, Codex CLI, OpenCode, and Cursor
+- **One registry, every tool** — Write a hook or skill once, hawk symlinks it into Claude Code, Antigravity, Codex CLI, OpenCode, and Cursor
 - **Hierarchical config** — Global defaults, monorepo overrides, per-project tweaks — resolved automatically through a config chain
 - **Git-based packages** — `hawk download <url>` to install community skills and hooks, `hawk update` to stay current
 - **Interactive TUI** — Dashboard for toggling components, managing packages, and browsing your registry without memorizing CLI commands
@@ -68,17 +68,38 @@ hawk init
 
 All components live in `~/.config/hawk-hooks/registry/` and get synced into each tool's native config format via symlinks.
 
+### Skill bundles
+
+Skills can declare companion components with `requires:` in `SKILL.md`. When the skill is enabled, hawk also enables the required agents, hooks, prompts, or MCP servers during sync.
+
+```yaml
+---
+name: continuous-learning
+description: Capture and summarize project learnings
+requires:
+  agents: [observer.md]
+  hooks: [capture.sh]
+  prompts: [summarize.md]
+---
+```
+
+Skill directories may also bundle typed component directories. `agents/`, `hooks/`, `prompts/`, `commands/`, and `mcp/` inside a skill are imported as normal registry components when scanned or downloaded; other directories remain supporting skill resources.
+
 ## Supported Tools
 
 | Tool | Skills | Hooks | Prompts | Agents | MCP |
 |------|--------|-------|---------|--------|-----|
 | Claude Code | yes | yes | yes | yes | yes |
-| Gemini CLI | yes | yes | yes | yes | yes |
+| Antigravity | yes | partial | — | yes | yes |
 | Codex CLI | yes | partial | yes | yes | yes |
 | OpenCode | yes | partial | yes | yes | yes |
 | Cursor | yes | — | yes | — | yes |
 
-Hook support varies by tool — Claude and Gemini have native hook APIs, while Codex and OpenCode use generated bridge wrappers for supported events.
+Hook support varies by tool. Claude has a native hook API for every event. Antigravity has native hooks too, but only for `pre_tool_use`, `post_tool_use` and `stop`; Codex and OpenCode use generated bridge wrappers for the events they support.
+
+Antigravity has no custom slash commands — its own docs route custom workflows to skills — so registered prompts are reported as skipped rather than synced.
+
+> Gemini CLI was sunset by Google and replaced by Antigravity. hawk no longer ships a `gemini` adapter: existing configs are migrated automatically, and `hawk cleanup-gemini` removes the files the old integration left behind.
 
 ## CLI Reference
 
