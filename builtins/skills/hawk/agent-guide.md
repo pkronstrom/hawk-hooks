@@ -15,7 +15,7 @@ Agents are markdown files that define specialized roles with tool access and opt
 |-------|----------|-------------|
 | `name` | yes | Agent identifier |
 | `description` | yes | One-line summary of the agent's role |
-| `tools` | no | List of tools this agent is available for: `[claude, gemini, codex]` |
+| `tools` | no | List of tools this agent is available for: `[claude, antigravity, codex]` |
 | `hooks` | no | List of hook triggers: `[{event: <event>, matchers: [Tool1, Tool2]}]` |
 
 ## Hook Triggers
@@ -43,7 +43,7 @@ This means the agent activates whenever `Edit` or `Write` tools are used.
 ---
 name: my-agent
 description: Brief description of this agent's specialty
-tools: [claude, gemini, codex]
+tools: [claude, antigravity, codex]
 hooks:
   - event: pre_tool
     matchers: [Edit, Write]

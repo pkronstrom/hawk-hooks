@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     DATA BLOCK — the user's answers. Pretty-printed JSON, first in the file, so
+     it can be read or rewritten without touching the code below. Per the
+     singlefile skill: this is the contract. Rewrite only this block when
+     regenerating a run; never regenerate the whole file.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script id="app-data" type="application/json">
+{
+  "v": 2,
+  "savedAt": 0,
+  "theme": "auto",
+  "title": "REPLACE ME — the grill's subject, e.g. \"Archivist design review\"",
+  "answers": {}
+}
+</script>
+<!-- ══ END DATA BLOCK ═══════════════════════════════════════════════════════ -->
+
+<title>REPLACE ME</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg:        light-dark(#fbfbfa, #16161a);
+    --surface:   light-dark(#ffffff, #1f1f24);
+    --raised:    light-dark(#f4f4f2, #26262c);
+    --fg:        light-dark(#1a1a19, #ececed);
+    --muted:     light-dark(#6b6b68, #9a9aa0);
+    --border:    light-dark(#e2e2df, #32323a);
+    --accent:    light-dark(#3b5bdb, #748ffc);
+    --accent-fg: light-dark(#ffffff, #10101a);
+    --recbg:     light-dark(#eef2ff, #232a45);
+    --good:      light-dark(#2b8a3e, #69db7c);
+    --star:      light-dark(#b8860b, #ffd43b);
+    --radius: .55rem; --measure: 54rem;
+  }
+  [data-theme="light"] { color-scheme: light; }
+  [data-theme="dark"]  { color-scheme: dark; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: .7rem 1rem;
+  }
+  .bar { max-width: var(--measure); margin: 0 auto; display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+  .bar h1 { font-size: 1rem; margin: 0; flex: 1 1 auto; }
+  .count { color: var(--muted); font-size: .85rem; font-variant-numeric: tabular-nums; }
+  main { max-width: var(--measure); margin: 0 auto; padding: 1.25rem 1rem 4rem; }
+
+  .intro { color: var(--muted); font-size: .93rem; margin: 0 0 1.5rem; }
+  h2.group {
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin: 2rem 0 .75rem; font-weight: 600;
+  }
+  h2.group:first-of-type { margin-top: 0; }
+
+  article {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1rem 1.1rem; margin-bottom: 1rem;
+  }
+  article.touched { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  .qid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; color: var(--accent); font-weight: 700; }
+  .qtitle { font-weight: 650; margin: .15rem 0 .5rem; }
+  .ctx { font-size: .92rem; color: var(--muted); margin: 0 0 .8rem; }
+  .ctx code, .why code, .optnote code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .88em; background: var(--raised); padding: .05em .3em; border-radius: .25rem; }
+
+  .optlist { display: flex; flex-direction: column; gap: .1rem; margin-bottom: .8rem; }
+  .opt { padding: .4rem .55rem; border-radius: .35rem; border: 1px solid transparent; }
+  .opt.rec-opt { background: var(--recbg); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  label.choice { display: flex; gap: .5rem; align-items: baseline; cursor: pointer; font-size: .93rem; }
+  label.choice input { margin: 0; flex: 0 0 auto; position: relative; top: .25rem; }
+  .star { color: var(--star); flex: 0 0 auto; }
+  .optnote {
+    font-size: .86rem; color: var(--muted);
+    margin: .2rem 0 0 2.05rem; padding-left: .6rem;
+    border-left: 2px solid var(--border);
+  }
+  /* Sits inside the tinted recommended row, indented to match .optnote so the
+     option's own note and the rationale read as one stacked block. */
+  .why {
+    font-size: .88rem; color: var(--fg);
+    margin: .3rem 0 .15rem 2.05rem; padding-left: .6rem;
+    border-left: 2px solid var(--accent);
+  }
+  .why b { color: var(--accent); }
+
+  textarea {
+    width: 100%; min-height: 3.2rem; resize: vertical; padding: .5rem .6rem;
+    border: 1px solid var(--border); border-radius: .35rem;
+    background: var(--bg); color: var(--fg); font: inherit; font-size: .93rem;
+  }
+  textarea:focus, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    font: inherit; padding: .45rem .8rem; border-radius: .35rem; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--fg);
+  }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+  button:hover { filter: brightness(1.06); }
+  .out { margin-top: 2rem; }
+  .out textarea { min-height: 14rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; }
+  .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
+  .toast {
+    position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg); padding: .5rem .9rem; border-radius: .4rem;
+    font-size: .9rem; opacity: 0; pointer-events: none; transition: opacity .18s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <h1 id="pagetitle">REPLACE ME</h1>
+    <span class="count" id="count"></span>
+    <button id="theme" title="Toggle theme">◐</button>
+  </div>
+</header>
+
+<main>
+  <p class="intro">
+    Every open question from the interview. The ★ option is the recommendation and is
+    <strong>already selected</strong> — so you only need to touch the ones you disagree with.
+    Pick a different option, or <em>Something else</em> and say what you want instead. Answers
+    save in your browser as you type. When you're done, copy the summary at the bottom and paste
+    it back to Claude.
+  </p>
+  <div id="questions"></div>
+
+  <div class="out">
+    <h2 class="group">Copy back to Claude</h2>
+    <div class="row">
+      <button class="primary" id="copy">Copy review</button>
+      <span class="count" id="outcount"></span>
+    </div>
+    <textarea id="output" readonly aria-label="Review summary"></textarea>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  // REPLACE: unique per generated run, so two files opened from disk don't
+  // share a localStorage key and clobber each other's answers.
+  var APP_ID = "grill-singlefile-REPLACE-ME-v1";
+
+  // REPLACE: every unresolved node of the grilling skill's design tree, across
+  // every round, flattened. Shape (see SKILL.md for how to fill this in):
+  //
+  //   { g: "<group/topic label>", id: "Q1", t: "<question title>",
+  //     ctx: "<what's already decided, why this question exists>",
+  //     opts: [
+  //       { t: "Per-vault tokens, mismatch gives 403",
+  //         note: "optional — your comment on THIS option specifically" },
+  //       { t: "One server token for everything" }
+  //     ],
+  //     recommend: 0,                     // index into opts — gets ★ and is pre-selected
+  //     why: "<why that one, in the grilling skill's voice>" }
+  //
+  // opts entries may be bare strings when they need no per-option note.
+  // `recommend` is REQUIRED: every question must have one, and it must be a
+  // valid index. A question with no defensible recommendation is a question you
+  // haven't finished thinking about.
+  var QUESTIONS = [];
+
+  var OTHER = "other";
+
+  var state = load();
+  var els = {
+    questions: document.getElementById("questions"),
+    output: document.getElementById("output"),
+    count: document.getElementById("count"),
+    outcount: document.getElementById("outcount"),
+    toast: document.getElementById("toast"),
+    pagetitle: document.getElementById("pagetitle")
+  };
+
+  function baked() {
+    try { return JSON.parse(document.getElementById("app-data").textContent); }
+    catch (e) { return { v: 2, savedAt: 0, title: "Grill review", answers: {} }; }
+  }
+  function load() {
+    var b = baked(), l = null;
+    try { l = JSON.parse(localStorage.getItem(APP_ID) || "null"); } catch (e) { l = null; }
+    if (l && typeof l === "object" && (l.savedAt || 0) >= (b.savedAt || 0)) return l;
+    return b;
+  }
+  var saveTimer = null;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      state.savedAt = Date.now();
+      try { localStorage.setItem(APP_ID, JSON.stringify(state)); } catch (e) {}
+    }, 250);
+  }
+
+  function optText(o) { return (o && typeof o === "object") ? (o.t || "") : String(o); }
+  function optNote(o) { return (o && typeof o === "object") ? (o.note || "") : ""; }
+
+  // The recommendation is pre-selected, so "has a choice" can't mean "reviewed".
+  // `touched` is the real signal: did the user actually engage with this one.
+  function ans(q) {
+    var a = state.answers[q.id];
+    if (!a) {
+      a = { choice: q.recommend, note: "", touched: false };
+      state.answers[q.id] = a;
+    }
+    if (a.choice === undefined || a.choice === null) a.choice = q.recommend;
+    return a;
+  }
+
+  function el(tag, cls, txt) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (txt != null) n.textContent = txt;
+    return n;
+  }
+
+  function radio(q, a, value, card) {
+    var r = document.createElement("input");
+    r.type = "radio";
+    r.name = "d-" + q.id;
+    r.value = String(value);
+    r.checked = String(a.choice) === String(value);
+    r.addEventListener("change", function () {
+      a.choice = value;
+      a.touched = true;
+      card.classList.add("touched");
+      save(); refresh();
+    });
+    return r;
+  }
+
+  function render() {
+    document.title = state.title || "Grill review";
+    els.pagetitle.textContent = state.title || "Grill review";
+
+    els.questions.textContent = "";
+    var lastGroup = null;
+
+    QUESTIONS.forEach(function (q) {
+      if (q.g !== lastGroup) {
+        els.questions.appendChild(el("h2", "group", q.g));
+        lastGroup = q.g;
+      }
+      var a = ans(q);
+      var card = el("article");
+      card.id = "card-" + q.id;
+      if (a.touched) card.classList.add("touched");
+
+      card.appendChild(el("div", "qid", q.id));
+      card.appendChild(el("div", "qtitle", q.t));
+      if (q.ctx) card.appendChild(el("p", "ctx", q.ctx));
+
+      // One radio per real option. The recommended one carries the star and a
+      // tinted row, and arrives already checked.
+      var list = el("div", "optlist");
+      (q.opts || []).forEach(function (o, i) {
+        var isRec = i === q.recommend;
+        var wrap = el("div", "opt" + (isRec ? " rec-opt" : ""));
+        var lab = el("label", "choice");
+        lab.appendChild(radio(q, a, i, card));
+        if (isRec) lab.appendChild(el("span", "star", "★"));
+        lab.appendChild(el("span", null, optText(o)));
+        wrap.appendChild(lab);
+        var n = optNote(o);
+        if (n) wrap.appendChild(el("div", "optnote", n));
+        // The rationale lives INSIDE the recommended row, not below the whole
+        // group: it is reasoning about this option, and putting it after the
+        // other choices strands it from what it justifies.
+        if (isRec && q.why) {
+          var why = el("div", "why");
+          why.appendChild(el("b", null, "Why: "));
+          why.appendChild(document.createTextNode(q.why));
+          wrap.appendChild(why);
+        }
+        list.appendChild(wrap);
+      });
+
+      var wrapOther = el("div", "opt");
+      var labOther = el("label", "choice");
+      labOther.appendChild(radio(q, a, OTHER, card));
+      labOther.appendChild(el("span", null, "Something else"));
+      wrapOther.appendChild(labOther);
+      list.appendChild(wrapOther);
+      card.appendChild(list);
+
+      var ta = document.createElement("textarea");
+      ta.placeholder = "Notes, or what you want instead (optional)";
+      ta.value = a.note || "";
+      ta.addEventListener("input", function () {
+        a.note = ta.value;
+        if (ta.value.trim()) { a.touched = true; card.classList.add("touched"); }
+        save(); refresh();
+      });
+      card.appendChild(ta);
+
+      els.questions.appendChild(card);
+    });
+    refresh();
+  }
+
+  function verdict(q, a) {
+    if (String(a.choice) === OTHER) return "SOMETHING ELSE";
+    var picked = "(" + (Number(a.choice) + 1) + ") " + optText((q.opts || [])[a.choice]);
+    if (Number(a.choice) === q.recommend) {
+      return picked + (a.touched ? " — confirmed ★" : " — ★ default, not reviewed");
+    }
+    return picked + " — CHANGED from ★";
+  }
+
+  function summary() {
+    var lines = ["# " + (state.title || "Grill review"), ""];
+    var lastGroup = null;
+    QUESTIONS.forEach(function (q) {
+      var a = ans(q);
+      if (q.g !== lastGroup) { lines.push("## " + q.g, ""); lastGroup = q.g; }
+      lines.push("**" + q.id + " — " + q.t + "**: " + verdict(q, a));
+      if (a.note && a.note.trim()) lines.push("> " + a.note.trim().replace(/\n/g, "\n> "));
+      lines.push("");
+    });
+    return lines.join("\n");
+  }
+
+  function refresh() {
+    var touched = QUESTIONS.filter(function (q) { return ans(q).touched; }).length;
+    var changed = QUESTIONS.filter(function (q) {
+      var a = ans(q);
+      return String(a.choice) === OTHER || Number(a.choice) !== q.recommend;
+    }).length;
+
+    els.count.textContent = touched + " / " + QUESTIONS.length + " reviewed";
+    els.outcount.textContent = QUESTIONS.length === 0 ? ""
+      : changed === 0 ? "all on the recommendation"
+      : changed + (changed === 1 ? " change" : " changes");
+    els.output.value = summary();
+
+    QUESTIONS.forEach(function (q) {
+      var c = document.getElementById("card-" + q.id);
+      if (c) c.classList.toggle("touched", ans(q).touched);
+    });
+  }
+
+  function toast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add("show");
+    setTimeout(function () { els.toast.classList.remove("show"); }, 1600);
+  }
+
+  document.getElementById("copy").addEventListener("click", function () {
+    var text = summary();
+    function fallback() {
+      els.output.removeAttribute("readonly");
+      els.output.select();
+      try { document.execCommand("copy"); toast("Copied"); }
+      catch (e) { toast("Press Cmd+C to copy"); }
+      els.output.setAttribute("readonly", "readonly");
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { toast("Copied"); }, fallback);
+    } else { fallback(); }
+  });
+
+  // Deliberately no "Clear answers" button. It would sit one click from Copy,
+  // the button the user reaches for constantly, and a destructive action does
+  // not belong beside the one clicked most. A reset is a devtools
+  // localStorage.removeItem away, not a control on the page.
+
+  var themeBtn = document.getElementById("theme");
+  function applyTheme() {
+    if (state.theme === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", state.theme);
+  }
+  themeBtn.addEventListener("click", function () {
+    state.theme = state.theme === "auto" ? "light" : state.theme === "light" ? "dark" : "auto";
+    applyTheme(); save(); toast("Theme: " + state.theme);
+  });
+
+  applyTheme();
+  render();
+})();
+</script>
+</body>
+</html>

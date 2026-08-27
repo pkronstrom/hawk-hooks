@@ -169,7 +169,7 @@ You are the reviewer in an agent team. You stay idle until the lead messages you
 ## Your loop
 
 1. Wait for a message from the lead such as "ready for review" with the base branch and the OpenSpec change ID.
-2. Run `/rev3` against the diff between the current worktree and the base branch (typically `main`). `/rev3` internally fans out to multiple analyzers including `/codex` (gpt-5.5).
+2. Run `/rev3` against the diff between the current worktree and the base branch (typically `main`). `/rev3` internally fans out to multiple analyzers including `/codex` (gpt-5.6-terra).
 3. Wait for `/rev3` to complete. Collect its findings.
 4. Return a structured report to the lead via `SendMessage`, grouped by severity:
    - **Critical** — must fix before merge
@@ -523,7 +523,7 @@ git push -u origin feat/agent-team-openspec
 gh pr create --title "feat: add agent-team-openspec hawk builtins" --body "$(cat <<'EOF'
 ## Summary
 - Adds Opus-lead + 3 Sonnet implementers + 1 Sonnet reviewer agent-team workflow for implementing one OpenSpec change end-to-end.
-- Reviewer runs `/rev3` (which fans out to `/codex` gpt-5.5) at end of feature; one fix round.
+- Reviewer runs `/rev3` (which fans out to `/codex` gpt-5.6-terra) at end of feature; one fix round.
 - Lead pre-partitions tasks by file footprint and uses `depends_on` to serialize edits where partitions overlap.
 
 ## Components added

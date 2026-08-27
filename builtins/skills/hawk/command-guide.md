@@ -22,7 +22,7 @@ Commands are markdown files that define slash-command prompts (e.g., `/commit`, 
 - Include specific steps, not vague guidance
 - Reference bash commands with `!command` syntax if the agent should run them
 - Keep it focused — one command, one job
-- Commands map to: Claude `/slash-commands`, Gemini TOML commands, Codex custom prompts
+- Commands map to: Claude `/slash-commands`, Codex custom prompts. Antigravity has no custom slash commands, so prompts are skipped for it
 
 ## Template
 

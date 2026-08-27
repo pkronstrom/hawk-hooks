@@ -1,6 +1,6 @@
 ---
 name: agent-team
-description: Orchestration playbook for the lead Opus session in an agent team that implements one plan end-to-end with up to three Sonnet implementers and one Sonnet reviewer running /rev3. Works with OpenSpec changes or plain plan docs. Activated by the /agent-team slash command. Persona spawn prompts live alongside this file in agents/*.md.
+description: Orchestration playbook for the lead Opus session in an agent team implementing one plan end-to-end with up to three Sonnet implementers and a Sonnet reviewer running /rev3. Activated by /agent-team.
 ---
 
 # agent-team

@@ -1,7 +1,7 @@
 ---
 name: claude
 description: Leverage Anthropic Claude models for autonomous code implementation via Claude Code CLI. Use when the user asks to invoke/call/run Claude Code, use claude CLI, mention Claude models for implementation, or delegate coding tasks to Claude.
-tools: [gemini, codex]
+tools: [antigravity, codex]
 ---
 
 # Claude
@@ -22,9 +22,11 @@ Anthropic supports short aliases and full model IDs. Aliases track the latest st
 
 | Alias | Current Stable Version | Best For |
 |-------|------------------------|----------|
-| `sonnet` | Sonnet 4.5 | Daily coding, implementation, debugging |
-| `opus` | Opus 4.6 | Deep reasoning, complex architecture, hardest bugs |
-| `haiku` | Haiku 4.5 | Fast/simple tasks, lightweight assistance |
+| `sonnet` | Sonnet 5 (`claude-sonnet-5`) | Daily coding, implementation, debugging |
+| `opus` | Opus 5 (`claude-opus-5`) | Deep reasoning, complex architecture, hardest bugs |
+| `haiku` | Haiku 4.5 (`claude-haiku-4-5-20251001`) | Fast/simple tasks, lightweight assistance |
+
+`claude-fable-5` (Fable 5) is also available in the Claude 5 family.
 
 Use full IDs only when you need exact pinning (for reproducibility).
 

@@ -57,7 +57,7 @@ The lead reads the orchestration playbook from `skills/agent-team-openspec/SKILL
 ### Reviewer responsibilities
 
 - Idle until lead messages "run review."
-- Invoke `/rev3` against the worktree's diff vs base branch (`/rev3` internally fans out to `/codex` gpt-5.5 + others).
+- Invoke `/rev3` against the worktree's diff vs base branch (`/rev3` internally fans out to `/codex` gpt-5.6-terra + others).
 - Return findings to the lead. Do not file tasks directly — the lead triages noise and decides which findings become fix tasks.
 
 ## Flow

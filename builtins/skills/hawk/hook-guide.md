@@ -38,7 +38,7 @@ For JS/TS, use `//` comment syntax instead of `#`.
 | `pre_compact` | Before context compaction | no |
 | `permission_request` | Permission dialog shown | no |
 
-Not all events are supported by all tools. `pre_tool_use` and `post_tool_use` have the broadest support (Claude, Gemini, OpenCode). Codex only supports `stop` and `notification` via bridge mode.
+Not all events are supported by all tools. `pre_tool_use` and `post_tool_use` have the broadest support (Claude, Antigravity, OpenCode). Antigravity supports `pre_tool_use`, `post_tool_use` and `stop` natively. Codex only supports `stop` and `notification` via bridge mode.
 
 ## Stdin JSON
 

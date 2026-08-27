@@ -1,7 +1,7 @@
 ---
 name: test-generator
 description: Generates comprehensive tests for code changes
-tools: [claude, gemini, codex]
+tools: [claude, antigravity, codex]
 hooks:
   - event: post_tool
     matchers: [Edit, Write]

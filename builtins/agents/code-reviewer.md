@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Reviews code for bugs, security issues, and best practices
-tools: [claude, gemini, codex]
+tools: [claude, antigravity, codex]
 hooks:
   - event: pre_tool
     matchers: [Edit, Write]

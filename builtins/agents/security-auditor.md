@@ -1,7 +1,7 @@
 ---
 name: security-auditor
 description: Specialized security analysis focusing on vulnerabilities
-tools: [claude, gemini, codex]
+tools: [claude, antigravity, codex]
 hooks:
   - event: pre_tool
     matchers: [Bash, Edit, Write]
