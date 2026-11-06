@@ -348,3 +348,44 @@ def test_update_does_not_warn_when_installed_copy_matches_the_record(monkeypatch
     )
 
     assert "installed copy has edits" not in _update_log(check=True)
+
+
+def _local_package(tmp_path: Path) -> tuple[Path, Path, str]:
+    source = tmp_path / "local-pkg"
+    skill = source / "skills" / "tdd"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: tdd\ndescription: Test first\n---\n# TDD\n")
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+    registry.add(ComponentType.SKILL, "tdd", skill)
+    installed = config.get_registry_path() / "skills" / "tdd"
+    recorded = config.hash_registry_item(installed)
+    config.save_packages({
+        "local-pkg": {
+            "url": "",
+            "path": str(source),
+            "installed": "2026-02-23",
+            "commit": "",
+            "items": [{"type": "skill", "name": "tdd", "hash": recorded}],
+        }
+    })
+    return skill, installed, recorded
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_local_update_warns_before_replacing_an_edited_installed_copy(
+    monkeypatch, tmp_path, check
+):
+    _patch_config_paths(monkeypatch, tmp_path)
+    _skill, installed, _recorded = _local_package(tmp_path)
+    (installed / "SKILL.md").write_text("# edited in the registry\n")
+
+    assert "! tdd: installed copy has edits" in _update_log(check=check)
+
+
+def test_local_update_does_not_warn_when_only_the_source_changed(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    skill, _installed, _recorded = _local_package(tmp_path)
+    (skill / "SKILL.md").write_text("---\nname: tdd\ndescription: Newer\n---\n# Newer\n")
+
+    assert "installed copy has edits" not in _update_log(check=True)

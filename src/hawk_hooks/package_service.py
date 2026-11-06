@@ -304,6 +304,8 @@ def update_packages(
             failed_packages.append(pkg_name)
             continue
 
+        _warn_about_edited_copies(content.items, old_items, registry_path, logf)
+
         new_pkg_items = []
         added_count = 0
         updated_count = 0
