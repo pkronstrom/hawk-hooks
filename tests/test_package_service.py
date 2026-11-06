@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -256,3 +257,94 @@ def test_update_packages_skips_malformed_package_item(monkeypatch, tmp_path):
 
     assert report.any_changes is True
     assert any("malformed package item" in line for line in lines)
+
+
+def _git_package_repo(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "pkg-repo"
+    skill = repo / "skills" / "tdd"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: tdd\ndescription: Test first\n---\n# TDD\n")
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+            check=True,
+            capture_output=True,
+        )
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    git("add", ".")
+    git("commit", "-qm", "init")
+    return repo, subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _save_git_package(repo: Path, commit: str, item_hash: str = "") -> None:
+    items = [{"type": "skill", "name": "tdd", "hash": item_hash}] if item_hash else []
+    config.save_packages({
+        "git-pkg": {"url": str(repo), "installed": "2026-02-23", "commit": commit, "items": items}
+    })
+
+
+def _update_log(**kwargs) -> str:
+    messages: list[str] = []
+    update_packages(sync_on_change=False, log=messages.append, **kwargs)
+    return "\n".join(messages)
+
+
+def test_update_warns_when_local_git_source_has_uncommitted_changes(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    repo, commit = _git_package_repo(tmp_path)
+    _save_git_package(repo, commit)
+    (repo / "skills" / "tdd" / "SKILL.md").write_text("# edited, not committed\n")
+
+    assert "uncommitted changes" in _update_log(check=True)
+
+
+def test_update_does_not_warn_when_local_git_source_is_clean(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    repo, commit = _git_package_repo(tmp_path)
+    _save_git_package(repo, commit)
+
+    assert "uncommitted changes" not in _update_log(check=True)
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_update_warns_before_replacing_an_edited_installed_copy(monkeypatch, tmp_path, check):
+    _patch_config_paths(monkeypatch, tmp_path)
+    repo, commit = _git_package_repo(tmp_path)
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+    source = repo / "skills" / "tdd"
+    registry.add(ComponentType.SKILL, "tdd", source)
+    installed = config.get_registry_path() / "skills" / "tdd"
+    recorded = config.hash_registry_item(installed)
+    (installed / "SKILL.md").write_text("# edited in the registry\n")
+    _save_git_package(repo, "older-commit", recorded)
+
+    log = _update_log(check=check)
+
+    assert "! tdd: installed copy has edits" in log
+
+
+def test_update_does_not_warn_when_installed_copy_matches_the_record(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    repo, commit = _git_package_repo(tmp_path)
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+    source = repo / "skills" / "tdd"
+    registry.add(ComponentType.SKILL, "tdd", source)
+    recorded = config.hash_registry_item(config.get_registry_path() / "skills" / "tdd")
+    _save_git_package(repo, "older-commit", recorded)
+    (source / "SKILL.md").write_text("---\nname: tdd\ndescription: Newer\n---\n# Newer\n")
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.com",
+         "commit", "-qam", "newer"],
+        check=True,
+    )
+
+    assert "installed copy has edits" not in _update_log(check=True)

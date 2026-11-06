@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -105,6 +106,35 @@ def _iter_valid_package_items(
     return valid
 
 
+def _local_source_has_uncommitted_changes(url: str) -> bool:
+    path = Path(url).expanduser()
+    if not path.is_dir():
+        return False
+    result = subprocess.run(
+        ["git", "-C", str(path), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _warn_about_edited_copies(
+    items: list,
+    old_items: dict[tuple[str, str], str],
+    registry_path: Path,
+    logf: LogFn,
+) -> None:
+    """Warn about installed copies matching neither the record nor the incoming item."""
+    for item in items:
+        installed_path = registry_path / item.component_type.registry_dir / item.name
+        if not installed_path.exists():
+            continue
+        installed = config.hash_registry_item(installed_path)
+        recorded = old_items.get((item.component_type.value, item.name))
+        if installed not in (recorded, config.hash_registry_item(item.source_path)):
+            logf(f"  ! {item.name}: installed copy has edits this update would replace")
+
+
 def update_packages(
     package: str | None = None,
     *,
@@ -170,18 +200,22 @@ def update_packages(
                 new_commit = get_head_commit(clone_dir)
                 old_commit = pkg_data.get("commit", "")
 
+                if _local_source_has_uncommitted_changes(url):
+                    logf(f"  ! {url} has uncommitted changes; only its last commit is installed")
+
                 if new_commit == old_commit and not force:
                     up_to_date.append(pkg_name)
                     logf(f"  Up to date ({new_commit[:7]})")
                     continue
 
+                repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+                content = classify(clone_dir, repo_name=repo_name)
+                _warn_about_edited_copies(content.items, old_items, registry_path, logf)
+
                 if check:
                     logf(f"  Update available: {old_commit[:7]} -> {new_commit[:7]}")
                     any_changes = True
                     continue
-
-                repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
-                content = classify(clone_dir, repo_name=repo_name)
 
                 new_pkg_items = []
                 added_count = 0
