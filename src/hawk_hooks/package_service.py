@@ -118,6 +118,33 @@ def _local_source_has_uncommitted_changes(url: str) -> bool:
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
+def _items_not_owned_elsewhere(
+    items: list,
+    package_name: str,
+    packages: dict,
+    force: bool,
+    logf: LogFn,
+) -> list:
+    """Drop items only other packages own, so one package can't overwrite another's."""
+    if force:
+        return list(items)
+
+    owners: dict[tuple[str, str], set[str]] = {}
+    for name, pkg_data in packages.items():
+        for pkg_item in pkg_data.get("items", []):
+            if isinstance(pkg_item, dict):
+                owners.setdefault((pkg_item.get("type"), pkg_item.get("name")), set()).add(name)
+
+    kept = []
+    for item in items:
+        item_owners = owners.get((item.component_type.value, item.name), set())
+        if item_owners and package_name not in item_owners:
+            logf(f"  - {item.name}: owned by {', '.join(sorted(item_owners))}, skipped")
+            continue
+        kept.append(item)
+    return kept
+
+
 def _warn_about_edited_copies(
     items: list,
     old_items: dict[tuple[str, str], str],
@@ -210,7 +237,8 @@ def update_packages(
 
                 repo_name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
                 content = classify(clone_dir, repo_name=repo_name)
-                _warn_about_edited_copies(content.items, old_items, registry_path, logf)
+                items = _items_not_owned_elsewhere(content.items, pkg_name, packages, force, logf)
+                _warn_about_edited_copies(items, old_items, registry_path, logf)
 
                 if check:
                     logf(f"  Update available: {old_commit[:7]} -> {new_commit[:7]}")
@@ -221,7 +249,7 @@ def update_packages(
                 added_count = 0
                 updated_count = 0
 
-                for item in content.items:
+                for item in items:
                     item_key = (item.component_type.value, item.name)
 
                     try:
@@ -304,14 +332,15 @@ def update_packages(
             failed_packages.append(pkg_name)
             continue
 
-        _warn_about_edited_copies(content.items, old_items, registry_path, logf)
+        items = _items_not_owned_elsewhere(content.items, pkg_name, packages, force, logf)
+        _warn_about_edited_copies(items, old_items, registry_path, logf)
 
         new_pkg_items = []
         added_count = 0
         updated_count = 0
         unchanged_count = 0
 
-        for item in content.items:
+        for item in items:
             item_key = (item.component_type.value, item.name)
 
             if check:

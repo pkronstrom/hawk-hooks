@@ -389,3 +389,85 @@ def test_local_update_does_not_warn_when_only_the_source_changed(monkeypatch, tm
     (skill / "SKILL.md").write_text("---\nname: tdd\ndescription: Newer\n---\n# Newer\n")
 
     assert "installed copy has edits" not in _update_log(check=True)
+
+
+def _other_package_owns_tdd(tmp_path: Path) -> tuple[Path, Path]:
+    source = tmp_path / "local-pkg"
+    skill = source / "skills" / "tdd"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: tdd\ndescription: Stale copy\n---\n# Stale\n")
+    owned = tmp_path / "owned" / "tdd"
+    owned.mkdir(parents=True)
+    (owned / "SKILL.md").write_text("---\nname: tdd\ndescription: Current\n---\n# Current\n")
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+    registry.add(ComponentType.SKILL, "tdd", owned)
+    installed = config.get_registry_path() / "skills" / "tdd"
+    config.save_packages({
+        "local-pkg": {
+            "url": "",
+            "path": str(source),
+            "installed": "2026-02-23",
+            "commit": "",
+            "items": [],
+        },
+        "owner-pkg": {
+            "url": "",
+            "path": str(tmp_path / "owned"),
+            "installed": "2026-02-23",
+            "commit": "",
+            "items": [
+                {"type": "skill", "name": "tdd", "hash": config.hash_registry_item(installed)}
+            ],
+        },
+    })
+    return source, installed
+
+
+def test_update_skips_an_item_owned_by_another_package(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    _source, installed = _other_package_owns_tdd(tmp_path)
+
+    log = _update_log(package="local-pkg")
+
+    assert "Current" in (installed / "SKILL.md").read_text()
+    assert "tdd: owned by owner-pkg, skipped" in log
+    assert config.load_packages()["local-pkg"]["items"] == []
+
+
+def test_update_force_replaces_an_item_owned_by_another_package(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    _source, installed = _other_package_owns_tdd(tmp_path)
+
+    _update_log(package="local-pkg", force=True)
+
+    assert "Stale" in (installed / "SKILL.md").read_text()
+
+
+def test_git_update_skips_an_item_owned_by_another_package(monkeypatch, tmp_path):
+    _patch_config_paths(monkeypatch, tmp_path)
+    repo, commit = _git_package_repo(tmp_path)
+    owned = tmp_path / "owned" / "tdd"
+    owned.mkdir(parents=True)
+    (owned / "SKILL.md").write_text("---\nname: tdd\ndescription: Current\n---\n# Current\n")
+    registry = Registry(config.get_registry_path())
+    registry.ensure_dirs()
+    registry.add(ComponentType.SKILL, "tdd", owned)
+    installed = config.get_registry_path() / "skills" / "tdd"
+    config.save_packages({
+        "git-pkg": {"url": str(repo), "installed": "2026-02-23", "commit": "older", "items": []},
+        "owner-pkg": {
+            "url": "",
+            "path": str(owned.parent),
+            "installed": "2026-02-23",
+            "commit": "",
+            "items": [
+                {"type": "skill", "name": "tdd", "hash": config.hash_registry_item(installed)}
+            ],
+        },
+    })
+
+    log = _update_log(package="git-pkg")
+
+    assert "Current" in (installed / "SKILL.md").read_text()
+    assert "tdd: owned by owner-pkg, skipped" in log
