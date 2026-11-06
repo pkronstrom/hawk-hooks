@@ -2,6 +2,7 @@
 name: stop-babbling
 description: Sticky terse mode — prose rules apply to every answer; the Done/Blocked/Next block only when substantial work ends or the user asks where things stand. Kills preambles, dead prose and minutiae. `/stop-babbling off` to end.
 argument-hint: [on|off]
+disable-model-invocation: true
 ---
 
 # Stop babbling

@@ -1,6 +1,6 @@
 ---
 name: grill-singlefile
-description: Run a grilling interview to exhaustion, then package every open question into one self-contained HTML file with the recommendation pre-selected, so the user only touches what they disagree with and pastes a summary back. Use for "grill me and give me a file", "single-file grill", "let me answer this later", or turning a stalled multi-round interview into an async review page.
+description: "Grilling interview to exhaustion, packaged as one self-contained HTML file the user answers async. /grill-singlefile."
 ---
 
 # grill-singlefile

@@ -1,6 +1,7 @@
 ---
 name: agent-team
 description: Kick off an agent team to implement a plan. Spawns Opus lead + up to 3 Sonnet implementers + 1 Sonnet reviewer; runs /rev3 at end. Works with OpenSpec changes or plain plan docs. Invoke with `/agent-team start <change-id-or-plan-path>`.
+disable-model-invocation: true
 ---
 
 Activate the `agent-team` skill.

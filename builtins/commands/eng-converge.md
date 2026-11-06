@@ -2,6 +2,7 @@
 name: eng-converge
 description: Sticky engineering standard — simplest thing that works, YAGNI, invariants over duplicated state, names over comments. Every substantial task ends in exactly one of three states; no patching without convergence. Output stays short and readable. `off` to end.
 argument-hint: [on|off]
+disable-model-invocation: true
 ---
 
 # Converge

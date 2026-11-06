@@ -1,6 +1,6 @@
 ---
 name: grill-docs-singlefile
-description: Like grill-singlefile, but the interview also produces docs — a CONTEXT.md glossary and ADRs. Term disambiguations and proposed ADRs go into the same HTML file for approval, and the docs get written when the user pastes their answers back. Use for "grill me with docs and give me a file", or an async design review that should leave a glossary and decision records behind.
+description: "Like grill-singlefile, but also writes a CONTEXT.md glossary and ADRs from the answers. /grill-docs-singlefile."
 ---
 
 # grill-docs-singlefile

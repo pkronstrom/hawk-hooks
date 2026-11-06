@@ -1,12 +1,17 @@
 ---
 name: humanize
-description: Restate something as one professional talking to another — plain, condensed, technically exact. Keeps identifiers, numbers and caveats; drops ceremony, meta-vocabulary and report voice. Bare call restates your last message; `on` makes it sticky.
+description: Restate something as one professional talking to another — plain, condensed, technically exact, BLUF ordering. Applies technical-english's rules first, then peer voice. Keeps identifiers, numbers, caveats and real terms; drops ceremony, meta-vocabulary and report voice. Bare call restates your last message; `on` makes it sticky.
 argument-hint: [on|off|text to rewrite]
+disable-model-invocation: true
 ---
 
 # Humanize
 
 The reader is a peer who knows this domain. Talk to them, don't file a report at them.
+
+Run the `technical-english` command's rules first — short sentences, one term per concept, active
+voice, no filler, no hedging, keep the original structure. That's the base pass. Everything below
+is what humanize adds on top: peer voice instead of spec prose, and BLUF ordering.
 
 Modes:
 
@@ -47,6 +52,29 @@ trip.
 **The jargon test:** would they say this word themselves? If yes, it's shared vocabulary — keep
 it. If no, it's your vocabulary and it's making them translate.
 
+**Don't paraphrase around a word that has a name.** If the plainest accurate way to say something
+is the term itself, say the term. A five-word circumlocution invented to avoid one ordinary word
+is worse than the word: longer, vaguer, and it makes the reader guess which thing you meant.
+"Debounce", "idempotent", "race condition", "migration" are just words. Cut the term when it's
+decoration over something concrete; keep it when it *is* the concrete thing.
+
+## BLUF — bottom line up front
+
+First sentence is the answer, the result, or the thing they have to decide. Not the setup, not
+what you did to get there, not a restatement of the question. Reasoning, caveats and detail come
+after, in that order, and only as far as they earn their place.
+
+If the reader stops after the first line, they should still have the part that changes what they
+do next.
+
+Bad: "I looked at the auth middleware and traced the token refresh path. There are a few places
+this could go wrong, and it turns out the session store is the problem."
+Good: "The session store is the problem — it drops tokens on refresh. Traced it through the auth
+middleware."
+
+The one exception: a warning outranks BLUF's own ordering only in the sense that it must travel
+with the claim it qualifies, never in a paragraph below it.
+
 ## Structure follows content
 
 A table is right when it's genuinely tabular: three or more items sharing the same fields, where
@@ -85,8 +113,9 @@ clauses, and the word "nesting" don't.
 
 ## Related
 
-- `technical-english` — tighter and more clipped, closer to spec prose. Use it for docs and
-  instructions; use this for talking to someone.
+- `technical-english` — the base pass this builds on (see the top). On its own it's tighter and
+  more clipped, closer to spec prose: use it alone for docs and instructions, use this for
+  talking to someone.
 - `stop-babbling` — governs the *structure* of a wrap-up (Done / Blocked / Next) and its length.
   This governs *voice*. They compose: run both and you get a short block that also sounds human.
 

@@ -1,6 +1,7 @@
 ---
 name: bell
 description: Toggle an end-of-work "🔔 Ping" notification for this session, or set a custom watch condition (e.g. "me when comments on pr") to ping on instead of the default. Optional voice narration via /bell voice.
+disable-model-invocation: true
 ---
 
 # bell

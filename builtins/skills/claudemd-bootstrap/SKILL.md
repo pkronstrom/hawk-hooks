@@ -1,6 +1,7 @@
 ---
 name: claudemd-bootstrap
 description: Drop Karpathy's behavioral-guidelines CLAUDE.md into a project (or the user's global config). Fetches the current upstream copy, falls back to the bundled backup when offline. Never overwrites an existing CLAUDE.md.
+disable-model-invocation: true
 ---
 
 # claudemd-bootstrap
