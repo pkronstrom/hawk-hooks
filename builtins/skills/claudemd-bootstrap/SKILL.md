@@ -72,6 +72,6 @@ append / merge). If merging, list which sections were skipped as already-covered
 ## Refreshing the bundled backup
 
 The backup exists for offline use and will drift from upstream. To update it, fetch to
-`karpathy-CLAUDE.md` in this skill's directory, then sync it through hawk (`hawk update
-hawk-builtins --force && hawk sync`) so the installed copy matches. Mention the drift if the
+`karpathy-CLAUDE.md` in this skill's source directory, commit and push, then run
+`npx -y skills update -g -y` so the installed copy matches. Mention the drift if the
 backup is being used and is visibly old.
